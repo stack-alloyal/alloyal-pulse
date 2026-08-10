@@ -21,15 +21,40 @@ set -euo pipefail
 BACKUP_DIR="${BACKUP_DIR:-/opt/stack/backups/pulse}"
 RETENCAO_DIAS="${RETENCAO_DIAS:-30}"
 CONTAINER="${CONTAINER:-postgres-pulse}"
-DB="${DB:-ops}"
+# O renome de Alloyal Ops para Alloyal Pulse (migration 0017) trocou o nome do
+# BANCO, e este script ficou apontando para `ops`. Descoberto em 10/08/2026: o
+# diretório de backup tinha um único arquivo, de zero byte — nunca houve um
+# backup bem-sucedido desta base.
+DB="${DB:-pulse}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 mkdir -p "$BACKUP_DIR"
 
+PARCIAL="$BACKUP_DIR/.pulse-$STAMP.parcial"
+trap 'rm -f "$PARCIAL"' EXIT
+
+# Escreve em arquivo temporário e só renomeia depois de verificar. O redirecionamento
+# direto cria o arquivo ANTES de o pg_dump falhar: era assim que um backup inexistente
+# aparecia no diretório como `pulse-....dump` de zero byte, indistinguível de um bom.
 # --format=custom permite restauração seletiva de tabela; --no-owner facilita
 # restaurar em instância com papéis diferentes (staging).
-docker exec "$CONTAINER" pg_dump -U postgres -d "$DB" --format=custom --no-owner \
-  > "$BACKUP_DIR/pulse-$STAMP.dump"
+docker exec "$CONTAINER" pg_dump -U postgres -d "$DB" --format=custom --no-owner > "$PARCIAL"
+
+# Backup que ninguém abriu não é backup. `pg_restore --list` lê o índice do dump:
+# é barato e prova que o arquivo é um dump íntegro, não um pedaço truncado.
+if ! docker exec -i "$CONTAINER" pg_restore --list < "$PARCIAL" > /dev/null 2>&1; then
+  echo "ERRO: o dump de '$DB' não passou no pg_restore --list — não vou gravá-lo como backup." >&2
+  exit 1
+fi
+
+TABELAS=$(docker exec -i "$CONTAINER" pg_restore --list < "$PARCIAL" 2>/dev/null | grep -c 'TABLE DATA' || true)
+if [ "$TABELAS" -lt 1 ]; then
+  echo "ERRO: o dump não tem nenhuma TABLE DATA. Banco errado, ou vazio." >&2
+  exit 1
+fi
+
+mv "$PARCIAL" "$BACKUP_DIR/pulse-$STAMP.dump"
+echo "dump verificado: $TABELAS tabelas com dado"
 
 if command -v age >/dev/null 2>&1 && [ -n "${AGE_RECIPIENT:-}" ]; then
   age -r "$AGE_RECIPIENT" -o "$BACKUP_DIR/pulse-$STAMP.dump.age" "$BACKUP_DIR/pulse-$STAMP.dump"
