@@ -32,6 +32,45 @@ function urlComoRole(admin: string, role: string): string {
   return u.toString()
 }
 
+/**
+ * Recusa rodar num cluster que hospede qualquer outro banco.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ISTO DERRUBOU A PRODUÇÃO em 10/08/2026. O setup abaixo faz `ALTER ROLE ...  │
+ * │ WITH PASSWORD` para poder conectar como `pulse_portal` e `pulse_api`. Role  │
+ * │ é objeto do CLUSTER, não do banco: apontar a suíte para um banco de teste   │
+ * │ que mora no mesmo cluster da produção troca a senha que a APLICAÇÃO usa, e  │
+ * │ o Pulse inteiro passa a responder                                          │
+ * │ `password authentication failed for user "pulse_api"`.                     │
+ * │                                                                            │
+ * │ O `make db-test` já subia um Postgres descartável justamente por isso — mas │
+ * │ um alvo de Makefile é um conselho, e conselho se contorna com uma variável  │
+ * │ de ambiente. A trava tem que estar no teste, onde o dano acontece.          │
+ * │                                                                            │
+ * │ O critério é "o cluster não hospeda mais nada": no CI o serviço sobe só com │
+ * │ `pulse`, e passa; num cluster com produção ao lado, recusa. Não dá para se  │
+ * │ basear no NOME do banco — foi exatamente um nome convincente, `pulse_teste`,│
+ * │ que me fez achar que era seguro.                                           │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+async function exigirClusterDescartavel(admin: pg.Client, url: string): Promise<void> {
+  const alvo = decodeURIComponent(new URL(url).pathname.replace(/^\//, ''))
+  const { rows } = await admin.query<{ datname: string }>(
+    `SELECT datname FROM pg_database
+      WHERE NOT datistemplate AND datname <> 'postgres' AND datname <> $1
+      ORDER BY datname`,
+    [alvo],
+  )
+  if (rows.length > 0) {
+    throw new Error(
+      `este teste troca a senha de pulse_api/pulse_portal/pulse_worker, e role vale para o CLUSTER inteiro.\n` +
+        `O cluster de "${alvo}" também hospeda: ${rows.map((r) => r.datname).join(', ')}.\n` +
+        `Rodar aqui deixaria esses bancos com a senha de teste — foi assim que a produção caiu em 10/08/2026.\n` +
+        `Use um cluster descartável: make db-test PORTA_TESTE=5455`,
+    )
+  }
+}
+
 describe('isolamento de tenant em public_v', { skip: !ADMIN }, () => {
   let admin: pg.Client
   let portal: pg.Pool
@@ -41,6 +80,8 @@ describe('isolamento de tenant em public_v', { skip: !ADMIN }, () => {
 
     admin = new pg.Client({ connectionString: ADMIN })
     await admin.connect()
+
+    await exigirClusterDescartavel(admin, ADMIN as string)
 
     for (const role of ['pulse_api', 'pulse_portal', 'pulse_worker']) {
       await admin.query(`ALTER ROLE ${role} WITH PASSWORD '${SENHA}'`)

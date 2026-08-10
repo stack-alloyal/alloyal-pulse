@@ -30,6 +30,7 @@ seed: ## Popula um banco descartável com massa sintética (recusa base com dado
 	pnpm --filter @pulse/db build && pnpm --filter @pulse/db seed
 
 PORTA_TESTE ?= 5434
+PORTA_SUITE ?= 5456
 
 .PHONY: db-test
 db-test: ## Sobe Postgres descartável e roda o portão de isolamento de tenant
@@ -45,6 +46,30 @@ db-test: ## Sobe Postgres descartável e roda o portão de isolamento de tenant
 	@DATABASE_URL_ADMIN=postgres://postgres:teste@127.0.0.1:$(PORTA_TESTE)/pulse \
 		node --test packages/db/dist/rls.test.js
 	@docker rm -f pulse-pg-test >/dev/null
+
+.PHONY: suite
+suite: ## Roda TODA a suíte do CI num Postgres descartável (o `pnpm test` cobre só um terço)
+# `pnpm test` roda os scripts `test` dos pacotes, e vários são fachada — o de
+# @pulse/config é um `echo`. Os testes que importam são nomeados um a um no
+# ci.yml. Este alvo lê a lista de lá, para não existirem duas verdades.
+#
+# E sobe um cluster PRÓPRIO: rls.test.ts faz `ALTER ROLE ... WITH PASSWORD`, e
+# role vale para o cluster inteiro. Apontar a suíte para um banco de teste ao
+# lado da produção derrubou o Pulse em 10/08/2026.
+	@docker rm -f pulse-pg-suite >/dev/null 2>&1 || true
+	@docker run -d --name pulse-pg-suite -e POSTGRES_PASSWORD=teste -e POSTGRES_DB=pulse \
+		-p 127.0.0.1:$(PORTA_SUITE):5432 postgres:16 >/dev/null
+	@echo "aguardando o banco..."
+	@for i in $$(seq 1 45); do docker exec pulse-pg-suite pg_isready -U postgres -d pulse >/dev/null 2>&1 && sleep 2 && break || sleep 1; done
+	@pnpm build >/dev/null
+	@set -e; \
+	 lista=$$(grep -oP '(packages|apps)/[a-z-]+/dist/\S*\.test\.js' .github/workflows/ci.yml | sort -u); \
+	 echo "$$(echo "$$lista" | wc -l) arquivos de teste nomeados no ci.yml"; \
+	 for f in $$lista; do test -f "$$f" || { echo "não compilado: $$f"; exit 1; }; done; \
+	 DATABASE_URL_ADMIN=postgres://postgres:teste@127.0.0.1:$(PORTA_SUITE)/pulse \
+	 DATABASE_URL=postgres://postgres:teste@127.0.0.1:$(PORTA_SUITE)/pulse \
+	 node --test --test-concurrency=1 $$lista; \
+	 r=$$?; docker rm -f pulse-pg-suite >/dev/null; exit $$r
 
 # ─── Segredos ───────────────────────────────────────────────────────────────
 .PHONY: secrets-edit
