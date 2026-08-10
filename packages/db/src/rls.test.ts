@@ -247,6 +247,54 @@ describe('isolamento de tenant em public_v', { skip: !ADMIN }, () => {
     )
   })
 
+  // ── A trava que faltava ───────────────────────────────────────────────────
+
+  test('nenhuma tabela com RLS forçado fica sem política', async () => {
+    // Descoberto de verdade, em 10/08/2026: a 0033 rodou `DROP OWNED BY ops_portal`
+    // e o Postgres derrubou junto as políticas que citavam esse role — porque era o
+    // único citado. `public_v` ficou com RLS FORCE e ZERO política.
+    //
+    // Isso falha FECHADO, e é por isso que quase passou: nada vaza, o portal apenas
+    // deixa de enxergar as próprias linhas. Todos os testes de isolamento no formato
+    // "A não vê B?" continuaram verdes — ninguém via nada. Um único caso, o que exige
+    // VER as 2 linhas do próprio cliente, acusou.
+    //
+    // Este teste é genérico de propósito: pergunta pelo ESTADO do banco, não por
+    // política nomeada. A próxima tabela com RLS chega protegida sem editar aqui.
+    const { rows } = await admin.query<{ tabela: string }>(
+      `SELECT c.relnamespace::regnamespace || '.' || c.relname AS tabela
+         FROM pg_class c
+        WHERE c.relrowsecurity AND c.relforcerowsecurity
+          AND NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid)
+        ORDER BY 1`,
+    )
+    assert.deepEqual(
+      rows.map((r) => r.tabela),
+      [],
+      'tabela com RLS forçado e nenhuma política nega tudo — o recurso morre calado',
+    )
+  })
+
+  test('as políticas de public_v apontam para os roles em uso', async () => {
+    // A outra metade do mesmo defeito: política que sobrevive apontando para um role
+    // que não existe mais protege o banco de ninguém. Aqui a asserção é sobre o par
+    // (tabela, política, role), que é o que de fato decide quem lê o quê.
+    const { rows } = await admin.query<{ par: string }>(
+      `SELECT p.polrelid::regclass || ' · ' || p.polname || ' → ' ||
+              coalesce((SELECT string_agg(r.rolname, ',' ORDER BY r.rolname)
+                          FROM pg_roles r WHERE r.oid = ANY(p.polroles)), 'PUBLIC') AS par
+         FROM pg_policy p
+        WHERE p.polrelid::regclass::text LIKE 'public_v.%'
+        ORDER BY 1`,
+    )
+    assert.deepEqual(rows.map((r) => r.par), [
+      'public_v.benchmark_monthly · benchmark_read → pulse_portal',
+      'public_v.benchmark_monthly · benchmark_worker → pulse_worker',
+      'public_v.metric_daily · tenant_read → pulse_portal',
+      'public_v.metric_daily · worker_all → pulse_worker',
+    ])
+  })
+
   test('override de score exige autor, motivo e validade', async () => {
     await assert.rejects(
       admin.query(

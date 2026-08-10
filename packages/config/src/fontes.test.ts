@@ -1,0 +1,76 @@
+/**
+ * Portão: credencial de cliente não chega à tela de conferência.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ Existe por um defeito que eu mesmo criei e só vi olhando a tela pronta. A   │
+ * │ ideia de "mostrar todos os campos para quem confere" fazia a aba da Lecupon │
+ * │ imprimir `api_secret`, `api_key` e `signature_secret` do cliente em texto   │
+ * │ claro — numa página interna que vai para print e para tela compartilhada.   │
+ * │                                                                            │
+ * │ O teste vigia a REGRA, não a tela: qualquer campo novo que o fornecedor      │
+ * │ acrescente com esses nomes já nasce oculto.                                │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+// Lê o FONTE em TypeScript, e não o compilado: a expressão vive no `.ts`, e ler o
+// `.js` faria o teste vigiar o resultado da compilação em vez da regra escrita.
+// `..` porque este arquivo roda de `dist/` e o fonte está em `src/`.
+const FONTE = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'fontes-da-conta.ts'),
+  'utf8',
+)
+
+/** A mesma expressão do módulo, lida do arquivo para não haver duas cópias. */
+const SEGREDO = new RegExp(
+  /const SEGREDO = \/([^/]+)\/i/.exec(FONTE)?.[1] ?? '(?!)',
+  'i',
+)
+
+test('a expressão de segredo foi encontrada no módulo', () => {
+  // Se alguém renomear a constante, este teste falha em vez de passar vazio —
+  // um portão que não encontra o que vigia é pior que nenhum portão.
+  assert.notEqual(SEGREDO.source, '(?!)')
+})
+
+test('os campos que a Lecupon devolve e são credencial ficam ocultos', () => {
+  // Nomes REAIS observados na resposta da API em 10/08/2026.
+  for (const campo of ['api_key', 'api_secret', 'signature_secret']) {
+    assert.equal(SEGREDO.test(campo), true, `${campo} apareceria em texto claro`)
+  }
+})
+
+test('variações de nome de credencial também são pegas', () => {
+  for (const campo of ['apiKey', 'API_SECRET', 'client_secret', 'access_token',
+                       'senha', 'password', 'passcode', 'credentials']) {
+    assert.equal(SEGREDO.test(campo), true, `${campo} passaria`)
+  }
+})
+
+test('campo comum NÃO é ocultado por engano', () => {
+  // O outro modo de falha: uma expressão gulosa esconderia razão social e CNPJ, e a
+  // tela deixaria de servir para conferir.
+  for (const campo of ['cnpj', 'razao_social', 'nome_fantasia', 'status', 'cidade',
+                       'estado', 'email', 'hubspot_company_id', 'user_count', 'name']) {
+    assert.equal(SEGREDO.test(campo), false, `${campo} seria escondido sem motivo`)
+  }
+})
+
+test('as DUAS fontes aplicam a regra', () => {
+  // Lecupon e Omie montam a lista de campos em lugares diferentes do arquivo.
+  // Proteger só uma deixaria a outra vazando.
+  const usos = FONTE.match(/SEGREDO\.test\(/g) ?? []
+  assert.ok(usos.length >= 2, `só ${usos.length} ponto(s) protegido(s) — falta uma fonte`)
+})
+
+test('o campo oculto continua aparecendo na lista', () => {
+  // Sumir com a linha faria parecer que a fonte não tem aquele dado. Dizer "existe e
+  // está oculto" é a informação certa para quem confere.
+  assert.match(FONTE, /const OCULTO = '[^']*oculto[^']*'/)
+  assert.equal(/campos.*filter.*SEGREDO/s.test(FONTE), false, 'a linha está sendo removida')
+})

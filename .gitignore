@@ -43,3 +43,6 @@ infra/*/oauth2.env
 /*.jpg
 /*.jpeg
 /*.webp
+
+# Worktrees de sessão do Claude Code — cópias do repo, não fonte.
+.claude/worktrees/

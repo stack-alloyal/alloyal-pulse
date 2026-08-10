@@ -1,5 +1,7 @@
 import { decidirAlarme, type PoliticaFalha } from '@pulse/metrics'
 import { Aviso, Badge, Card, Kpi, Table, cn } from '@pulse/ui'
+import { ScanSearch } from 'lucide-react'
+import Link from 'next/link'
 
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
@@ -169,8 +171,17 @@ export default async function Painel() {
       <Topo
         href="/dados"
         acoes={
-          <span className="text-[13px] text-ink-2">
-            {construidos} de {ciclos.length} ciclos construídos
+          <span className="flex items-center gap-3 text-[13px]">
+            <Link
+              href="/dados/conferencia"
+              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
+            >
+              <ScanSearch className="h-[14px] w-[14px]" />
+              Conferência
+            </Link>
+            <span className="text-ink-2">
+              {construidos} de {ciclos.length} ciclos construídos
+            </span>
           </span>
         }
       />

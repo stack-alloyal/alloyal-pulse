@@ -251,6 +251,9 @@ jobs:
           node --test packages/config/dist/hubspot-vinculo.test.js
           node --test packages/config/dist/base-de-clientes.test.js
           node --test packages/config/dist/uso.test.js
+          # Credencial de cliente na tela de conferência: a aba "todos os campos"
+          # despejava api_secret/api_key/signature_secret da Lecupon em página interna.
+          node --test packages/config/dist/fontes.test.js
           node --test packages/auth/dist/cifra.test.js
 
       - name: Portão 8 — segredos sem placeholder
