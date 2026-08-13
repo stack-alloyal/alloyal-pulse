@@ -44,6 +44,7 @@ import {
   lerMovimentos,
   lerNegocios,
   reconciliarConferencia,
+  vincularPeloHubspot,
   sincronizarCadastro,
 } from "@pulse/config";
 
@@ -758,6 +759,13 @@ export const c20Omie = defineCycle({
     const r = await gravarOmie(db, { fichas: fichas.fichas, movimentos: mov.movimentos });
     ctx.log(`gravado: ${r.fichas} ficha(s) · ${r.movimentos} título(s)`);
 
+    // Vincula o que o HubSpot já declara. Vem ANTES da conferência porque muda o
+    // conjunto de identidades da conta, e a conferência lê esse conjunto.
+    const auto = await vincularPeloHubspot(db);
+    ctx.log(
+      `vínculos automáticos: ${auto.criados} criado(s) · ${auto.ambiguos} ambíguo(s) para a fila`,
+    );
+
     // A fila de conferência só existe se ela se realimentar: divergência nova que
     // nasce muda é o problema que a fila foi criada para resolver.
     const fila = await reconciliarConferencia(db);
@@ -776,6 +784,7 @@ export const c20Omie = defineCycle({
         titulos: r.movimentos,
         categorias: nCats,
         parcial: fichas.parcial || mov.parcial || cats.parcial,
+        vinculosAutomaticos: auto,
         conferencia: fila,
       },
     };

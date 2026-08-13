@@ -551,3 +551,108 @@ export async function resumoDoMatch(db: pg.Pool): Promise<ResumoDoMatch> {
     apontandoParaInativa: linhas.filter((l) => l.apontaParaInativa).length,
   }
 }
+
+/**
+ * Vincula sozinho o que o HubSpot já declara. Roda no C20.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ AQUI A EVIDÊNCIA NÃO É HEURÍSTICA, é chave declarada: a ficha do Omie diz    │
+ * │ em `idHubspot` a qual empresa do HubSpot ela pertence, e a conta reivindica  │
+ * │ essa mesma empresa. Não é "os nomes se parecem" — os dois lados apontam para │
+ * │ o mesmo terceiro.                                                          │
+ * │                                                                            │
+ * │ Medido em 13/08/2026: 83 contas com 100 fichas soltas e R$ 6.000.377,81 de  │
+ * │ faturamento não atribuído. Casos como "Tangerino Tecnologia" ↔ "SOLIDES     │
+ * │ TECNOLOGIA S/A" (aquisição), "Pix do milhão" ↔ "PIX DO MILHÃO CLUBE DE      │
+ * │ BENEFÍCIOS", "Tera+" ↔ "BRAINY HOTEL CONSULTING". Deixar 83 clientes com o  │
+ * │ número errado esperando alguém clicar 100 vezes seria escolher o erro.      │
+ * │                                                                            │
+ * │ DUAS TRAVAS, e a segunda é a que importa:                                   │
+ * │                                                                            │
+ * │ 1. Só quando a ficha não pertence a ninguém. A trava de unicidade já impede  │
+ * │    roubo, mas errar aqui geraria exceção em vez de decisão.                 │
+ * │ 2. Só quando EXATAMENTE UMA conta reivindica aquele HubSpot ID. Com duas, a  │
+ * │    escolha seria arbitrária e o faturamento iria para a conta errada — e     │
+ * │    esse caso vai para a fila de conferência, que é onde gente decide.        │
+ * │                                                                            │
+ * │ `origem: 'ciclo'` distingue do manual na tela, e o evento fica na trilha com │
+ * │ autor `ciclo C20`. Desvincular continua disponível, com motivo.             │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export interface AutoVinculo {
+  readonly criados: number
+  readonly ambiguos: number
+  readonly valorAtribuidoCentavos: number
+}
+
+export async function vincularPeloHubspot(db: pg.Pool): Promise<AutoVinculo> {
+  const { rows } = await db.query<{
+    account_id: string
+    documento: string
+    valor: string
+  }>(
+    `WITH candidatas AS (
+       SELECT o.documento, o.hubspot_id,
+              (SELECT count(*) FROM core.vinculo_cliente h
+                WHERE h.fonte='hubspot' AND h.chave = o.hubspot_id) donos,
+              -- min(uuid) não existe no Postgres. E aqui não faria falta: o
+              -- filtro abaixo exige EXATAMENTE UM dono, então qualquer agregação
+              -- devolveria o mesmo. (array_agg(...))[1] é o que expressa isso.
+              (SELECT (array_agg(h.account_id))[1] FROM core.vinculo_cliente h
+                WHERE h.fonte='hubspot' AND h.chave = o.hubspot_id) account_id
+         FROM core.omie_cliente o
+        WHERE o.hubspot_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
+                           WHERE v.fonte='omie' AND v.chave = o.documento)
+     )
+     SELECT c.account_id::text, c.documento,
+            coalesce((SELECT sum(valor_centavos) FROM core.omie_titulo
+                       WHERE documento = c.documento AND situacao <> 'previsao'), 0)::text valor
+       FROM candidatas c
+      WHERE c.donos = 1 AND c.account_id IS NOT NULL`,
+  )
+
+  const ambiguos = await db.query<{ n: string }>(
+    `SELECT count(*)::text n FROM core.omie_cliente o
+      WHERE o.hubspot_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
+                         WHERE v.fonte='omie' AND v.chave = o.documento)
+        AND (SELECT count(*) FROM core.vinculo_cliente h
+              WHERE h.fonte='hubspot' AND h.chave = o.hubspot_id) > 1`,
+  )
+
+  let criados = 0
+  let valor = 0
+  for (const r of rows) {
+    const cliente = await db.connect()
+    try {
+      await cliente.query('BEGIN')
+      const ins = await cliente.query(
+        `INSERT INTO core.vinculo_cliente (account_id, fonte, chave, origem, motivo, criado_por)
+         VALUES ($1, 'omie', $2, 'ciclo', $3, 'ciclo C20')
+         ON CONFLICT (fonte, chave) DO NOTHING`,
+        [
+          r.account_id,
+          r.documento,
+          'a ficha do Omie declara o mesmo idHubspot que esta conta reivindica, e nenhuma outra conta o reivindica',
+        ],
+      )
+      if ((ins.rowCount ?? 0) > 0) {
+        await cliente.query(
+          `INSERT INTO core.vinculo_evento (account_id, fonte, chave, acao, origem, motivo, quem)
+           VALUES ($1, 'omie', $2, 'vinculou', 'ciclo', $3, 'ciclo C20')`,
+          [r.account_id, r.documento, 'mesmo idHubspot declarado pela ficha, sem ambiguidade'],
+        )
+        criados++
+        valor += Number(r.valor)
+      }
+      await cliente.query('COMMIT')
+    } catch {
+      await cliente.query('ROLLBACK')
+    } finally {
+      cliente.release()
+    }
+  }
+
+  return { criados, ambiguos: Number(ambiguos.rows[0]?.n ?? 0), valorAtribuidoCentavos: valor }
+}

@@ -13,7 +13,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -73,4 +73,35 @@ test('o campo oculto continua aparecendo na lista', () => {
   // está oculto" é a informação certa para quem confere.
   assert.match(FONTE, /const OCULTO = '[^']*oculto[^']*'/)
   assert.equal(/campos.*filter.*SEGREDO/s.test(FONTE), false, 'a linha está sendo removida')
+})
+
+/**
+ * PORTÃO — crase dentro de template literal de SQL.
+ *
+ * Cometi este erro TRÊS vezes num dia: escrever um comentário SQL usando crase
+ * para destacar um identificador, dentro de uma string que é delimitada por crase.
+ * A string fecha ali, e o TypeScript quebra com "',' expected" numa linha que
+ * parece um comentário inofensivo — a mensagem não aponta para a causa.
+ *
+ * A regra é estreita de propósito: só linhas que começam com `--` (comentário
+ * SQL) dentro de arquivos deste pacote. Crase em comentário de JSDoc é legítima e
+ * fica de fora.
+ */
+test('nenhum comentário SQL usa crase', () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
+  const arquivos = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+  const achados: string[] = []
+  for (const nome of arquivos) {
+    const linhas = readFileSync(join(dir, nome), 'utf8').split('\n')
+    linhas.forEach((linha, i) => {
+      if (/^\s*--/.test(linha) && linha.includes('`')) {
+        achados.push(`${nome}:${i + 1} · ${linha.trim().slice(0, 70)}`)
+      }
+    })
+  }
+  assert.deepEqual(
+    achados,
+    [],
+    'crase em comentário SQL fecha o template literal e quebra o build numa linha que parece comentário',
+  )
 })
