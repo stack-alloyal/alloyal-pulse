@@ -35,7 +35,11 @@ import { consolidar } from "../consolidacao.js";
 import { avaliarFila } from "../fila.js";
 import {
   credencialDoCore,
+  credencialDoOmie,
+  gravarOmie,
+  lerFichas,
   lerLogoDoApp,
+  lerMovimentos,
   lerNegocios,
   sincronizarCadastro,
 } from "@pulse/config";
@@ -671,6 +675,91 @@ export const c19LogoDoCliente = defineCycle({
       linhasLidas: rows.length,
       linhasGravadas: comLogo,
       detalhe: { comLogo, semLogo, falhas, origens },
+    };
+  },
+});
+
+/**
+ * C20 — cadastro e financeiro do Omie.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ POR QUE ESTE CICLO EXISTE, e não uma chamada direta da tela:               │
+ * │                                                                            │
+ * │ A superfície web conecta como `pulse_api`, que tem SELECT por COLUNA em    │
+ * │ `ops.segredo` — tudo menos `valor_cifrado`. Ela não decifra segredo, de     │
+ * │ propósito (0016). Só o worker consegue falar com o Omie.                   │
+ * │                                                                            │
+ * │ E o volume decide sozinho: medido em 13/08/2026, são 9.630 fichas em 193   │
+ * │ páginas (~103 s) e 124.079 lançamentos em 1.243 páginas (~15 min). Página  │
+ * │ nenhuma abre em cima disso.                                                │
+ * │                                                                            │
+ * │ AGENDA 04:10, e não junto do C18 (02:00): as duas varreduras são longas e  │
+ * │ falam com APIs diferentes; sobrepô-las faria uma falha de rede derrubar as │
+ * │ duas e ninguém saber qual quebrou primeiro.                                │
+ * │                                                                            │
+ * │ `metodo: 'full'` e não incremental, POR ENQUANTO. O incremental existe e    │
+ * │ funciona (`filtrar_por_data_de` nas fichas, `dDtPagtoDe` nos movimentos —   │
+ * │ 297 e 243 registros desde 01/08), mas ele só enxerga o que MUDOU: título    │
+ * │ apagado no Omie ficaria no Pulse para sempre. Full enquanto 15 minutos      │
+ * │ diários couberem na janela.                                                │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export const c20Omie = defineCycle({
+  id: "C20",
+  descricao: "Cadastro de cliente e títulos a receber (API do Omie)",
+  fonte: "omie",
+  metodo: "full",
+  agenda: "10 4 * * *",
+  janela: "estado_atual",
+  chaveNatural: ["codigo_cliente_omie", "codigo_titulo"],
+  emFalha: {
+    tentativas: 3,
+    backoff: "exponencial",
+    alarmeApos: 2,
+    degradacao: "snapshot_parcial",
+  },
+  fase: "F1",
+  executar: async (ctx) => {
+    const db = poolDoWorker();
+    const cred = await credencialDoOmie(db);
+    if (!cred) {
+      ctx.log(
+        "credenciais do Omie não cadastradas — ciclo INERTE, nada lido. Cadastre em " +
+          "Configurações → Segredos (omie.app_key e omie.app_secret).",
+      );
+      // `inerte` e não `ok`: ler zero por falta de configuração não é sucesso. Ver C18.
+      return {
+        linhasLidas: 0,
+        linhasGravadas: 0,
+        inerte: true,
+        detalhe: { motivo: "sem_credencial", onde: "Configurações → Segredos" },
+      };
+    }
+
+    const fichas = await lerFichas(cred, { log: ctx.log });
+    ctx.log(
+      `${fichas.fichas.length} ficha(s) em ${fichas.paginas} página(s)${fichas.parcial ? " — PARCIAL" : ""}`,
+    );
+
+    const mov = await lerMovimentos(cred, { log: ctx.log });
+    ctx.log(
+      `${mov.movimentos.length} título(s) em ${mov.paginas} página(s)${mov.parcial ? " — PARCIAL" : ""}`,
+    );
+
+    const r = await gravarOmie(db, { fichas: fichas.fichas, movimentos: mov.movimentos });
+    ctx.log(`gravado: ${r.fichas} ficha(s) · ${r.movimentos} título(s)`);
+
+    return {
+      linhasLidas: fichas.fichas.length + mov.movimentos.length,
+      linhasGravadas: r.fichas + r.movimentos,
+      // `parcial` sobe no detalhe para a tela de Sincronização mostrar que a
+      // varredura não terminou — uma carga parcial que se anuncia "ok" faz alguém
+      // concluir que o cliente sumiu do Omie.
+      detalhe: {
+        fichas: r.fichas,
+        titulos: r.movimentos,
+        parcial: fichas.parcial || mov.parcial,
+      },
     };
   },
 });

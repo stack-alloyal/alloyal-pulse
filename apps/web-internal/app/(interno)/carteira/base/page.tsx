@@ -7,6 +7,7 @@ import {
   type LinhaDaBase,
 } from "@pulse/config";
 import { Aviso, Badge, Btn, Card, Field, Kpi, Table } from "@pulse/ui";
+import { ScrollText } from "lucide-react";
 import Link from "next/link";
 
 import { Corpo, Topo } from "../../casca";
@@ -134,9 +135,15 @@ function linhaDaTabela(
       )}
       <Marca nome={l.razaoSocial} chave={l.brandId ?? l.id} logo={l.logoUrl} />
       <span className="min-w-0">
-        <span className="block truncate font-medium text-ink">
+        {/* O NOME é o acesso à ficha. A seta ao lado abre os subs NESTA tela, e são
+            ações diferentes: uma navega, a outra expande. Por isso o alvo de cada
+            uma é visualmente distinto — o nome sublinha ao passar, a seta gira. */}
+        <Link
+          href={`/carteira/base/${l.id}`}
+          className="block truncate font-medium text-ink hover:text-purple-700 hover:underline"
+        >
           {l.razaoSocial}
-        </span>
+        </Link>
         <span className="block text-[11.5px] text-ink-3">{CNPJ(l.cnpj)}</span>
       </span>
     </div>,
@@ -169,6 +176,19 @@ function linhaDaTabela(
     <Badge key="a" tone={l.ativo ? "green" : "slate"}>
       {l.ativo ? "ativo" : "inativo"}
     </Badge>,
+    /* O ícone existe além do nome clicável porque a linha tem DOIS destinos: o
+       nome navega, a seta expande. Quem já foi mordido por clicar no nome e ver a
+       linha abrir procura um alvo inequívoco — e este é ele, sempre na mesma
+       coluna, com rótulo acessível dizendo de quem é a ficha. */
+    <Link
+      key="ficha"
+      href={`/carteira/base/${l.id}`}
+      aria-label={`Abrir a ficha de ${l.razaoSocial}`}
+      title="Ficha do cliente: cadastro e faturamento"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ink-3 hover:bg-purple-50 hover:text-purple-700"
+    >
+      <ScrollText className="h-[15px] w-[15px]" />
+    </Link>,
   ];
 }
 
@@ -309,6 +329,7 @@ export default async function BaseDeClientes({
               "Subs",
               "Autorizados",
               "Cadastrados",
+              "",
               "",
             ]}
             rows={linhas}

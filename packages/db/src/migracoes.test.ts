@@ -56,17 +56,63 @@ test('nenhum objeto é criado duas vezes em migrations diferentes', () => {
   // existia desde a 0007. Numa base já migrada nada acontece — o executor pula
   // arquivos aplicados. Numa base NOVA a migration explode, e o erro fala do
   // sintoma ("relation already exists"), não da causa.
+  //
+  // RECRIAR DEPOIS DE DERRUBAR é legítimo, e a regra sabe disso desde 13/08/2026:
+  // a 0037 dá `DROP TABLE core.omie_cliente` e recria a tabela com a chave certa,
+  // índices junto. Num banco novo isso roda em ordem e não colide. Sem a exceção,
+  // a única saída seria inventar `omie_cliente_raiz2_idx` — um nome pior para
+  // sempre, por causa de uma regra que não olhava o arquivo inteiro.
   const criados = new Map<string, string>()
   const padrao = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z0-9_]+)/gi
+  const dropIndice = /DROP\s+INDEX\s+(?:IF\s+EXISTS\s+)?(?:[a-z0-9_]+\.)?([a-z0-9_]+)/gi
+  const dropTabela = /DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-z0-9_.]+)/gi
+
   for (const f of arquivos) {
     const sql = readFileSync(join(DIR, f), 'utf8')
+
+    // O que este arquivo derruba antes de criar. Índice cai junto com a tabela,
+    // então a tabela derrubada limpa todos os índices que nasceram nela.
+    const derrubados = new Set<string>()
+    for (const m of sql.matchAll(dropIndice)) derrubados.add(m[1]!.toLowerCase())
+    const tabelasDerrubadas = new Set(
+      [...sql.matchAll(dropTabela)].map((m) => m[1]!.toLowerCase().split('.').pop()!),
+    )
+
     for (const m of sql.matchAll(padrao)) {
       const nome = m[1]!.toLowerCase()
       const antes = criados.get(nome)
-      assert.equal(antes, undefined, `índice ${nome} criado em ${antes} e de novo em ${f}`)
+      if (antes !== undefined) {
+        const naTabelaDerrubada = [...tabelasDerrubadas].some((t) => nome.startsWith(t))
+        assert.ok(
+          derrubados.has(nome) || naTabelaDerrubada,
+          `índice ${nome} criado em ${antes} e de novo em ${f}, sem derrubar antes`,
+        )
+      }
       criados.set(nome, f)
     }
   }
+})
+
+test('a exceção de recriação exige o DROP no MESMO arquivo', () => {
+  // Guarda da guarda: a regra acima abriu uma exceção, e exceção sem trava vira
+  // porta. Um arquivo que cria índice de nome já usado SEM derrubar nada tem que
+  // continuar falhando — senão a regra original deixou de existir.
+  const semDrop = `
+    BEGIN;
+    CREATE INDEX omie_cliente_raiz_idx ON core.outra (x);
+    COMMIT;`
+  const comDrop = `
+    BEGIN;
+    DROP TABLE IF EXISTS core.omie_cliente;
+    CREATE TABLE core.omie_cliente (documento text);
+    CREATE INDEX omie_cliente_raiz_idx ON core.omie_cliente (documento);
+    COMMIT;`
+  const derruba = (sql: string) =>
+    new Set([...sql.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-z0-9_.]+)/gi)].map((m) =>
+      m[1]!.toLowerCase().split('.').pop()!,
+    ))
+  assert.equal([...derruba(semDrop)].some((t) => 'omie_cliente_raiz_idx'.startsWith(t)), false)
+  assert.equal([...derruba(comDrop)].some((t) => 'omie_cliente_raiz_idx'.startsWith(t)), true)
 })
 
 test('coluna adicionada não repete coluna já adicionada', () => {
