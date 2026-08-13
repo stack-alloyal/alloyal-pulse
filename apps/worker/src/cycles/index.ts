@@ -41,6 +41,7 @@ import {
   lerLogoDoApp,
   lerMovimentos,
   lerNegocios,
+  reconciliarConferencia,
   sincronizarCadastro,
 } from "@pulse/config";
 
@@ -749,6 +750,13 @@ export const c20Omie = defineCycle({
     const r = await gravarOmie(db, { fichas: fichas.fichas, movimentos: mov.movimentos });
     ctx.log(`gravado: ${r.fichas} ficha(s) · ${r.movimentos} título(s)`);
 
+    // A fila de conferência só existe se ela se realimentar: divergência nova que
+    // nasce muda é o problema que a fila foi criada para resolver.
+    const fila = await reconciliarConferencia(db);
+    ctx.log(
+      `conferência: ${fila.novas} nova(s) · ${fila.atualizadas} atualizada(s) · ${fila.encerradas} encerrada(s)`,
+    );
+
     return {
       linhasLidas: fichas.fichas.length + mov.movimentos.length,
       linhasGravadas: r.fichas + r.movimentos,
@@ -759,6 +767,7 @@ export const c20Omie = defineCycle({
         fichas: r.fichas,
         titulos: r.movimentos,
         parcial: fichas.parcial || mov.parcial,
+        conferencia: fila,
       },
     };
   },

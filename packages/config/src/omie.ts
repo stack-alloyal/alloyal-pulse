@@ -92,6 +92,15 @@ export async function chamarOmie(
         await dormir((seg + 1) * 1000)
         continue
       }
+      // "Já existe uma requisição desse método sendo executada": o Omie SERIALIZA o
+      // mesmo método por app_key. Descoberto em 13/08/2026 consultando enquanto o
+      // C20 varria — a consulta ad hoc levou a recusa, não o ciclo. Sem este ramo,
+      // qualquer sondagem durante a janela do ciclo devolve zero registros e quem
+      // olha conclui que o cliente não tem faturamento.
+      if (falha && /já existe uma requisição|sendo executada/i.test(falha)) {
+        await dormir(8000 * (i + 1))
+        continue
+      }
       if (r.status === 429 || (falha && /too many|limite/i.test(falha))) {
         await dormir(5000 * (i + 1))
         continue

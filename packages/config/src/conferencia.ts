@@ -158,3 +158,82 @@ export async function reabrir(db: pg.Pool, id: Identidade, conferenciaId: string
   )
   if (rowCount === 0) throw new ConferenciaInvalidaError('esta divergência já está aberta')
 }
+
+/**
+ * Varre as duas cópias e mantém a fila em dia. Roda no fim do C20.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A fila existia e não se realimentava: as 44 divergências entraram por um    │
+ * │ script meu, em 10/08/2026. Divergência nova nasceria muda, e ninguém        │
+ * │ procura o que não sabe que existe — que é exatamente o argumento pelo qual  │
+ * │ a fila foi criada. Uma fila que só enche à mão tem prazo de validade curto. │
+ * │                                                                            │
+ * │ ENCERRAR AUTOMATICAMENTE, quando as fontes voltam a concordar, é decisão e  │
+ * │ não conveniência: um item aberto cujos dois valores hoje são iguais faz a   │
+ * │ pessoa abrir, ler duas vezes o mesmo número e não entender o que se espera  │
+ * │ dela. O encerramento fica com autor `ciclo C20` e nota dizendo o que houve, │
+ * │ então ninguém confunde isso com conferência humana — e `reabrir` continua   │
+ * │ disponível.                                                                │
+ * │                                                                            │
+ * │ O que o ciclo NUNCA faz é decidir uma divergência que ainda existe. Isso é  │
+ * │ trabalho de gente, e é o motivo da fila.                                    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export interface ReconciliacaoDaFila {
+  readonly novas: number
+  readonly atualizadas: number
+  readonly encerradas: number
+}
+
+export async function reconciliarConferencia(db: pg.Pool): Promise<ReconciliacaoDaFila> {
+  // O vínculo é por documento EXATO. Pela raiz não serve aqui: o HubSpot ID da
+  // matriz não descreve a filial, e a divergência seria inventada por nós.
+  const { rows } = await db.query<{ account_id: string; lecupon: string; omie: string }>(
+    `SELECT a.id AS account_id,
+            a.hubspot_company_id AS lecupon,
+            o.hubspot_id AS omie
+       FROM core.account a
+       JOIN core.omie_cliente o
+         ON o.documento = regexp_replace(coalesce(a.cnpj,''), '[^0-9]', '', 'g')
+      WHERE a.hubspot_company_id IS NOT NULL
+        AND o.hubspot_id IS NOT NULL
+        AND a.hubspot_company_id <> o.hubspot_id`,
+  )
+
+  let novas = 0
+  let atualizadas = 0
+  for (const r of rows) {
+    const efeito = await registrarDivergencia(db, {
+      accountId: r.account_id,
+      campo: 'hubspot_company_id',
+      valorLecupon: r.lecupon,
+      valorOmie: r.omie,
+    })
+    if (efeito === 'nova') novas++
+    else if (efeito === 'atualizada') atualizadas++
+  }
+
+  // As que deixaram de divergir. `decisao = 'lecupon'` é literalmente verdade
+  // quando os dois lados coincidem — o valor que vale é o da Lecupon, e o do Omie
+  // é o mesmo.
+  const { rowCount } = await db.query(
+    `UPDATE core.conferencia_fonte c
+        SET estado = 'resolvida', decisao = 'lecupon',
+            decidido_por = 'ciclo C20', decidido_em = now(),
+            nota = coalesce(c.nota || ' · ', '') ||
+                   'as fontes passaram a concordar; encerrada pelo ciclo'
+      WHERE c.estado = 'aberta'
+        AND c.campo = 'hubspot_company_id'
+        AND NOT EXISTS (
+          SELECT 1
+            FROM core.account a
+            JOIN core.omie_cliente o
+              ON o.documento = regexp_replace(coalesce(a.cnpj,''), '[^0-9]', '', 'g')
+           WHERE a.id = c.account_id
+             AND a.hubspot_company_id IS NOT NULL
+             AND o.hubspot_id IS NOT NULL
+             AND a.hubspot_company_id <> o.hubspot_id)`,
+  )
+
+  return { novas, atualizadas, encerradas: rowCount ?? 0 }
+}
