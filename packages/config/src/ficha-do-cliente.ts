@@ -69,7 +69,9 @@ export interface FichaOmieDoCliente {
 export interface Faturamento {
   readonly codigoTitulo: string
   readonly categoria: string | null
+  readonly categoriaNome: string | null
   readonly status: string | null
+  readonly situacao: string
   readonly emissao: Date | null
   readonly vencimento: Date | null
   readonly previsao: Date | null
@@ -80,30 +82,56 @@ export interface Faturamento {
   readonly documento: string
 }
 
+/**
+ * O resumo por SITUAÇÃO, e não por data.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O corte por data estava errado nas duas direções, e a Swile provou: faltavam │
+ * │ R$ 59.625 dela, que são UM título vencendo em 25/08 com status `A VENCER` —  │
+ * │ a fatura do mês, emitida e não paga. "Vencimento <= hoje" a jogava fora como │
+ * │ se fosse projeção.                                                          │
+ * │                                                                            │
+ * │ O Omie separa o que a data não separa:                                      │
+ * │   A VENCER / ATRASADO / VENCE HOJE — título EMITIDO. É faturamento.         │
+ * │   PREVISAO — recorrência projetada, NÃO emitida. Não é faturamento.         │
+ * │   CANCELADO — foi faturado e cancelado. Conta como faturado, e à parte.     │
+ * │                                                                            │
+ * │ Medido: 66.012 títulos em PREVISAO (R$ 229,6 mi) contra R$ 141,5 mi de      │
+ * │ faturamento real. O corte por data deixava entrar 31 PREVISAO com data      │
+ * │ passada e deixava de fora 313 A VENCER com data futura.                     │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
 export interface ResumoFinanceiro {
+  /** Faturado: tudo que foi emitido. Exclui previsão. */
   readonly titulos: number
   readonly totalCentavos: number
-  readonly pagoCentavos: number
-  readonly abertoCentavos: number
-  /**
-   * O que já venceu, e o que ainda vai vencer — separados de propósito.
-   *
-   * Descoberto olhando a tela pronta da HINOVA: ela mostrava "Faturado
-   * R$ 7,05 milhões", e o número somava parcelas com vencimento até 2043. Isso
-   * não é faturamento, é carteira contratada. Quem lê "faturado" entende
-   * "já cobramos", e agiria em cima de um número sete vezes maior que o real.
-   */
-  readonly titulosVencidos: number
-  readonly vencidoCentavos: number
+  readonly recebidoCentavos: number
+  readonly recebidoTitulos: number
+  readonly canceladoCentavos: number
+  readonly canceladoTitulos: number
+  readonly atrasadoCentavos: number
+  readonly atrasadoTitulos: number
   readonly aVencerCentavos: number
-  readonly titulosAVencer: number
+  readonly aVencerTitulos: number
+  /** Recorrência ainda não emitida. Fica FORA do faturado, de propósito. */
+  readonly previsaoCentavos: number
+  readonly previsaoTitulos: number
   readonly primeiroVencimento: Date | null
   readonly ultimoVencimento: Date | null
   readonly ultimoPagamento: Date | null
   readonly proximaPrevisao: Date | null
-  readonly categorias: { categoria: string; titulos: number; totalCentavos: number }[]
-  /** Faturado por mês de vencimento. `futuro` marca o que ainda não venceu. */
-  readonly porMes: { mes: string; titulos: number; totalCentavos: number; pagoCentavos: number; futuro: boolean }[]
+  readonly categorias: {
+    categoria: string
+    nome: string
+    titulos: number
+    totalCentavos: number
+  }[]
+  readonly porMes: {
+    mes: string
+    titulos: number
+    totalCentavos: number
+    pagoCentavos: number
+  }[]
 }
 
 export interface FichaDoCliente {
@@ -212,30 +240,54 @@ export async function lerFichaOmie(db: pg.Pool, documento: string): Promise<Fich
  * tela discordar do resumo sem nada avisar. A consulta usa o índice
  * `(documento, vencimento DESC)`.
  */
+export interface FiltroDoFaturamento {
+  /** `situacao` normalizada: recebido, cancelado, atrasado, a_vencer, previsao. */
+  readonly situacao?: string
+  readonly categoria?: string
+  /** Previsão fica de fora por padrão: são 66 mil títulos que não foram faturados. */
+  readonly incluirPrevisao?: boolean
+}
+
+/**
+ * O histórico de faturamento, com o nome da categoria junto.
+ *
+ * Sem `LIMIT`: a pergunta é o histórico inteiro, e uma lista truncada faria a soma
+ * da tela discordar dos totais acima. Usa o índice (documento, situacao, vencimento).
+ */
 export async function lerFaturamento(
   db: pg.Pool,
   documentos: readonly string[],
-  { incluirFuturo = false }: { incluirFuturo?: boolean } = {},
+  f: FiltroDoFaturamento = {},
 ): Promise<Faturamento[]> {
   if (documentos.length === 0) return []
   const { rows } = await db.query<Faturamento>(
-    `SELECT codigo_titulo::text AS "codigoTitulo", categoria, status, emissao, vencimento,
-            previsao, pagamento, valor_centavos::text AS "valorCentavos",
-            pago_centavos::text AS "pagoCentavos", aberto_centavos::text AS "abertoCentavos",
-            documento
-       FROM core.omie_titulo
-      WHERE documento = ANY($1::text[])
-        AND ($2::boolean OR vencimento IS NULL OR vencimento <= current_date)
-      ORDER BY vencimento DESC NULLS LAST, codigo_titulo DESC`,
-    [documentos, incluirFuturo],
+    `SELECT t.codigo_titulo::text AS "codigoTitulo", t.categoria,
+            c.descricao AS "categoriaNome", t.status, t.situacao,
+            t.emissao, t.vencimento, t.previsao, t.pagamento,
+            t.valor_centavos::text AS "valorCentavos",
+            t.pago_centavos::text AS "pagoCentavos",
+            t.aberto_centavos::text AS "abertoCentavos",
+            t.documento
+       FROM core.omie_titulo t
+       LEFT JOIN core.omie_categoria c ON c.codigo = t.categoria
+      WHERE t.documento = ANY($1::text[])
+        AND ($2::text IS NULL OR t.situacao = $2)
+        AND ($3::text IS NULL OR t.categoria = $3)
+        AND ($4::boolean OR t.situacao <> 'previsao')
+      ORDER BY t.vencimento DESC NULLS LAST, t.codigo_titulo DESC`,
+    [documentos, f.situacao ?? null, f.categoria ?? null, f.incluirPrevisao ?? false],
   )
   return rows
 }
 
-export async function resumoFinanceiro(db: pg.Pool, documentos: readonly string[]): Promise<ResumoFinanceiro> {
+export async function resumoFinanceiro(
+  db: pg.Pool,
+  documentos: readonly string[],
+): Promise<ResumoFinanceiro> {
   const vazio: ResumoFinanceiro = {
-    titulos: 0, totalCentavos: 0, pagoCentavos: 0, abertoCentavos: 0,
-    titulosVencidos: 0, vencidoCentavos: 0, aVencerCentavos: 0, titulosAVencer: 0,
+    titulos: 0, totalCentavos: 0, recebidoCentavos: 0, recebidoTitulos: 0,
+    canceladoCentavos: 0, canceladoTitulos: 0, atrasadoCentavos: 0, atrasadoTitulos: 0,
+    aVencerCentavos: 0, aVencerTitulos: 0, previsaoCentavos: 0, previsaoTitulos: 0,
     primeiroVencimento: null, ultimoVencimento: null, ultimoPagamento: null,
     proximaPrevisao: null, categorias: [], porMes: [],
   }
@@ -243,68 +295,77 @@ export async function resumoFinanceiro(db: pg.Pool, documentos: readonly string[
 
   const [tot, cat, mes] = await Promise.all([
     db.query<Record<string, unknown>>(
-      `SELECT count(*)::int titulos,
-              coalesce(sum(valor_centavos) FILTER (WHERE vencimento IS NULL OR vencimento <= current_date),0)::bigint total,
-              coalesce(sum(pago_centavos) FILTER (WHERE vencimento IS NULL OR vencimento <= current_date),0)::bigint pago,
-              coalesce(sum(aberto_centavos) FILTER (WHERE vencimento IS NULL OR vencimento <= current_date),0)::bigint aberto,
-              count(*) FILTER (WHERE vencimento IS NULL OR vencimento <= current_date)::int venc_n,
-              coalesce(sum(valor_centavos) FILTER (WHERE vencimento IS NULL OR vencimento <= current_date),0)::bigint vencido,
-              count(*) FILTER (WHERE vencimento > current_date)::int aven_n,
-              coalesce(sum(valor_centavos) FILTER (WHERE vencimento > current_date),0)::bigint a_vencer,
-              min(vencimento) primeiro, max(vencimento) ultimo,
-              max(pagamento) ultimo_pagto,
-              min(previsao) FILTER (WHERE aberto_centavos > 0) proxima
-         FROM core.omie_titulo WHERE documento = ANY($1::text[])`,
+      `SELECT
+         count(*) FILTER (WHERE situacao <> 'previsao')::int titulos,
+         coalesce(sum(valor_centavos) FILTER (WHERE situacao <> 'previsao'),0)::bigint total,
+         coalesce(sum(valor_centavos) FILTER (WHERE situacao = 'recebido'),0)::bigint recebido,
+         count(*) FILTER (WHERE situacao = 'recebido')::int recebido_n,
+         coalesce(sum(valor_centavos) FILTER (WHERE situacao = 'cancelado'),0)::bigint cancelado,
+         count(*) FILTER (WHERE situacao = 'cancelado')::int cancelado_n,
+         coalesce(sum(valor_centavos) FILTER (WHERE situacao = 'atrasado'),0)::bigint atrasado,
+         count(*) FILTER (WHERE situacao = 'atrasado')::int atrasado_n,
+         coalesce(sum(valor_centavos) FILTER (WHERE situacao = 'a_vencer'),0)::bigint a_vencer,
+         count(*) FILTER (WHERE situacao = 'a_vencer')::int a_vencer_n,
+         coalesce(sum(valor_centavos) FILTER (WHERE situacao = 'previsao'),0)::bigint previsao,
+         count(*) FILTER (WHERE situacao = 'previsao')::int previsao_n,
+         min(vencimento) FILTER (WHERE situacao <> 'previsao') primeiro,
+         max(vencimento) FILTER (WHERE situacao <> 'previsao') ultimo,
+         max(pagamento) ultimo_pagto,
+         min(vencimento) FILTER (WHERE situacao IN ('a_vencer','atrasado')) proxima
+       FROM core.omie_titulo WHERE documento = ANY($1::text[])`,
       [documentos],
     ),
-    db.query<{ categoria: string; titulos: number; total: string }>(
-      `SELECT coalesce(categoria,'—') categoria, count(*)::int titulos,
-              coalesce(sum(valor_centavos),0)::text total
-         FROM core.omie_titulo
-        WHERE documento = ANY($1::text[])
-          AND (vencimento IS NULL OR vencimento <= current_date)
-        GROUP BY 1 ORDER BY sum(valor_centavos) DESC`,
+    db.query<{ categoria: string; nome: string; titulos: number; total: string }>(
+      `SELECT coalesce(t.categoria,'—') categoria,
+              coalesce(c.descricao, t.categoria, 'sem categoria') nome,
+              count(*)::int titulos, coalesce(sum(t.valor_centavos),0)::text total
+         FROM core.omie_titulo t
+         LEFT JOIN core.omie_categoria c ON c.codigo = t.categoria
+        WHERE t.documento = ANY($1::text[]) AND t.situacao <> 'previsao'
+        GROUP BY 1, 2 ORDER BY sum(t.valor_centavos) DESC`,
       [documentos],
     ),
-    db.query<{ mes: string; titulos: number; total: string; pago: string; futuro: boolean }>(
+    db.query<{ mes: string; titulos: number; total: string; pago: string }>(
       `SELECT to_char(date_trunc('month', vencimento),'YYYY-MM') mes, count(*)::int titulos,
               coalesce(sum(valor_centavos),0)::text total,
-              coalesce(sum(pago_centavos),0)::text pago,
-              bool_and(vencimento > current_date) futuro
+              coalesce(sum(pago_centavos),0)::text pago
          FROM core.omie_titulo
         WHERE documento = ANY($1::text[]) AND vencimento IS NOT NULL
-          AND vencimento <= current_date
+          AND situacao <> 'previsao'
         GROUP BY 1 ORDER BY 1`,
       [documentos],
     ),
   ])
 
   const t = tot.rows[0] ?? {}
+  const n = (k: string) => Number(t[k] ?? 0)
   return {
-    // `titulos` é a contagem do que a tela MOSTRA — o passado. O total bruto
-    // incluiria as parcelas futuras e o número não bateria com a tabela abaixo.
-    titulos: Number(t['venc_n'] ?? 0),
-    totalCentavos: Number(t['total'] ?? 0),
-    pagoCentavos: Number(t['pago'] ?? 0),
-    abertoCentavos: Number(t['aberto'] ?? 0),
-    titulosVencidos: Number(t['venc_n'] ?? 0),
-    vencidoCentavos: Number(t['vencido'] ?? 0),
-    titulosAVencer: Number(t['aven_n'] ?? 0),
-    aVencerCentavos: Number(t['a_vencer'] ?? 0),
+    titulos: n('titulos'),
+    totalCentavos: n('total'),
+    recebidoCentavos: n('recebido'), recebidoTitulos: n('recebido_n'),
+    canceladoCentavos: n('cancelado'), canceladoTitulos: n('cancelado_n'),
+    atrasadoCentavos: n('atrasado'), atrasadoTitulos: n('atrasado_n'),
+    aVencerCentavos: n('a_vencer'), aVencerTitulos: n('a_vencer_n'),
+    previsaoCentavos: n('previsao'), previsaoTitulos: n('previsao_n'),
     primeiroVencimento: (t['primeiro'] as Date | null) ?? null,
     ultimoVencimento: (t['ultimo'] as Date | null) ?? null,
     ultimoPagamento: (t['ultimo_pagto'] as Date | null) ?? null,
     proximaPrevisao: (t['proxima'] as Date | null) ?? null,
-    categorias: cat.rows.map((c) => ({ categoria: c.categoria, titulos: c.titulos, totalCentavos: Number(c.total) })),
+    categorias: cat.rows.map((c) => ({
+      categoria: c.categoria, nome: c.nome, titulos: c.titulos, totalCentavos: Number(c.total),
+    })),
     porMes: mes.rows.map((m) => ({
-      mes: m.mes, titulos: m.titulos, totalCentavos: Number(m.total),
-      pagoCentavos: Number(m.pago), futuro: m.futuro,
+      mes: m.mes, titulos: m.titulos, totalCentavos: Number(m.total), pagoCentavos: Number(m.pago),
     })),
   }
 }
 
 /** Tudo de uma vez, que é o que a página precisa. */
-export async function fichaDoCliente(db: pg.Pool, id: string): Promise<FichaDoCliente | null> {
+export async function fichaDoCliente(
+  db: pg.Pool,
+  id: string,
+  filtro: FiltroDoFaturamento = {},
+): Promise<FichaDoCliente | null> {
   const conta = await lerContaDoAdmin(db, id)
   if (!conta) return null
 
@@ -312,7 +373,7 @@ export async function fichaDoCliente(db: pg.Pool, id: string): Promise<FichaDoCl
   const [omie, resumo, faturamento] = await Promise.all([
     documentos[0] ? lerFichaOmie(db, documentos[0]) : Promise.resolve(null),
     resumoFinanceiro(db, documentos),
-    lerFaturamento(db, documentos),
+    lerFaturamento(db, documentos, filtro),
   ])
   return { conta, omie, vinculo, documentos, resumo, faturamento }
 }

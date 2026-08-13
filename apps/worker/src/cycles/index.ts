@@ -36,7 +36,9 @@ import { avaliarFila } from "../fila.js";
 import {
   credencialDoCore,
   credencialDoOmie,
+  gravarCategorias,
   gravarOmie,
+  lerCategorias,
   lerFichas,
   lerLogoDoApp,
   lerMovimentos,
@@ -737,6 +739,12 @@ export const c20Omie = defineCycle({
       };
     }
 
+    // Categorias primeiro: é a chamada mais barata (5 páginas) e é o que dá NOME
+    // ao código nas telas. Falhar aqui não impede o resto.
+    const cats = await lerCategorias(cred, { log: ctx.log });
+    const nCats = await gravarCategorias(db, cats.categorias);
+    ctx.log(`${nCats} categoria(s)${cats.parcial ? " — PARCIAL" : ""}`);
+
     const fichas = await lerFichas(cred, { log: ctx.log });
     ctx.log(
       `${fichas.fichas.length} ficha(s) em ${fichas.paginas} página(s)${fichas.parcial ? " — PARCIAL" : ""}`,
@@ -766,7 +774,8 @@ export const c20Omie = defineCycle({
       detalhe: {
         fichas: r.fichas,
         titulos: r.movimentos,
-        parcial: fichas.parcial || mov.parcial,
+        categorias: nCats,
+        parcial: fichas.parcial || mov.parcial || cats.parcial,
         conferencia: fila,
       },
     };

@@ -410,3 +410,93 @@ export async function gravarOmie(
 function* emLotes<T>(itens: readonly T[], n: number): Generator<T[]> {
   for (let i = 0; i < itens.length; i += n) yield itens.slice(i, i + n)
 }
+
+// ═══ Categorias ══════════════════════════════════════════════════════════════
+
+export interface CategoriaOmie {
+  codigo: string
+  descricao: string
+  categoriaSuperior: string | null
+  natureza: string | null
+  tipo: string | null
+  contaReceita: boolean
+  contaDespesa: boolean
+  totalizadora: boolean
+  inativa: boolean
+}
+
+/**
+ * O plano de categorias. 225 na conta, em 5 páginas.
+ *
+ * Existe porque as telas mostravam `1.01.02` e ninguém fora do financeiro sabe o
+ * que é. O nome estava a uma chamada de distância — e o de 1.01.02 é, literalmente,
+ * "MRR".
+ */
+export async function lerCategorias(
+  cred: CredencialOmie,
+  { log = () => {} }: { log?: (m: string) => void } = {},
+): Promise<{ categorias: CategoriaOmie[]; parcial: boolean }> {
+  const categorias: CategoriaOmie[] = []
+  let parcial = false
+  let total = 1
+  for (let p = 1; p <= total; p++) {
+    const r = await chamarOmie(cred, 'geral/categorias', 'ListarCategorias', {
+      pagina: p,
+      registros_por_pagina: 50,
+    })
+    if (r.falha) {
+      log(`categorias, página ${p}: ${r.falha.slice(0, 160)}`)
+      parcial = true
+      break
+    }
+    total = Number(r.corpo['total_de_paginas'] ?? p)
+    const lote = (r.corpo['categoria_cadastro'] ?? []) as Record<string, unknown>[]
+    if (lote.length === 0) break
+    for (const c of lote) {
+      const codigo = String(c['codigo'] ?? '').trim()
+      if (!codigo) continue
+      categorias.push({
+        codigo,
+        descricao: String(c['descricao'] ?? '').trim() || codigo,
+        categoriaSuperior: (String(c['categoria_superior'] ?? '').trim() || null),
+        natureza: (String(c['natureza'] ?? '').trim() || null),
+        tipo: (String(c['tipo_categoria'] ?? '').trim() || null),
+        contaReceita: c['conta_receita'] === 'S',
+        contaDespesa: c['conta_despesa'] === 'S',
+        totalizadora: c['totalizadora'] === 'S',
+        inativa: c['conta_inativa'] === 'S',
+      })
+    }
+  }
+  return { categorias, parcial }
+}
+
+export async function gravarCategorias(
+  db: pg.Pool,
+  categorias: readonly CategoriaOmie[],
+): Promise<number> {
+  if (categorias.length === 0) return 0
+  const unicas = porChave(categorias, (c) => c.codigo)
+  const { rowCount } = await db.query(
+    `INSERT INTO core.omie_categoria
+       (codigo, descricao, categoria_superior, natureza, tipo,
+        conta_receita, conta_despesa, totalizadora, inativa, sincronizado_em)
+     SELECT x.codigo, x.descricao, x.categoria_superior, x.natureza, x.tipo,
+            x.conta_receita, x.conta_despesa, x.totalizadora, x.inativa, now()
+       FROM jsonb_to_recordset($1::jsonb) AS x(
+         codigo text, descricao text, categoria_superior text, natureza text, tipo text,
+         conta_receita boolean, conta_despesa boolean, totalizadora boolean, inativa boolean)
+     ON CONFLICT (codigo) DO UPDATE SET
+       descricao = EXCLUDED.descricao, categoria_superior = EXCLUDED.categoria_superior,
+       natureza = EXCLUDED.natureza, tipo = EXCLUDED.tipo,
+       conta_receita = EXCLUDED.conta_receita, conta_despesa = EXCLUDED.conta_despesa,
+       totalizadora = EXCLUDED.totalizadora, inativa = EXCLUDED.inativa,
+       sincronizado_em = now()`,
+    [JSON.stringify(unicas.map((c) => ({
+      codigo: c.codigo, descricao: c.descricao, categoria_superior: c.categoriaSuperior,
+      natureza: c.natureza, tipo: c.tipo, conta_receita: c.contaReceita,
+      conta_despesa: c.contaDespesa, totalizadora: c.totalizadora, inativa: c.inativa,
+    })))],
+  )
+  return rowCount ?? 0
+}

@@ -62,6 +62,19 @@ const MES = (m: string) => {
   return `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(mm) - 1]}/${a?.slice(2)}`
 }
 
+/** O link do filtro, preservando o que já estava selecionado. */
+const comFiltro = (id: string, q: Record<string, string | undefined>) => {
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(q)) {
+    // `ok` e `erro` são mensagens de uma ação que já aconteceu: carregá-las no
+    // filtro faria o aviso reaparecer a cada clique, como se tivesse acabado de
+    // acontecer de novo.
+    if (v && v !== 'todas' && k !== 'ok' && k !== 'erro') p.set(k, v)
+  }
+  const s = p.toString()
+  return `/carteira/base/${id}${s ? `?${s}` : ''}#faturamento`
+}
+
 /** Pares rótulo/valor. É a forma que uma ficha pede — não é tabela, é cadastro. */
 function Campos({ pares }: { pares: [string, React.ReactNode][] }) {
   return (
@@ -76,26 +89,40 @@ function Campos({ pares }: { pares: [string, React.ReactNode][] }) {
   )
 }
 
-const TOM_STATUS: Record<string, 'green' | 'amber' | 'red' | 'slate'> = {
-  RECEBIDO: 'green',
-  ATRASADO: 'red',
-  CANCELADO: 'slate',
-  ABERTO: 'amber',
-  PAGO: 'green',
+/** A situação normalizada da 0040 — seis textos do Omie viram cinco estados. */
+const TOM_SITUACAO: Record<string, 'green' | 'amber' | 'red' | 'slate'> = {
+  recebido: 'green',
+  atrasado: 'red',
+  a_vencer: 'amber',
+  cancelado: 'slate',
+  previsao: 'slate',
 }
+const ROTULO_SITUACAO: Record<string, string> = {
+  recebido: 'recebido',
+  atrasado: 'atrasado',
+  a_vencer: 'a vencer',
+  cancelado: 'cancelado',
+  previsao: 'previsão',
+}
+const SITUACOES = ['todas', 'recebido', 'a_vencer', 'atrasado', 'cancelado', 'previsao'] as const
 
 export default async function FichaDeCliente({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ ok?: string; erro?: string }>
+  searchParams: Promise<{ ok?: string; erro?: string; sit?: string; cat?: string }>
 }) {
   const identidade = await exigir((p) => temEscopo(p.contas), 'ficha do cliente')
   const { id } = await params
   const q = await searchParams
   const conta_id = uuidOu404(id)
-  const f = await fichaDoCliente(pool(), conta_id)
+  const filtro = {
+    ...(q.sit && q.sit !== 'todas' ? { situacao: q.sit } : {}),
+    ...(q.cat && q.cat !== 'todas' ? { categoria: q.cat } : {}),
+    incluirPrevisao: q.sit === 'previsao',
+  }
+  const f = await fichaDoCliente(pool(), conta_id, filtro)
   if (!f) notFound()
 
   const [identidades, candidatos, diagnostico, historico] = await Promise.all([
@@ -116,7 +143,9 @@ export default async function FichaDeCliente({
   // porque a base tem parcelas contratadas com vencimento até lá e `slice(-24)`
   // pega o fim do CALENDÁRIO. O histórico que alguém abre esta tela para ver é o
   // recente; o futuro tem KPI próprio.
-  const passado = resumo.porMes.filter((m) => !m.futuro)
+  // `porMes` já exclui previsão na consulta (0040): o que sobra é faturamento
+  // emitido, e aí os últimos 24 meses da série SÃO os últimos 24 meses reais.
+  const passado = resumo.porMes
   const ultimosMeses = passado.slice(-24)
   // Escala pelo maior mês da JANELA: escalar pelo maior da série inteira achataria
   // 24 meses reais contra um pico de 2043 que nem está desenhado.
@@ -215,29 +244,52 @@ export default async function FichaDeCliente({
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {/* "Faturado" é o que JÁ VENCEU. O contratado à frente vai no KPI ao
-                  lado, com o nome certo — somar os dois sob "faturado" multiplicava
-                  o número por sete no maior cliente da base. */}
+              {/* FATURADO é tudo que foi EMITIDO — recebido, cancelado, a vencer e
+                  atrasado. Previsão fica fora e tem espaço próprio abaixo: são 66 mil
+                  títulos na base que nunca foram faturados, e somá-los aqui
+                  multiplicaria o número da Swile por sete. */}
               <Kpi
-                rotulo="Faturado até hoje"
-                valor={BRL(resumo.vencidoCentavos)}
-                nota={`${N(resumo.titulosVencidos)} títulos vencidos`}
+                rotulo="Faturado"
+                valor={BRL(resumo.totalCentavos)}
+                nota={`${N(resumo.titulos)} títulos emitidos`}
               />
-              <Kpi rotulo="Recebido" valor={BRL(resumo.pagoCentavos)} tom="green" nota={`último em ${DATA(resumo.ultimoPagamento)}`} />
+              <Kpi
+                rotulo="Recebido"
+                valor={BRL(resumo.recebidoCentavos)}
+                tom="green"
+                nota={
+                  resumo.ultimoPagamento
+                    ? `${N(resumo.recebidoTitulos)} títulos · último em ${DATA(resumo.ultimoPagamento)}`
+                    : `${N(resumo.recebidoTitulos)} títulos`
+                }
+              />
               <Kpi
                 rotulo="Em aberto"
-                valor={BRL(resumo.abertoCentavos)}
-                tom={resumo.abertoCentavos > 0 ? 'amber' : undefined}
-                nota={resumo.abertoCentavos > 0 ? 'de títulos já vencidos' : 'nada vencido em aberto'}
+                valor={BRL(resumo.atrasadoCentavos + resumo.aVencerCentavos)}
+                tom={resumo.atrasadoCentavos > 0 ? 'red' : resumo.aVencerCentavos > 0 ? 'amber' : undefined}
+                nota={
+                  resumo.atrasadoCentavos > 0
+                    ? `${N(resumo.atrasadoTitulos)} atrasado(s) · ${N(resumo.aVencerTitulos)} a vencer`
+                    : `${N(resumo.aVencerTitulos)} a vencer`
+                }
               />
-              {/* O MRR declarado volta ao lugar do KPI: a carteira futura saiu da tela
-                  por decisão de 13/08 — aqui é histórico. */}
               <Kpi
-                rotulo="MRR no Omie"
-                valor={omie?.caracteristicas['MRR'] ? `R$ ${omie.caracteristicas['MRR']}` : '—'}
-                nota={omie?.caracteristicas['MRR'] ? 'declarado no cadastro' : 'não preenchido no Omie'}
+                rotulo="Cancelado"
+                valor={BRL(resumo.canceladoCentavos)}
+                tom={resumo.canceladoCentavos > 0 ? 'amber' : undefined}
+                nota={`${N(resumo.canceladoTitulos)} títulos faturados e cancelados`}
               />
             </div>
+
+            {resumo.previsaoCentavos > 0 && (
+              <p className="text-[12.5px] leading-relaxed text-ink-3">
+                Fora dos números acima:{' '}
+                <strong className="font-semibold text-ink-2">{BRL(resumo.previsaoCentavos)}</strong> em{' '}
+                {N(resumo.previsaoTitulos)} títulos de <strong className="font-semibold">previsão</strong> — a
+                recorrência que o Omie projeta e ainda NÃO emitiu, até {DATA(resumo.ultimoVencimento)}. Não é
+                faturamento; é o que se espera faturar.
+              </p>
+            )}
 
             {vinculo === 'raiz' && (
               <Aviso tom="alerta">
@@ -385,14 +437,22 @@ export default async function FichaDeCliente({
             <Table
               cols={['Categoria', 'Títulos', 'Valor']}
               rows={resumo.categorias.map((c) => [
-                <span className="font-mono text-[12.5px] text-ink">{c.categoria}</span>,
+                <span className="text-[12.5px] font-medium text-ink">
+                  {c.nome}
+                  {/* O código sai da coluna e vira legenda: quem conversa sobre receita
+                      fala "MRR", não "1.01.02". O código continua à vista para quem
+                      precisa conferir no Omie. */}
+                  <span className="ml-1.5 font-mono text-[10.5px] text-ink-3">{c.categoria}</span>
+                </span>,
                 <span className="tabular-nums text-ink-2">{N(c.titulos)}</span>,
                 <span className="tabular-nums font-semibold text-ink">{BRL(c.totalCentavos)}</span>,
               ])}
             />
             <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
-              <strong className="font-semibold text-ink">1.01.02</strong> é a receita de assinatura — 76% dos títulos
-              da base inteira. As demais separam setup, repasse e avulsos.
+              Os nomes vêm do plano de categorias do Omie, sincronizado pelo C20 — 225 categorias.{' '}
+              <strong className="font-semibold text-ink">MRR</strong> (1.01.02) é a receita de assinatura e responde
+              por 76% dos títulos da base inteira; <strong className="font-semibold text-ink">UPFRONT</strong> e{' '}
+              <strong className="font-semibold text-ink">SETUP</strong> são 1.01.01 e 1.01.03.
             </p>
           </Card>
         )}
@@ -590,7 +650,55 @@ export default async function FichaDeCliente({
         </Card>
 
         {/* ── Todo o histórico ── */}
-        <Card title={`Histórico de faturamento · ${N(faturamento.length)} títulos`}>
+        <div id="faturamento" className="scroll-mt-24" />
+        <Card
+          title={`Histórico de faturamento · ${N(faturamento.length)} títulos`}
+          actions={
+            /* Filtro por LINK e não por JavaScript: o estado mora na URL, sobrevive a
+               recarregar, e pode ser mandado por mensagem para outra pessoa olhar
+               exatamente o mesmo recorte. É o mesmo padrão do `?abrir=` da Base. */
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+              <span className="text-ink-3">situação:</span>
+              {SITUACOES.map((sit) => {
+                const ativa = (q.sit ?? 'todas') === sit
+                return (
+                  <Link
+                    key={sit}
+                    scroll={false}
+                    href={comFiltro(conta.id, { ...q, sit })}
+                    className={ativa ? 'font-semibold text-purple-700' : 'text-ink-3 hover:text-ink'}
+                  >
+                    {sit === 'todas' ? 'todas' : (ROTULO_SITUACAO[sit] ?? sit)}
+                  </Link>
+                )
+              })}
+            </div>
+          }
+        >
+          {resumo.categorias.length > 1 && (
+            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-3 text-[12px]">
+              <span className="text-ink-3">categoria:</span>
+              <Link
+                scroll={false}
+                href={comFiltro(conta.id, { ...q, cat: 'todas' })}
+                className={
+                  (q.cat ?? 'todas') === 'todas' ? 'font-semibold text-purple-700' : 'text-ink-3 hover:text-ink'
+                }
+              >
+                todas
+              </Link>
+              {resumo.categorias.map((c) => (
+                <Link
+                  key={c.categoria}
+                  scroll={false}
+                  href={comFiltro(conta.id, { ...q, cat: c.categoria })}
+                  className={q.cat === c.categoria ? 'font-semibold text-purple-700' : 'text-ink-3 hover:text-ink'}
+                >
+                  {c.nome}
+                </Link>
+              ))}
+            </div>
+          )}
           {faturamento.length === 0 ? (
             <Vazio
               titulo="Nenhum título."
@@ -602,7 +710,9 @@ export default async function FichaDeCliente({
                 cols={['Título', 'Categoria', 'Emissão', 'Vencimento', 'Pagamento', 'Valor', 'Recebido', 'Aberto', 'Situação']}
                 rows={faturamento.map((t) => [
                   <span className="font-mono text-[11.5px] text-ink-3">{t.codigoTitulo}</span>,
-                  <span className="font-mono text-[11.5px] text-ink-2">{t.categoria ?? '—'}</span>,
+                  <span className="text-[11.5px] text-ink-2">
+                    {t.categoriaNome ?? t.categoria ?? '—'}
+                  </span>,
                   <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">{DATA(t.emissao)}</span>,
                   <span className="whitespace-nowrap tabular-nums text-[12px] text-ink">{DATA(t.vencimento)}</span>,
                   <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">{DATA(t.pagamento)}</span>,
@@ -611,20 +721,31 @@ export default async function FichaDeCliente({
                   <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">
                     {Number(t.abertoCentavos) > 0 ? BRL(t.abertoCentavos) : '—'}
                   </span>,
-                  <Badge tone={TOM_STATUS[t.status ?? ''] ?? 'slate'}>{t.status?.toLowerCase() ?? '—'}</Badge>,
+                  <Badge tone={TOM_SITUACAO[t.situacao] ?? 'slate'}>{ROTULO_SITUACAO[t.situacao] ?? t.status?.toLowerCase() ?? '—'}</Badge>,
                 ])}
               />
               <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
-                Todos os títulos já vencidos, do mais recente ao mais antigo, sem corte — uma lista truncada faria a
-                soma da tela discordar dos totais acima.
-                {resumo.titulosAVencer > 0 && (
+                {q.sit || q.cat ? (
+                  <>
+                    Filtrado. <Link href={comFiltro(conta.id, {})} className="font-semibold text-purple-700">
+                      limpar filtros
+                    </Link>{' '}
+                    para ver os {N(resumo.titulos)} títulos emitidos.
+                  </>
+                ) : (
+                  'Todos os títulos emitidos, do mais recente ao mais antigo, sem corte — uma lista truncada faria a soma da tela discordar dos totais acima.'
+                )}
+                {resumo.previsaoTitulos > 0 && q.sit !== 'previsao' && (
                   <>
                     {' '}
                     <strong className="font-semibold text-ink">
-                      {N(resumo.titulosAVencer)} parcelas ainda a vencer não entram aqui
+                      {N(resumo.previsaoTitulos)} títulos de previsão não entram aqui
                     </strong>{' '}
-                    (até {DATA(resumo.ultimoVencimento)}, {BRL(resumo.aVencerCentavos)}): esta tela é do que já
-                    aconteceu. Carteira contratada é outra pergunta.
+                    ({BRL(resumo.previsaoCentavos)}) — recorrência projetada e não emitida.{' '}
+                    <Link href={comFiltro(conta.id, { ...q, sit: 'previsao' })} className="font-semibold text-purple-700">
+                      ver a previsão
+                    </Link>
+                    .
                   </>
                 )}
                 {documentos.length > 1 && (

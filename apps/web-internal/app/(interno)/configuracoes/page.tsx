@@ -1,6 +1,6 @@
 import { CATALOGO, POR_GRUPO, chavesOrfas, gravados, lerConfiguracao } from '@pulse/config'
 import { Aviso, Badge, Btn, Card, Field } from '@pulse/ui'
-import { KeyRound, ShieldCheck, ScrollText, Users } from 'lucide-react'
+import { KeyRound, ScrollText, ShieldCheck, Users, Wallet } from 'lucide-react'
 import Link from 'next/link'
 
 import { salvarAjuste } from './acoes'
@@ -65,6 +65,13 @@ export default async function Configuracoes({
             >
               <ShieldCheck className="h-[14px] w-[14px]" />
               Acessos
+            </Link>
+            <Link
+              href="/configuracoes/omie"
+              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
+            >
+              <Wallet className="h-[14px] w-[14px]" />
+              Omie
             </Link>
             <Link
               href="/configuracoes/segredos"
