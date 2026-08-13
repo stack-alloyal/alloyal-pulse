@@ -1,0 +1,18 @@
+[Unit]
+Description=Agenda o backup diario do banco do Alloyal Pulse
+
+[Timer]
+# 03:30 e não 03:00: às 03:00 roda o backup da casa (stack-backup.timer), que faz
+# pg_dumpall no Postgres compartilhado. Meia hora depois os dois não disputam I/O
+# no mesmo disco. E antes das 04:00, que é quando a VM tem reboot automático.
+OnCalendar=*-*-* 03:30:00
+
+# Se a VM estiver desligada no horário, roda ao voltar. Sem isto, um reboot que
+# atravesse as 03:30 simplesmente pula o backup do dia — em silêncio.
+Persistent=true
+
+# Espalha até 5 min para não bater junto com os outros timers da VM.
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,34 @@
+[Unit]
+# O backup da casa (stack-backup.timer, 03:00) roda pg_dumpall no Postgres
+# COMPARTILHADO. O Pulse tem instância própria — `postgres-pulse` —, logo não é
+# coberto por ele. Sem esta unit, a base que sustenta NRR e churn fica sem backup
+# e ninguém percebe até precisar restaurar. Foi exatamente o que aconteceu entre
+# o renome (31/07/2026) e 10/08/2026: zero backups, e nenhum alarme.
+Description=Backup diario do banco do Alloyal Pulse
+Documentation=file:/home/ubuntu/alloyal-pulse/infra/backup/pulse-backup.sh
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+
+# Roda como o dono do diretório de backup, e não como root: com root os arquivos
+# saem root:root e o `make backup` manual (rodado como ubuntu) passa a não
+# conseguir aplicar a retenção nos arquivos do timer. Precisa do grupo docker
+# porque o dump é um `docker exec` no contêiner do Postgres.
+User=ubuntu
+Group=docker
+SupplementaryGroups=docker
+
+WorkingDirectory=/home/ubuntu/alloyal-pulse
+ExecStart=/bin/bash /home/ubuntu/alloyal-pulse/infra/backup/pulse-backup.sh
+
+# O destinatário age NÃO é declarado aqui de propósito: o script o lê do
+# .sops.yaml, que é onde a rotação semestral da chave já mexe. Declarar aqui
+# criaria uma segunda verdade que ninguém lembraria de atualizar.
+
+# Um backup que demora mais que isso está travado, não lento.
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

@@ -107,5 +107,16 @@ ps: ## Estado dos contêineres
 	$(COMPOSE) ps
 
 .PHONY: backup
-backup: ## [PRODUÇÃO] Dump do banco do Pulse
+backup: ## [PRODUÇÃO] Dump cifrado do banco do Pulse
 	bash infra/backup/pulse-backup.sh
+
+.PHONY: backup-test
+backup-test: ## Restaura o backup mais recente num Postgres descartável e confere o que voltou
+	bash infra/backup/pulse-restore-test.sh
+
+.PHONY: backup-timer
+backup-timer: ## [PRODUÇÃO] Instala e liga o timer diário do backup (03:30 UTC)
+	sudo cp infra/backup/pulse-backup.service infra/backup/pulse-backup.timer /etc/systemd/system/
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now pulse-backup.timer
+	systemctl list-timers pulse-backup.timer --no-pager

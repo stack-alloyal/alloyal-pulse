@@ -56,13 +56,47 @@ fi
 mv "$PARCIAL" "$BACKUP_DIR/pulse-$STAMP.dump"
 echo "dump verificado: $TABELAS tabelas com dado"
 
+# ─── Cifragem ───────────────────────────────────────────────────────────────
+# O destinatário sai do .sops.yaml, e não de uma variável no serviço systemd.
+# Motivo: `make secrets-rotate` troca a chave semestralmente, e um recipient
+# copiado para dentro da unit ficaria para trás — os backups seguintes sairiam
+# cifrados para uma chave que ninguém mais tem. Uma verdade só, no lugar onde a
+# rotação já mexe.
+#
+# ATENÇÃO NA ROTAÇÃO: guarde a chave PRIVADA antiga por pelo menos RETENCAO_DIAS
+# ($RETENCAO_DIAS hoje) depois de rotacionar. Os backups já gravados continuam
+# cifrados para ela, e a retenção é o que define quando o último deles expira.
+RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [ -z "${AGE_RECIPIENT:-}" ] && [ -f "$RAIZ/.sops.yaml" ]; then
+  AGE_RECIPIENT="$(grep -oE 'age1[a-z0-9]{50,}' "$RAIZ/.sops.yaml" | head -1)"
+fi
+
+# Recusa gravar em claro. O dump tem CPF, e-mail e telefone de gente real, e um
+# arquivo em claro no disco é a diferença entre "vazou o backup" e "vazou um
+# arquivo que ninguém abre sem a chave". Se for mesmo preciso, PERMITIR_CLARO=1
+# diz isso em voz alta — o que um aviso no stderr de um timer noturno não faz,
+# porque ninguém lê o log de um serviço que terminou com sucesso.
+if [ "${PERMITIR_CLARO:-0}" != "1" ]; then
+  if ! command -v age >/dev/null 2>&1; then
+    rm -f "$BACKUP_DIR/pulse-$STAMP.dump"
+    echo "ERRO: 'age' não está instalado e o dump tem dado pessoal. Instale, ou rode com PERMITIR_CLARO=1." >&2
+    exit 1
+  fi
+  if [ -z "${AGE_RECIPIENT:-}" ]; then
+    rm -f "$BACKUP_DIR/pulse-$STAMP.dump"
+    echo "ERRO: sem destinatário age (nem AGE_RECIPIENT, nem chave no .sops.yaml de $RAIZ)." >&2
+    exit 1
+  fi
+fi
+
 if command -v age >/dev/null 2>&1 && [ -n "${AGE_RECIPIENT:-}" ]; then
   age -r "$AGE_RECIPIENT" -o "$BACKUP_DIR/pulse-$STAMP.dump.age" "$BACKUP_DIR/pulse-$STAMP.dump"
   rm -f "$BACKUP_DIR/pulse-$STAMP.dump"
-  echo "backup cifrado: $BACKUP_DIR/pulse-$STAMP.dump.age"
+  chmod 600 "$BACKUP_DIR/pulse-$STAMP.dump.age"
+  echo "backup cifrado para ${AGE_RECIPIENT:0:16}…: $BACKUP_DIR/pulse-$STAMP.dump.age"
 else
-  # Dump em claro contém dado pessoal. Avisar alto: não é detalhe.
-  echo "AVISO: backup NÃO cifrado (defina AGE_RECIPIENT). Contém dado pessoal." >&2
+  chmod 600 "$BACKUP_DIR/pulse-$STAMP.dump"
+  echo "AVISO: backup NÃO cifrado (PERMITIR_CLARO=1). Contém dado pessoal." >&2
   echo "backup: $BACKUP_DIR/pulse-$STAMP.dump"
 fi
 
