@@ -37,8 +37,11 @@ import {
   credencialDoCore,
   credencialDoOmie,
   gravarCategorias,
+  gravarExtras,
   gravarOmie,
   lerCategorias,
+  lerContratos,
+  lerVendedores,
   lerFichas,
   lerLogoDoApp,
   lerMovimentos,
@@ -759,6 +762,20 @@ export const c20Omie = defineCycle({
     const r = await gravarOmie(db, { fichas: fichas.fichas, movimentos: mov.movimentos });
     ctx.log(`gravado: ${r.fichas} ficha(s) · ${r.movimentos} título(s)`);
 
+    // Vendedores e contratos: baratos (35 e 2.231) e é onde moram o VENDEDOR do
+    // cliente e o valor MENSAL do contrato — MRR na fonte. As baixas já vieram na
+    // varredura acima e eram descartadas.
+    const vend = await lerVendedores(cred);
+    const ctr = await lerContratos(cred, { log: ctx.log });
+    const extras = await gravarExtras(db, {
+      vendedores: vend,
+      contratos: ctr.contratos,
+      baixas: mov.baixas,
+    });
+    ctx.log(
+      `extras: ${extras.vendedores} vendedor(es) · ${extras.contratos} contrato(s) · ${extras.baixas} baixa(s)`,
+    );
+
     // Vincula o que o HubSpot já declara. Vem ANTES da conferência porque muda o
     // conjunto de identidades da conta, e a conferência lê esse conjunto.
     const auto = await vincularPeloHubspot(db);
@@ -774,8 +791,11 @@ export const c20Omie = defineCycle({
     );
 
     return {
-      linhasLidas: fichas.fichas.length + mov.movimentos.length,
-      linhasGravadas: r.fichas + r.movimentos,
+      linhasLidas:
+        fichas.fichas.length + mov.movimentos.length + mov.baixas.length +
+        vend.length + ctr.contratos.length,
+      linhasGravadas:
+        r.fichas + r.movimentos + extras.vendedores + extras.contratos + extras.baixas,
       // `parcial` sobe no detalhe para a tela de Sincronização mostrar que a
       // varredura não terminou — uma carga parcial que se anuncia "ok" faz alguém
       // concluir que o cliente sumiu do Omie.
@@ -783,7 +803,10 @@ export const c20Omie = defineCycle({
         fichas: r.fichas,
         titulos: r.movimentos,
         categorias: nCats,
-        parcial: fichas.parcial || mov.parcial || cats.parcial,
+        vendedores: extras.vendedores,
+        contratos: extras.contratos,
+        baixas: extras.baixas,
+        parcial: fichas.parcial || mov.parcial || cats.parcial || ctr.parcial,
         vinculosAutomaticos: auto,
         conferencia: fila,
       },

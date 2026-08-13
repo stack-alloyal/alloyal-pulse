@@ -250,8 +250,12 @@ export interface MovimentoOmie {
 export async function lerMovimentos(
   cred: CredencialOmie,
   { log = () => {}, desde }: { log?: (m: string) => void; desde?: string } = {},
-): Promise<{ movimentos: MovimentoOmie[]; paginas: number; parcial: boolean }> {
+): Promise<{ movimentos: MovimentoOmie[]; baixas: BaixaOmie[]; paginas: number; parcial: boolean }> {
   const movimentos: MovimentoOmie[] = []
+  // As linhas com valor de título ZERO são movimento de caixa, não título. Já
+  // vinham na mesma varredura e eram descartadas: guardá-las é de graça, e elas
+  // carregam juros, multa e a data real do dinheiro.
+  const baixas: BaixaOmie[] = []
   let paginas = 0
   let parcial = false
   let total = 1
@@ -282,8 +286,22 @@ export async function lerMovimentos(
       // `ListarContasReceber` — mesmos códigos, mesmo total (ver migration 0037).
       // Guardar as duas somaria o recebimento duas vezes.
       const valorCentavos = centavos(d['nValorTitulo'])
-      if (valorCentavos <= 0) continue
       const codigoTitulo = Number(d['nCodTitulo'])
+      if (valorCentavos <= 0) {
+        if (Number.isFinite(codigoTitulo) && codigoTitulo > 0) {
+          baixas.push({
+            codigoTitulo,
+            documento,
+            pagamento: data(d['dDtPagamento']),
+            pagoCentavos: centavos(s['nValPago']),
+            jurosCentavos: centavos(s['nJuros']),
+            multaCentavos: centavos(s['nMulta']),
+            descontoCentavos: centavos(s['nDesconto']),
+            categoria: (String(d['cCodCateg'] ?? '').trim() || null),
+          })
+        }
+        continue
+      }
       if (!Number.isFinite(codigoTitulo) || codigoTitulo <= 0) continue
       movimentos.push({
         codigoTitulo,
@@ -302,7 +320,7 @@ export async function lerMovimentos(
       })
     }
   }
-  return { movimentos, paginas, parcial }
+  return { movimentos, baixas, paginas, parcial }
 }
 
 /**
@@ -499,4 +517,202 @@ export async function gravarCategorias(
     })))],
   )
   return rowCount ?? 0
+}
+
+// ═══ Vendedores, contratos e baixas ══════════════════════════════════════════
+
+export interface VendedorOmie {
+  codigo: number
+  nome: string
+  email: string | null
+  comissao: number | null
+  inativo: boolean
+}
+
+export async function lerVendedores(cred: CredencialOmie): Promise<VendedorOmie[]> {
+  const out: VendedorOmie[] = []
+  let total = 1
+  for (let p = 1; p <= total; p++) {
+    const r = await chamarOmie(cred, 'geral/vendedores', 'ListarVendedores', {
+      pagina: p, registros_por_pagina: 50,
+    })
+    if (r.falha) break
+    total = Number(r.corpo['total_de_paginas'] ?? p)
+    const lote = (r.corpo['cadastro'] ?? []) as Record<string, unknown>[]
+    if (lote.length === 0) break
+    for (const v of lote) {
+      const codigo = Number(v['codigo'])
+      if (!Number.isFinite(codigo)) continue
+      out.push({
+        codigo,
+        nome: String(v['nome'] ?? '').trim() || String(codigo),
+        email: (String(v['email'] ?? '').trim() || null),
+        comissao: v['comissao'] === undefined ? null : Number(v['comissao']),
+        inativo: v['inativo'] === 'S',
+      })
+    }
+  }
+  return out
+}
+
+export interface ContratoOmie {
+  codigo: number
+  numero: string | null
+  codigoCliente: number | null
+  situacao: string | null
+  vigenciaInicio: string | null
+  vigenciaFim: string | null
+  diaFaturamento: number | null
+  tipoFaturamento: string | null
+  valorMensalCentavos: number
+  codigoVendedor: number | null
+  categoria: string | null
+}
+
+/**
+ * Contratos de serviço. `nValTotMes` é o valor MENSAL — MRR na fonte.
+ *
+ * O documento do cliente não vem no contrato, só o código: a gravação resolve isso
+ * com um join contra `core.omie_cliente`, que já está sincronizada.
+ */
+export async function lerContratos(
+  cred: CredencialOmie,
+  { log = () => {} }: { log?: (m: string) => void } = {},
+): Promise<{ contratos: ContratoOmie[]; parcial: boolean }> {
+  const contratos: ContratoOmie[] = []
+  let parcial = false
+  let total = 1
+  for (let p = 1; p <= total; p++) {
+    const r = await chamarOmie(cred, 'servicos/contrato', 'ListarContratos', {
+      pagina: p, registros_por_pagina: 50,
+    })
+    if (r.falha) {
+      log(`contratos, página ${p}: ${r.falha.slice(0, 140)}`)
+      parcial = true
+      break
+    }
+    total = Number(r.corpo['total_de_paginas'] ?? p)
+    const lote = (r.corpo['contratoCadastro'] ?? []) as Record<string, unknown>[]
+    if (lote.length === 0) break
+    for (const c of lote) {
+      const cab = (c['cabecalho'] ?? {}) as Record<string, unknown>
+      const inf = (c['infAdic'] ?? {}) as Record<string, unknown>
+      const codigo = Number(cab['nCodCtr'])
+      if (!Number.isFinite(codigo)) continue
+      contratos.push({
+        codigo,
+        numero: (String(cab['cNumCtr'] ?? '').trim() || null),
+        codigoCliente: cab['nCodCli'] ? Number(cab['nCodCli']) : null,
+        situacao: (String(cab['cCodSit'] ?? '').trim() || null),
+        vigenciaInicio: data(cab['dVigInicial']),
+        vigenciaFim: data(cab['dVigFinal']),
+        diaFaturamento: cab['nDiaFat'] ? Number(cab['nDiaFat']) : null,
+        tipoFaturamento: (String(cab['cTipoFat'] ?? '').trim() || null),
+        valorMensalCentavos: centavos(cab['nValTotMes']),
+        codigoVendedor: inf['nCodVend'] ? Number(inf['nCodVend']) : null,
+        categoria: (String(inf['cCodCateg'] ?? '').trim() || null),
+      })
+    }
+  }
+  return { contratos, parcial }
+}
+
+export interface BaixaOmie {
+  codigoTitulo: number
+  documento: string
+  pagamento: string | null
+  pagoCentavos: number
+  jurosCentavos: number
+  multaCentavos: number
+  descontoCentavos: number
+  categoria: string | null
+}
+
+export async function gravarExtras(
+  db: pg.Pool,
+  d: {
+    vendedores?: readonly VendedorOmie[]
+    contratos?: readonly ContratoOmie[]
+    baixas?: readonly BaixaOmie[]
+  },
+): Promise<{ vendedores: number; contratos: number; baixas: number }> {
+  let vendedores = 0
+  let contratos = 0
+  let baixas = 0
+
+  if (d.vendedores?.length) {
+    const r = await db.query(
+      `INSERT INTO core.omie_vendedor (codigo, nome, email, comissao, inativo, sincronizado_em)
+       SELECT x.codigo, x.nome, x.email, x.comissao, x.inativo, now()
+         FROM jsonb_to_recordset($1::jsonb) AS x(
+           codigo bigint, nome text, email text, comissao numeric, inativo boolean)
+       ON CONFLICT (codigo) DO UPDATE SET nome=EXCLUDED.nome, email=EXCLUDED.email,
+         comissao=EXCLUDED.comissao, inativo=EXCLUDED.inativo, sincronizado_em=now()`,
+      [JSON.stringify(porChave(d.vendedores, (v) => v.codigo))],
+    )
+    vendedores = r.rowCount ?? 0
+  }
+
+  for (const lote of emLotes(porChave(d.contratos ?? [], (c) => c.codigo), 500)) {
+    const r = await db.query(
+      `INSERT INTO core.omie_contrato
+         (codigo, numero, codigo_cliente, documento, situacao, vigencia_inicio, vigencia_fim,
+          dia_faturamento, tipo_faturamento, valor_mensal_centavos, codigo_vendedor, categoria,
+          sincronizado_em)
+       SELECT x.codigo, x.numero, x.codigo_cliente,
+              -- O documento vem do cliente já sincronizado: o contrato só traz o
+              -- código, e o documento é a chave por onde tudo se liga aqui.
+              (SELECT o.documento FROM core.omie_cliente o WHERE o.codigo_omie = x.codigo_cliente),
+              x.situacao, x.vigencia_inicio, x.vigencia_fim, x.dia_faturamento,
+              x.tipo_faturamento, x.valor_mensal_centavos, x.codigo_vendedor, x.categoria, now()
+         FROM jsonb_to_recordset($1::jsonb) AS x(
+           codigo bigint, numero text, codigo_cliente bigint, situacao text,
+           vigencia_inicio date, vigencia_fim date, dia_faturamento smallint,
+           tipo_faturamento text, valor_mensal_centavos bigint, codigo_vendedor bigint,
+           categoria text)
+       ON CONFLICT (codigo) DO UPDATE SET
+         numero=EXCLUDED.numero, codigo_cliente=EXCLUDED.codigo_cliente,
+         documento=EXCLUDED.documento, situacao=EXCLUDED.situacao,
+         vigencia_inicio=EXCLUDED.vigencia_inicio, vigencia_fim=EXCLUDED.vigencia_fim,
+         dia_faturamento=EXCLUDED.dia_faturamento, tipo_faturamento=EXCLUDED.tipo_faturamento,
+         valor_mensal_centavos=EXCLUDED.valor_mensal_centavos,
+         codigo_vendedor=EXCLUDED.codigo_vendedor, categoria=EXCLUDED.categoria,
+         sincronizado_em=now()`,
+      [JSON.stringify(lote.map((c) => ({
+        codigo: c.codigo, numero: c.numero, codigo_cliente: c.codigoCliente,
+        situacao: c.situacao, vigencia_inicio: c.vigenciaInicio, vigencia_fim: c.vigenciaFim,
+        dia_faturamento: c.diaFaturamento, tipo_faturamento: c.tipoFaturamento,
+        valor_mensal_centavos: c.valorMensalCentavos, codigo_vendedor: c.codigoVendedor,
+        categoria: c.categoria,
+      })))],
+    )
+    contratos += r.rowCount ?? 0
+  }
+
+  const chaveDaBaixa = (b: BaixaOmie) => `${b.codigoTitulo}|${b.pagamento}|${b.pagoCentavos}`
+  for (const lote of emLotes(porChave(d.baixas ?? [], chaveDaBaixa), 1000)) {
+    const r = await db.query(
+      `INSERT INTO core.omie_baixa
+         (codigo_titulo, pagamento, documento, pago_centavos, juros_centavos,
+          multa_centavos, desconto_centavos, categoria, sincronizado_em)
+       SELECT x.codigo_titulo, x.pagamento, x.documento, x.pago_centavos, x.juros_centavos,
+              x.multa_centavos, x.desconto_centavos, x.categoria, now()
+         FROM jsonb_to_recordset($1::jsonb) AS x(
+           codigo_titulo bigint, pagamento date, documento text, pago_centavos bigint,
+           juros_centavos bigint, multa_centavos bigint, desconto_centavos bigint, categoria text)
+       ON CONFLICT (codigo_titulo, pagamento, pago_centavos) DO UPDATE SET
+         documento=EXCLUDED.documento, juros_centavos=EXCLUDED.juros_centavos,
+         multa_centavos=EXCLUDED.multa_centavos, desconto_centavos=EXCLUDED.desconto_centavos,
+         categoria=EXCLUDED.categoria, sincronizado_em=now()`,
+      [JSON.stringify(lote.map((b) => ({
+        codigo_titulo: b.codigoTitulo, pagamento: b.pagamento, documento: b.documento,
+        pago_centavos: b.pagoCentavos, juros_centavos: b.jurosCentavos,
+        multa_centavos: b.multaCentavos, desconto_centavos: b.descontoCentavos,
+        categoria: b.categoria,
+      })))],
+    )
+    baixas += r.rowCount ?? 0
+  }
+
+  return { vendedores, contratos, baixas }
 }
