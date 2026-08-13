@@ -21,17 +21,17 @@ export const dynamic = 'force-dynamic'
  * │ DUAS ao mesmo tempo — que é exatamente o que se faz ao comparar dois        │
  * │ cadastros. Uma aba clássica esconderia a outra na hora de comparar.         │
  * │                                                                            │
- * │ Os dados vêm AO VIVO das APIs. Mostrar a cópia sincronizada responderia com │
- * │ o valor que a regra de precedência já escolheu, e a pessoa confirmaria a    │
- * │ própria regra em vez de conferir o dado.                                   │
+ * │ Os dados vêm da CÓPIA sincronizada, e não ao vivo — a web não decifra       │
+ * │ segredo (0016), então não tem como falar com Lecupon ou Omie. Cada aba diz  │
+ * │ quando foi sincronizada, para a idade do dado ficar visível.                │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 
 const ICONE = { pulse: Database, lecupon: Store, omie: Wallet } as const
 const TITULO = {
   pulse: 'Pulse — o que está gravado hoje',
-  lecupon: 'Lecupon — a fonte que vence',
-  omie: 'Omie — o financeiro',
+  lecupon: 'Lecupon — a fonte que vence (via C18)',
+  omie: 'Omie — o financeiro (via C20)',
 } as const
 
 export default async function FichaDaConferencia({
@@ -122,7 +122,8 @@ export default async function FichaDaConferencia({
             CNPJ <strong className="font-semibold tabular-nums">{item.cnpj ?? '—'}</strong> ·
             detectado em {new Date(item.detectadoEm).toLocaleString('pt-BR')}. O valor da
             Lecupon é o que o Pulse usa hoje — conferir é decidir se ele descreve{' '}
-            <em>este</em> cliente.
+            <em>este</em> cliente. As abas mostram a cópia sincronizada pelos ciclos, com a
+            data de cada uma: a superfície web não fala com as APIs, por desenho.
           </p>
         </Card>
 

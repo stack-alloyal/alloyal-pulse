@@ -1,20 +1,23 @@
 import type pg from 'pg'
 
-import { cabecalhos, type CredencialDoCore } from './core-lecupon.js'
-import { usarSegredo } from './uso.js'
-
 /**
  * O que cada fonte diz sobre uma conta, para a tela mostrar lado a lado.
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ Buscado AO VIVO, e não do que está sincronizado. A fila existe para alguém  │
- * │ decidir qual fonte está certa: mostrar a cópia do Pulse responderia com o   │
- * │ valor que a regra de precedência já escolheu, e a pessoa confirmaria a      │
- * │ própria regra em vez de conferir o dado.                                   │
+ * │ ERA AO VIVO, E NÃO PODIA SER. Descoberto em 13/08/2026, em produção: a      │
+ * │ superfície web conecta como `pulse_api`, que tem SELECT por COLUNA em       │
+ * │ `ops.segredo` — todas menos `valor_cifrado`. A aplicação web NÃO decifra    │
+ * │ segredo, e isso é desenho deliberado da 0016: ela é a superfície exposta, e │
+ * │ um furo nela não pode virar exfiltração das credenciais de integração.      │
  * │                                                                            │
- * │ Cada fonte falha por conta própria. Se o Omie estiver fora do ar, a aba da  │
- * │ Lecupon continua útil — e a aba do Omie DIZ que não respondeu, em vez de    │
- * │ aparecer vazia como se não houvesse cadastro lá.                           │
+ * │ O resultado era pior que uma tela quebrada: `usarSegredo` levantava         │
+ * │ "permission denied for table segredo", o `catch` transformava isso em       │
+ * │ `ok:false`, e a aba dizia "não respondeu" — culpando o Omie por uma         │
+ * │ permissão do nosso banco. Quem conferisse concluiria que a API caiu.        │
+ * │                                                                            │
+ * │ Agora lê a CÓPIA sincronizada, que o worker mantém (C18 e C20), e cada aba  │
+ * │ mostra QUANDO foi sincronizada. Perde-se o "agora"; ganha-se uma tela que   │
+ * │ funciona e que não mente sobre a idade do que mostra.                      │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 
@@ -53,8 +56,6 @@ const texto = (v: unknown): string => {
   return String(v)
 }
 
-const TEMPO_LIMITE_MS = 12_000
-
 /** A conta como o Pulse a guarda hoje — o resultado da regra de precedência. */
 export async function doPulse(db: pg.Pool, accountId: string): Promise<FonteConsultada> {
   const { rows } = await db.query<Record<string, unknown>>(
@@ -76,109 +77,84 @@ export async function doPulse(db: pg.Pool, accountId: string): Promise<FonteCons
   return { fonte: 'pulse', ok: true, campos: rotulos.map(([rot, k]) => ({ rotulo: rot, valor: texto(r[k]) })) }
 }
 
-/** O business como a Lecupon o devolve agora. */
+/**
+ * O que veio da Lecupon, da cópia que o C18 mantém em `core.account`.
+ *
+ * É o MESMO conteúdo da aba do Pulse, e isso não é redundância: a regra de
+ * precedência diz "Lecupon vence", então o valor gravado É o da Lecupon. A aba
+ * existe para deixar isso explícito — quem confere precisa ver de onde veio o
+ * número que está valendo, e não deduzir.
+ */
 export async function daLecupon(db: pg.Pool, brandId: string): Promise<FonteConsultada> {
-  let c: CredencialDoCore
-  try {
-    c = {
-      token: await usarSegredo(db, 'lecupon.employee_token'),
-      email: await usarSegredo(db, 'lecupon.employee_email'),
-      tenantCnpj: await usarSegredo(db, 'lecupon.tenant_cnpj').catch(() => ''),
-      base: 'https://api.lecupon.com/client/v3',
-    }
-  } catch (err) {
-    return {
-      fonte: 'lecupon', ok: false, campos: [],
-      erro: err instanceof Error ? err.message : 'credencial da Lecupon indisponível',
-    }
+  if (!brandId) {
+    return { fonte: 'lecupon', ok: false, campos: [], erro: 'a conta não tem Business ID' }
   }
-  try {
-    const r = await fetch(`${c.base}/businesses/${encodeURIComponent(brandId)}`, {
-      headers: cabecalhos(c),
-      signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
-    })
-    if (!r.ok) {
-      return { fonte: 'lecupon', ok: false, campos: [], erro: `a Lecupon respondeu ${r.status}` }
-    }
-    const corpo = (await r.json()) as Record<string, unknown>
-    const b = (corpo['business'] ?? corpo) as Record<string, unknown>
-    // Todos os campos, ordenados: quem confere não sabe de antemão qual vai esclarecer
-    // a dúvida, e esconder campo é o que obriga a abrir o sistema de origem.
-    return {
-      fonte: 'lecupon', ok: true,
-      campos: Object.keys(b)
-        .sort()
-        .map((k) => ({ rotulo: k, valor: SEGREDO.test(k) ? OCULTO : texto(b[k]) })),
-    }
-  } catch (err) {
-    return {
-      fonte: 'lecupon', ok: false, campos: [],
-      erro: `não foi possível falar com a Lecupon (${err instanceof Error ? err.message : 'erro de rede'})`,
-    }
+  const { rows } = await db.query<Record<string, unknown>>(
+    `SELECT brand_id, branch_id, razao_social, cnpj, hubspot_company_id, status_core, ativo,
+            usuarios_cadastrados, usuarios_autorizados, contato_email, porte, setor,
+            logo_url, sincronizado_em
+       FROM core.account WHERE brand_id = $1`,
+    [brandId],
+  )
+  const r = rows[0]
+  if (!r) return { fonte: 'lecupon', ok: true, campos: [], erro: 'nenhum business com este ID' }
+  return {
+    fonte: 'lecupon',
+    ok: true,
+    campos: Object.keys(r).sort().map((k) => ({
+      rotulo: k,
+      valor: SEGREDO.test(k) ? OCULTO : texto(r[k]),
+    })),
   }
 }
 
-/** A ficha do Omie, pelo CNPJ. Inclui as características, que só vêm no consultar. */
+/**
+ * A ficha do Omie, da cópia sincronizada pelo C20.
+ *
+ * Traz TODOS os campos, tags e características — o C20 grava a ficha inteira, e
+ * `caracteristicas` é jsonb justamente para não perder campo que a empresa criou
+ * no Omie sem ninguém aqui saber.
+ */
 export async function doOmie(db: pg.Pool, cnpj: string): Promise<FonteConsultada> {
-  let key: string, secret: string
-  try {
-    key = await usarSegredo(db, 'omie.app_key')
-    secret = await usarSegredo(db, 'omie.app_secret')
-  } catch (err) {
-    return {
-      fonte: 'omie', ok: false, campos: [],
-      erro: err instanceof Error ? err.message : 'credencial do Omie indisponível',
-    }
+  const doc = (cnpj ?? '').replace(/\D/g, '')
+  if (doc.length !== 11 && doc.length !== 14) {
+    return { fonte: 'omie', ok: false, campos: [], erro: 'a conta não tem CNPJ ou CPF para buscar no Omie' }
   }
-  const so = cnpj.replace(/\D/g, '')
-  try {
-    // O `ConsultarCliente` não aceita CNPJ como chave — só código. Então localiza pelo
-    // documento na listagem e consulta pelo código. Duas chamadas, e é o caminho que a
-    // API oferece.
-    const busca = await fetch('https://app.omie.com.br/api/v1/geral/clientes/', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
-      body: JSON.stringify({
-        call: 'ListarClientes', app_key: key, app_secret: secret,
-        param: [{ pagina: 1, registros_por_pagina: 5, clientesFiltro: { cnpj_cpf: so } }],
-      }),
-    })
-    const lista = (await busca.json()) as Record<string, unknown>
-    if (lista['faultstring']) {
-      return { fonte: 'omie', ok: false, campos: [], erro: String(lista['faultstring']).slice(0, 180) }
-    }
-    const fichas = (lista['clientes_cadastro'] ?? []) as Record<string, unknown>[]
-    const ficha = fichas.find((f) => String(f['cnpj_cpf'] ?? '').replace(/\D/g, '') === so)
-    if (!ficha) {
-      return { fonte: 'omie', ok: true, campos: [], erro: 'nenhuma ficha com este CNPJ no Omie' }
-    }
-    const det = await fetch('https://app.omie.com.br/api/v1/geral/clientes/', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
-      body: JSON.stringify({
-        call: 'ConsultarCliente', app_key: key, app_secret: secret,
-        param: [{ codigo_cliente_omie: ficha['codigo_cliente_omie'] }],
-      }),
-    })
-    const d = (await det.json()) as Record<string, unknown>
-    const campos: { rotulo: string; valor: string }[] = []
-    for (const k of Object.keys(d).sort()) {
-      if (k === 'caracteristicas' || k === 'tags') continue
-      campos.push({ rotulo: k, valor: SEGREDO.test(k) ? OCULTO : texto(d[k]) })
-    }
-    // Tags e características em destaque: são o que a conferência usa.
-    const tags = (d['tags'] ?? []) as Record<string, unknown>[]
-    campos.unshift({ rotulo: 'tags', valor: tags.map((t) => String(t['tag'] ?? '')).join(', ') || '—' })
-    for (const c of (d['caracteristicas'] ?? []) as Record<string, unknown>[]) {
-      campos.unshift({ rotulo: `característica · ${String(c['campo'])}`, valor: texto(c['conteudo']) })
-    }
-    return { fonte: 'omie', ok: true, campos }
-  } catch (err) {
-    return {
-      fonte: 'omie', ok: false, campos: [],
-      erro: `não foi possível falar com o Omie (${err instanceof Error ? err.message : 'erro de rede'})`,
-    }
+  const { rows } = await db.query<Record<string, unknown>>(
+    `SELECT codigo_omie, documento, razao_social, nome_fantasia, pessoa_fisica, inativo,
+            email, contato, telefone, cidade, estado, cadastrado_em, alterado_em,
+            tags, caracteristicas, sincronizado_em
+       FROM core.omie_cliente WHERE documento = $1
+      ORDER BY inativo, alterado_em DESC NULLS LAST, codigo_omie DESC LIMIT 1`,
+    [doc],
+  )
+  const r = rows[0]
+  if (!r) {
+    // "Não existe ficha" e "não consegui consultar" são coisas diferentes, e a tela
+    // precisa distinguir: a primeira é informação sobre o cliente, a segunda é
+    // problema nosso.
+    return { fonte: 'omie', ok: true, campos: [], erro: 'nenhuma ficha com este documento no Omie' }
   }
+
+  const campos: { rotulo: string; valor: string }[] = []
+  // Características primeiro: são o que a conferência usa (idHubspot, MRR).
+  for (const [k, v] of Object.entries((r['caracteristicas'] ?? {}) as Record<string, unknown>)) {
+    campos.push({ rotulo: `característica · ${k}`, valor: SEGREDO.test(k) ? OCULTO : texto(v) })
+  }
+  campos.push({ rotulo: 'tags', valor: ((r['tags'] ?? []) as string[]).join(', ') || '—' })
+  const rotulos: [string, string][] = [
+    ['razão social', 'razao_social'], ['nome fantasia', 'nome_fantasia'],
+    ['documento', 'documento'], ['código Omie', 'codigo_omie'],
+    ['pessoa física', 'pessoa_fisica'], ['inativo', 'inativo'],
+    ['e-mail', 'email'], ['contato', 'contato'], ['telefone', 'telefone'],
+    ['cidade', 'cidade'], ['estado', 'estado'],
+    ['data do cadastro', 'cadastrado_em'], ['última alteração', 'alterado_em'],
+    ['sincronizado em', 'sincronizado_em'],
+  ]
+  for (const [rot, k] of rotulos) {
+    campos.push({ rotulo: rot, valor: SEGREDO.test(k) ? OCULTO : texto(r[k]) })
+  }
+  return { fonte: 'omie', ok: true, campos }
 }
 
 /**
@@ -194,11 +170,7 @@ export async function todasAsFontes(
   const r = await Promise.allSettled([
     doPulse(db, conta.id),
     daLecupon(db, conta.brandId),
-    conta.cnpj
-      ? doOmie(db, conta.cnpj)
-      : Promise.resolve<FonteConsultada>({
-          fonte: 'omie', ok: false, campos: [], erro: 'a conta não tem CNPJ para buscar no Omie',
-        }),
+    doOmie(db, conta.cnpj ?? ''),
   ])
   const nomes = ['pulse', 'lecupon', 'omie'] as const
   return r.map((x, i) =>
