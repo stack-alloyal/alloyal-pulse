@@ -1,8 +1,18 @@
-import { corDoCliente, fichaDoCliente, iniciaisDoCliente } from '@pulse/config'
-import { Aviso, Badge, Card, Kpi, Table, Vazio } from '@pulse/ui'
-import { ArrowLeft, Building2 } from 'lucide-react'
+import {
+  candidatosDaConta,
+  corDoCliente,
+  diagnosticoDaConta,
+  fichaDoCliente,
+  historicoDeVinculos,
+  iniciaisDoCliente,
+  vinculosDaConta,
+} from '@pulse/config'
+import { Aviso, Badge, Btn, Card, Field, Kpi, Table, TextArea, Vazio } from '@pulse/ui'
+import { ArrowLeft, Building2, GitMerge } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+
+import { desvincularIdentidade, vincularIdentidade } from './acoes'
 
 import { Corpo, Topo } from '../../../casca'
 import { pool } from '../../../../../lib/db'
@@ -74,11 +84,28 @@ const TOM_STATUS: Record<string, 'green' | 'amber' | 'red' | 'slate'> = {
   PAGO: 'green',
 }
 
-export default async function FichaDeCliente({ params }: { params: Promise<{ id: string }> }) {
-  await exigir((p) => temEscopo(p.contas), 'ficha do cliente')
+export default async function FichaDeCliente({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ ok?: string; erro?: string }>
+}) {
+  const identidade = await exigir((p) => temEscopo(p.contas), 'ficha do cliente')
   const { id } = await params
-  const f = await fichaDoCliente(pool(), uuidOu404(id))
+  const q = await searchParams
+  const conta_id = uuidOu404(id)
+  const f = await fichaDoCliente(pool(), conta_id)
   if (!f) notFound()
+
+  const [identidades, candidatos, diagnostico, historico] = await Promise.all([
+    vinculosDaConta(pool(), conta_id),
+    candidatosDaConta(pool(), conta_id),
+    diagnosticoDaConta(pool(), conta_id),
+    historicoDeVinculos(pool(), conta_id),
+  ])
+  const podeEditar = identidade.permissoes.configurar
+  const livres = candidatos.filter((c) => !c.jaVinculadaA)
 
   const { conta, omie, vinculo, documentos, resumo, faturamento } = f
   const h = corDoCliente(conta.brandId ?? conta.id)
@@ -116,6 +143,36 @@ export default async function FichaDeCliente({ params }: { params: Promise<{ id:
         }
       />
       <Corpo className="grid gap-5">
+        {q.erro && (
+          <Aviso tom="erro" papel="alert">
+            {q.erro}
+          </Aviso>
+        )}
+        {q.ok && (
+          <Aviso tom="ok" papel="status">
+            {q.ok}
+          </Aviso>
+        )}
+
+        {/* ── O DIAGNÓSTICO, antes de qualquer número ──
+            O sintoma que chega é "o faturamento está errado", nunca "falta um
+            vínculo". Se há dinheiro pendurado em ficha não vinculada, dizer isso
+            ANTES dos KPIs — senão a pessoa lê o número errado e vai embora. */}
+        {diagnostico.candidatos > 0 && (
+          <Aviso tom={diagnostico.apontaParaInativa || diagnostico.candidatoForte ? 'erro' : 'alerta'}>
+            <strong className="font-semibold">
+              {diagnostico.apontaParaInativa
+                ? 'Esta conta está ligada só a ficha inativa do Omie, e existe uma ativa sobrando.'
+                : `Há ${diagnostico.candidatos} ficha(s) do Omie que parecem ser deste cliente e não estão vinculadas.`}
+            </strong>{' '}
+            Somam <strong className="font-semibold tabular-nums">{BRL(diagnostico.candidatoValorCentavos)}</strong> de
+            faturamento já vencido que NÃO entra nos números abaixo.{' '}
+            <a href="#identidades" className="font-semibold text-purple-700 hover:text-purple-500">
+              Ver e resolver ↓
+            </a>
+          </Aviso>
+        )}
+
         {/* ── Identificação ── */}
         <div className="flex items-center gap-4">
           <span
@@ -339,6 +396,198 @@ export default async function FichaDeCliente({ params }: { params: Promise<{ id:
             </p>
           </Card>
         )}
+
+        {/* ── Identidades: match, merge e a história ── */}
+        <Card
+          title="Identidades do cliente"
+          actions={
+            <Link
+              href="/dados/match"
+              className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-purple-700 hover:text-purple-500"
+            >
+              <GitMerge className="h-[14px] w-[14px]" />
+              área de match
+            </Link>
+          }
+        >
+          <div id="identidades" className="scroll-mt-24" />
+          <p className="mb-3 max-w-[90ch] text-[13px] leading-relaxed text-ink-2">
+            Um cliente tem <strong className="font-semibold">mais de uma</strong> identidade em cada sistema: no Omie
+            porque a empresa troca de CNPJ e o cadastro antigo fica, no HubSpot porque ganho, upsell e downsell criam
+            empresa nova. Isso é história comercial, não erro — e é por isso que os números desta tela somam todas as
+            identidades ligadas, e não uma só.
+          </p>
+
+          {identidades.length === 0 ? (
+            <Aviso tom="alerta">
+              Nenhuma identidade vinculada. O faturamento mostrado acima, se houver, vem da raiz do CNPJ — que é
+              heurística de exibição, não vínculo decidido.
+            </Aviso>
+          ) : (
+            <Table
+              cols={['Fonte', 'Identidade', 'Descrição', 'Origem', 'Faturamento', '']}
+              rows={identidades.map((v) => [
+                <Badge tone={v.fonte === 'omie' ? 'indigo' : 'slate'}>{v.fonte}</Badge>,
+                <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                  {v.fonte === 'omie' ? DOC(v.chave) : v.chave}
+                </span>,
+                <span className="text-[12.5px] text-ink-2">
+                  {v.rotulo ?? '—'}
+                  {v.inativo === true && (
+                    <>
+                      {' '}
+                      <Badge tone="red">inativa no Omie</Badge>
+                    </>
+                  )}
+                </span>,
+                <span className="text-[12px] text-ink-3">
+                  {v.origem}
+                  {v.origem === 'manual' && v.motivo ? (
+                    <span className="block max-w-[36ch] text-[11.5px]">{v.motivo}</span>
+                  ) : null}
+                  <span className="block text-[11px]">
+                    {v.criadoPor.split('@')[0]} · {DATA(v.criadoEm)}
+                  </span>
+                </span>,
+                <span className="whitespace-nowrap tabular-nums text-[12.5px] text-ink">
+                  {v.fonte === 'omie' ? `${BRL(v.valorCentavos)} · ${N(v.titulos)} tít.` : '—'}
+                </span>,
+                podeEditar ? (
+                  <details>
+                    <summary className="cursor-pointer select-none whitespace-nowrap text-[12px] text-ink-3 hover:text-ink-2">
+                      desvincular
+                    </summary>
+                    <form action={desvincularIdentidade} className="mt-2 grid gap-2">
+                      <input type="hidden" name="accountId" value={conta.id} />
+                      <input type="hidden" name="fonte" value={v.fonte} />
+                      <input type="hidden" name="chave" value={v.chave} />
+                      <Field
+                        label="Motivo (obrigatório)"
+                        name="motivo"
+                        minLength={10}
+                        required
+                        placeholder="ex.: esta ficha é de outra empresa do grupo, faturada em conta própria"
+                      />
+                      <div>
+                        <Btn type="submit" variant="danger">
+                          Desvincular
+                        </Btn>
+                      </div>
+                    </form>
+                  </details>
+                ) : (
+                  <span className="text-[12px] text-ink-3">—</span>
+                ),
+              ])}
+            />
+          )}
+
+          {/* ── Candidatos ── */}
+          {livres.length > 0 && (
+            <div className="mt-5">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
+                Candidatos · {N(livres.length)}
+              </div>
+              <Table
+                cols={['Identidade', 'Descrição', 'Por que apareceu', 'Faturamento', '']}
+                rows={livres.map((c) => [
+                  <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                    {DOC(c.chave)}
+                  </span>,
+                  <span className="text-[12.5px] text-ink-2">
+                    {c.rotulo}
+                    {c.inativo && (
+                      <>
+                        {' '}
+                        <Badge>inativa</Badge>
+                      </>
+                    )}
+                  </span>,
+                  <span className="text-[12px] text-ink-2">
+                    <Badge tone={c.evidencia === 'hubspot' ? 'green' : c.evidencia === 'raiz' ? 'amber' : 'slate'}>
+                      {c.evidencia === 'hubspot' ? 'mesmo HubSpot' : c.evidencia === 'raiz' ? 'mesma raiz' : 'nome parecido'}
+                    </Badge>
+                    <span className="mt-0.5 block max-w-[44ch] text-[11.5px] text-ink-3">{c.detalhe}</span>
+                  </span>,
+                  <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                    {BRL(c.valorCentavos)}
+                    <span className="block text-[11px] font-normal text-ink-3">{N(c.titulos)} títulos</span>
+                  </span>,
+                  podeEditar ? (
+                    <details>
+                      <summary className="cursor-pointer select-none whitespace-nowrap text-[12px] font-semibold text-purple-700 hover:text-purple-500">
+                        vincular
+                      </summary>
+                      <form action={vincularIdentidade} className="mt-2 grid gap-2">
+                        <input type="hidden" name="accountId" value={conta.id} />
+                        <input type="hidden" name="fonte" value="omie" />
+                        <input type="hidden" name="chave" value={c.chave} />
+                        <TextArea
+                          label="Por que é o mesmo cliente (obrigatório)"
+                          name="motivo"
+                          rows={2}
+                          minLength={10}
+                          required
+                          placeholder="ex.: mesma empresa; o CNPJ antigo era da LTDA e a operação passou para a S.A."
+                        />
+                        <div>
+                          <Btn type="submit">Vincular a esta conta</Btn>
+                        </div>
+                      </form>
+                    </details>
+                  ) : (
+                    <span className="text-[12px] text-ink-3">—</span>
+                  ),
+                ])}
+              />
+              <p className="mt-2 max-w-[90ch] text-[12px] leading-relaxed text-ink-3">
+                <strong className="font-semibold text-ink">A evidência vem junto de propósito.</strong>{' '}
+                <em>Mesmo HubSpot</em> é forte: a ficha do Omie declara um id que esta conta reivindica, e isso atravessa
+                a troca de CNPJ. <em>Nome parecido</em> é fraca e existe porque foi a única que encontraria a Swile —
+                aceitar sem olhar é como o número errado nasce do outro lado.
+              </p>
+            </div>
+          )}
+
+          {candidatos.some((c) => c.jaVinculadaA) && (
+            <p className="mt-4 max-w-[90ch] text-[12px] leading-relaxed text-ink-3">
+              Outras fichas parecidas já pertencem a outra conta e não aparecem como candidatas:{' '}
+              {candidatos
+                .filter((c) => c.jaVinculadaA)
+                .slice(0, 4)
+                .map((c) => `${DOC(c.chave)} (${c.jaVinculadaA})`)
+                .join(', ')}
+              . Uma identidade pertence a uma conta só — em duas, o mesmo faturamento seria contado duas vezes.
+            </p>
+          )}
+
+          {/* ── A trilha ── */}
+          {historico.length > 0 && (
+            <details className="mt-5">
+              <summary className="cursor-pointer select-none text-[12.5px] font-semibold text-ink-2 hover:text-ink">
+                Histórico de vínculos · {N(historico.length)}
+              </summary>
+              <div className="mt-2">
+                <Table
+                  cols={['Quando', 'Ação', 'Identidade', 'Quem', 'Motivo']}
+                  rows={historico.map((e) => [
+                    <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-3">{DATA(e.quando)}</span>,
+                    <Badge tone={e.acao === 'vinculou' ? 'green' : 'red'}>{e.acao}</Badge>,
+                    <span className="whitespace-nowrap tabular-nums text-[12px] text-ink">
+                      {e.fonte === 'omie' ? DOC(e.chave) : e.chave}
+                    </span>,
+                    <span className="text-[12px] text-ink-2">{e.quem.split('@')[0]}</span>,
+                    <span className="text-[12px] text-ink-2">{e.motivo ?? e.origem ?? '—'}</span>,
+                  ])}
+                />
+                <p className="mt-2 max-w-[90ch] text-[12px] text-ink-3">
+                  A trilha não se corrige — desvincular entra como evento novo. É o que responde &quot;por que o
+                  faturamento deste cliente mudou de valor?&quot; três meses depois.
+                </p>
+              </div>
+            </details>
+          )}
+        </Card>
 
         {/* ── Todo o histórico ── */}
         <Card title={`Histórico de faturamento · ${N(faturamento.length)} títulos`}>

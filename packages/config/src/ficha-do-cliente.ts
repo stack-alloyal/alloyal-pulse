@@ -20,7 +20,7 @@ import type pg from 'pg'
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 
-export type NivelDoVinculo = 'exato' | 'raiz' | 'nenhum'
+export type NivelDoVinculo = 'vinculado' | 'raiz' | 'nenhum'
 
 export interface ContaDoAdmin {
   readonly id: string
@@ -146,17 +146,26 @@ export async function lerContaDoAdmin(db: pg.Pool, id: string): Promise<ContaDoA
  */
 export async function documentosDoOmie(
   db: pg.Pool,
+  accountId: string,
   cnpj: string | null,
 ): Promise<{ documentos: string[]; vinculo: NivelDoVinculo }> {
-  const doc = (cnpj ?? '').replace(/\D/g, '')
-  if (doc.length !== 11 && doc.length !== 14) return { documentos: [], vinculo: 'nenhum' }
-
-  const exato = await db.query<{ documento: string }>(
-    'SELECT DISTINCT documento FROM core.omie_cliente WHERE documento = $1',
-    [doc],
+  // O VÍNCULO GRAVADO VENCE. Ele é o que alguém decidiu, com motivo e trilha
+  // (0038), e existe justamente porque a regra automática errou na Swile: casou o
+  // CNPJ exato com a ficha morta e deixou R$ 1,5 milhão numa ficha que a regra não
+  // alcançava. Deduzir de novo aqui desfaria a decisão em silêncio.
+  const gravado = await db.query<{ chave: string }>(
+    `SELECT chave FROM core.vinculo_cliente
+      WHERE account_id = $1 AND fonte = 'omie' ORDER BY chave`,
+    [accountId],
   )
-  if (exato.rows.length > 0) return { documentos: [doc], vinculo: 'exato' }
+  if (gravado.rows.length > 0) {
+    return { documentos: gravado.rows.map((r) => r.chave), vinculo: 'vinculado' }
+  }
 
+  // Sem vínculo gravado, a raiz continua servindo para EXIBIR — a Alloyal fatura a
+  // matriz e atende as filiais. A tela diz que o nível é a raiz, e o número é do
+  // grupo.
+  const doc = (cnpj ?? '').replace(/\D/g, '')
   if (doc.length === 14) {
     const raiz = await db.query<{ documento: string }>(
       'SELECT DISTINCT documento FROM core.omie_cliente WHERE length(documento) = 14 AND left(documento, 8) = $1 ORDER BY documento',
@@ -299,7 +308,7 @@ export async function fichaDoCliente(db: pg.Pool, id: string): Promise<FichaDoCl
   const conta = await lerContaDoAdmin(db, id)
   if (!conta) return null
 
-  const { documentos, vinculo } = await documentosDoOmie(db, conta.cnpj)
+  const { documentos, vinculo } = await documentosDoOmie(db, id, conta.cnpj)
   const [omie, resumo, faturamento] = await Promise.all([
     documentos[0] ? lerFichaOmie(db, documentos[0]) : Promise.resolve(null),
     resumoFinanceiro(db, documentos),

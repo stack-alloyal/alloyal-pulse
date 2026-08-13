@@ -1,6 +1,6 @@
 import { decidirAlarme, type PoliticaFalha } from '@pulse/metrics'
 import { Aviso, Badge, Card, Kpi, Table, cn } from '@pulse/ui'
-import { ScanSearch } from 'lucide-react'
+import { GitMerge, ScanSearch } from 'lucide-react'
 import Link from 'next/link'
 
 import { Corpo, Topo } from '../casca'
@@ -172,6 +172,13 @@ export default async function Painel() {
         href="/dados"
         acoes={
           <span className="flex items-center gap-3 text-[13px]">
+            <Link
+              href="/dados/match"
+              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
+            >
+              <GitMerge className="h-[14px] w-[14px]" />
+              Match e merge
+            </Link>
             <Link
               href="/dados/conferencia"
               className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"

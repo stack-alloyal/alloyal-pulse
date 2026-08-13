@@ -1,0 +1,452 @@
+import type { Identidade } from '@pulse/auth'
+import type pg from 'pg'
+
+/**
+ * Match e merge de identidades do cliente.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O PROBLEMA, medido em 13/08/2026 na Swile: um cliente tem MAIS DE UMA       │
+ * │ identidade em cada sistema, e nenhuma regra automática liga todas.          │
+ * │                                                                            │
+ * │ · No Omie são duas fichas com CNPJs de raízes diferentes (37374538 e         │
+ * │   26401688) — a empresa mudou de LTDA para S.A. e o cadastro antigo ficou.   │
+ * │ · No HubSpot são duas empresas, porque ganho, upsell e downsell criam        │
+ * │   negócio novo. Isso é HISTÓRIA COMERCIAL, não sujeira.                     │
+ * │                                                                            │
+ * │ Daí as três regras deste módulo:                                            │
+ * │                                                                            │
+ * │ 1. Uma conta tem N identidades por fonte, não uma.                          │
+ * │ 2. Uma identidade pertence a UMA conta — a trava `vinculo_chave_unica`. Sem  │
+ * │    ela o mesmo faturamento entra em duas contas e a receita da empresa passa │
+ * │    a depender de quantas vezes alguém clicou em vincular.                    │
+ * │ 3. Todo vínculo e desvínculo vira evento imutável, com autor e motivo. A     │
+ * │    pergunta que aparece três meses depois é "por que o faturamento deste     │
+ * │    cliente mudou de valor?", e só a trilha responde.                        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+
+export type FonteDeVinculo = 'omie' | 'hubspot'
+export type OrigemDeVinculo = 'exato' | 'raiz' | 'manual' | 'ciclo'
+
+export class VinculoInvalidoError extends Error {
+  constructor(mensagem: string) {
+    super(mensagem)
+    this.name = 'VinculoInvalidoError'
+  }
+}
+
+export class VinculoOcupadoError extends Error {
+  readonly contaAtual: string
+  readonly nomeContaAtual: string
+  constructor(chave: string, contaAtual: string, nomeContaAtual: string) {
+    super(
+      `a identidade ${chave} já pertence a ${nomeContaAtual}. Desvincule lá primeiro — ` +
+        `a mesma ficha em duas contas contaria o faturamento duas vezes.`,
+    )
+    this.name = 'VinculoOcupadoError'
+    this.contaAtual = contaAtual
+    this.nomeContaAtual = nomeContaAtual
+  }
+}
+
+export interface VinculoDeCliente {
+  readonly id: string
+  readonly fonte: FonteDeVinculo
+  readonly chave: string
+  readonly origem: OrigemDeVinculo
+  readonly motivo: string | null
+  readonly criadoPor: string
+  readonly criadoEm: Date
+  /** O que a chave descreve, para a tela não mostrar só um número. */
+  readonly rotulo: string | null
+  readonly inativo: boolean | null
+  /** Peso financeiro desta identidade — o que se perde ou se ganha ao desvincular. */
+  readonly titulos: number
+  readonly valorCentavos: number
+}
+
+export interface EventoDeVinculo {
+  readonly id: string
+  readonly fonte: FonteDeVinculo
+  readonly chave: string
+  readonly acao: 'vinculou' | 'desvinculou'
+  readonly origem: string | null
+  readonly motivo: string | null
+  readonly quem: string
+  readonly quando: Date
+  readonly rotulo: string | null
+}
+
+/** As identidades vigentes da conta, com o que cada uma carrega de faturamento. */
+export async function vinculosDaConta(db: pg.Pool, accountId: string): Promise<VinculoDeCliente[]> {
+  const { rows } = await db.query<VinculoDeCliente>(
+    `SELECT v.id::text, v.fonte, v.chave, v.origem, v.motivo,
+            v.criado_por AS "criadoPor", v.criado_em AS "criadoEm",
+            CASE v.fonte WHEN 'omie' THEN o.razao_social ELSE NULL END AS rotulo,
+            CASE v.fonte WHEN 'omie' THEN o.inativo ELSE NULL END AS inativo,
+            coalesce(t.n, 0)::int AS titulos,
+            coalesce(t.v, 0)::bigint AS "valorCentavos"
+       FROM core.vinculo_cliente v
+       LEFT JOIN core.omie_cliente o
+              ON v.fonte = 'omie' AND o.documento = v.chave
+       LEFT JOIN LATERAL (
+              SELECT count(*) n, sum(valor_centavos) v
+                FROM core.omie_titulo
+               WHERE v.fonte = 'omie' AND documento = v.chave
+                 AND (vencimento IS NULL OR vencimento <= current_date)
+            ) t ON true
+      WHERE v.account_id = $1
+      ORDER BY v.fonte, coalesce(t.v, 0) DESC, v.chave`,
+    [accountId],
+  )
+  return rows
+}
+
+export async function historicoDeVinculos(
+  db: pg.Pool,
+  accountId: string,
+): Promise<EventoDeVinculo[]> {
+  const { rows } = await db.query<EventoDeVinculo>(
+    `SELECT e.id::text, e.fonte, e.chave, e.acao, e.origem, e.motivo, e.quem, e.quando,
+            CASE e.fonte WHEN 'omie' THEN o.razao_social ELSE NULL END AS rotulo
+       FROM core.vinculo_evento e
+       LEFT JOIN core.omie_cliente o ON e.fonte = 'omie' AND o.documento = e.chave
+      WHERE e.account_id = $1
+      ORDER BY e.quando DESC, e.id DESC`,
+    [accountId],
+  )
+  return rows
+}
+
+/**
+ * Um candidato: identidade não vinculada que provavelmente é do mesmo cliente.
+ *
+ * `evidencia` é o que sustenta a suspeita, e vem junto de propósito. Sugestão sem
+ * evidência transforma a área de match em roleta: a pessoa aceita porque o sistema
+ * sugeriu, e o sistema sugeriu porque dois nomes começam igual.
+ */
+export interface Candidato {
+  readonly fonte: FonteDeVinculo
+  readonly chave: string
+  readonly rotulo: string
+  readonly inativo: boolean
+  readonly evidencia: 'hubspot' | 'raiz' | 'nome'
+  readonly detalhe: string
+  readonly titulos: number
+  readonly valorCentavos: number
+  /** Quando já pertence a outra conta, dizer de quem — antes de alguém tentar. */
+  readonly jaVinculadaA: string | null
+}
+
+const FORCA: Record<Candidato['evidencia'], number> = { hubspot: 3, raiz: 2, nome: 1 }
+
+/**
+ * Procura identidades do Omie que parecem ser desta conta e ainda não estão ligadas.
+ *
+ * Três evidências, da mais forte para a mais fraca:
+ *
+ * · `hubspot` — a ficha do Omie declara um `idHubspot` que ESTA conta já reivindica.
+ *   É a mais forte porque atravessa o CNPJ: pega exatamente o caso do cadastro
+ *   antigo que virou empresa nova.
+ * · `raiz` — mesma raiz de CNPJ. Boa, e insuficiente sozinha: matriz e filial
+ *   compartilham raiz e podem ser contas diferentes de propósito.
+ * · `nome` — mesmo primeiro termo da razão social, com no mínimo 5 letras. É a mais
+ *   fraca e está aqui porque foi a ÚNICA que encontraria a Swile. Fica sempre
+ *   rotulada como fraca na tela.
+ */
+export async function candidatosDaConta(db: pg.Pool, accountId: string): Promise<Candidato[]> {
+  const { rows } = await db.query<Candidato & { forca: number }>(
+    `WITH conta AS (
+       SELECT a.id, a.razao_social, a.cnpj,
+              regexp_replace(coalesce(a.cnpj,''), '[^0-9]', '', 'g') doc,
+              upper(split_part(regexp_replace(a.razao_social, '[^A-Za-z0-9 ]', '', 'g'), ' ', 1)) primeira
+         FROM core.account a WHERE a.id = $1
+     ),
+     hubs AS (
+       SELECT chave FROM core.vinculo_cliente WHERE account_id = $1 AND fonte = 'hubspot'
+     ),
+     achados AS (
+       SELECT o.documento chave, o.razao_social rotulo, o.inativo,
+              'hubspot'::text evidencia,
+              'a ficha declara idHubspot ' || o.hubspot_id || ', que esta conta reivindica' detalhe
+         FROM core.omie_cliente o, conta c
+        WHERE o.hubspot_id IS NOT NULL
+          AND o.hubspot_id IN (SELECT chave FROM hubs)
+       UNION ALL
+       SELECT o.documento, o.razao_social, o.inativo, 'raiz',
+              'mesma raiz de CNPJ (' || left(c.doc, 8) || ')'
+         FROM core.omie_cliente o, conta c
+        WHERE length(c.doc) = 14 AND length(o.documento) = 14
+          AND left(o.documento, 8) = left(c.doc, 8)
+       UNION ALL
+       SELECT o.documento, o.razao_social, o.inativo, 'nome',
+              'razão social começa com "' || c.primeira || '"'
+         FROM core.omie_cliente o, conta c
+        WHERE length(c.primeira) >= 5
+          AND upper(o.razao_social) LIKE c.primeira || '%'
+     ),
+     -- A mesma ficha pode chegar por duas evidências; fica a mais forte.
+     melhor AS (
+       SELECT DISTINCT ON (chave) chave, rotulo, inativo, evidencia, detalhe,
+              CASE evidencia WHEN 'hubspot' THEN 3 WHEN 'raiz' THEN 2 ELSE 1 END forca
+         FROM achados
+        ORDER BY chave, CASE evidencia WHEN 'hubspot' THEN 3 WHEN 'raiz' THEN 2 ELSE 1 END DESC
+     )
+     SELECT 'omie'::text fonte, m.chave, m.rotulo, m.inativo, m.evidencia, m.detalhe, m.forca,
+            coalesce(t.n,0)::int titulos, coalesce(t.v,0)::bigint AS "valorCentavos",
+            dono.razao_social AS "jaVinculadaA"
+       FROM melhor m
+       LEFT JOIN LATERAL (
+              SELECT count(*) n, sum(valor_centavos) v FROM core.omie_titulo
+               WHERE documento = m.chave AND (vencimento IS NULL OR vencimento <= current_date)
+            ) t ON true
+       LEFT JOIN core.vinculo_cliente vc ON vc.fonte='omie' AND vc.chave = m.chave
+       LEFT JOIN core.account dono ON dono.id = vc.account_id
+      -- Fora as que ESTA conta já tem: candidato é o que falta, não o que existe.
+      WHERE NOT EXISTS (
+              SELECT 1 FROM core.vinculo_cliente v
+               WHERE v.account_id = $1 AND v.fonte='omie' AND v.chave = m.chave)
+      ORDER BY m.forca DESC, coalesce(t.v,0) DESC
+      LIMIT 25`,
+    [accountId],
+  )
+  return rows.map(({ forca: _forca, ...c }) => c)
+}
+
+/**
+ * O diagnóstico da conta: o que está ligado, o que falta, e quanto isso vale.
+ *
+ * Existe porque o sintoma que chega é "o faturamento da Swile está errado", e nunca
+ * "falta um vínculo". A tela precisa transformar o primeiro no segundo sozinha.
+ */
+export interface DiagnosticoDeVinculo {
+  readonly vinculos: number
+  readonly vinculosOmie: number
+  readonly vinculosHubspot: number
+  readonly candidatos: number
+  /** Faturamento que os candidatos carregam — o tamanho do que pode estar faltando. */
+  readonly candidatoValorCentavos: number
+  readonly candidatoForte: boolean
+  /** Vínculo apontando para ficha inativa no Omie, tendo candidato ativo à mão. */
+  readonly apontaParaInativa: boolean
+}
+
+export async function diagnosticoDaConta(db: pg.Pool, accountId: string): Promise<DiagnosticoDeVinculo> {
+  const [vinculos, candidatos] = await Promise.all([
+    vinculosDaConta(db, accountId),
+    candidatosDaConta(db, accountId),
+  ])
+  const livres = candidatos.filter((c) => !c.jaVinculadaA)
+  const omie = vinculos.filter((v) => v.fonte === 'omie')
+  return {
+    vinculos: vinculos.length,
+    vinculosOmie: omie.length,
+    vinculosHubspot: vinculos.filter((v) => v.fonte === 'hubspot').length,
+    candidatos: livres.length,
+    candidatoValorCentavos: livres.reduce((s, c) => s + Number(c.valorCentavos), 0),
+    candidatoForte: livres.some((c) => FORCA[c.evidencia] >= 2),
+    // O caso Swile em uma linha: liga na ficha morta e existe uma viva sobrando.
+    apontaParaInativa:
+      omie.length > 0 && omie.every((v) => v.inativo === true) && livres.some((c) => !c.inativo),
+  }
+}
+
+/** Liga uma identidade à conta. Manual exige motivo; o evento é sempre gravado. */
+export async function vincular(
+  db: pg.Pool,
+  id: Identidade,
+  d: { accountId: string; fonte: FonteDeVinculo; chave: string; motivo?: string; origem?: OrigemDeVinculo },
+): Promise<void> {
+  const origem = d.origem ?? 'manual'
+  const motivo = d.motivo?.trim() ?? ''
+  if (origem === 'manual' && motivo.length < 10) {
+    throw new VinculoInvalidoError(
+      'vincular à mão exige motivo escrito — este vínculo muda o faturamento que o cliente mostra, e quem olhar em três meses precisa saber por quê',
+    )
+  }
+  const chave = d.chave.trim()
+  if (!chave) throw new VinculoInvalidoError('identidade vazia')
+
+  const cliente = await db.connect()
+  try {
+    await cliente.query('BEGIN')
+    // Quem já é dono, ANTES de tentar inserir: a mensagem de unique violation não
+    // diz de quem é, e "já existe" manda a pessoa procurar no escuro.
+    const { rows: dono } = await cliente.query<{ account_id: string; razao_social: string }>(
+      `SELECT v.account_id::text, a.razao_social
+         FROM core.vinculo_cliente v JOIN core.account a ON a.id = v.account_id
+        WHERE v.fonte = $1 AND v.chave = $2`,
+      [d.fonte, chave],
+    )
+    const atual = dono[0]
+    if (atual && atual.account_id !== d.accountId) {
+      throw new VinculoOcupadoError(chave, atual.account_id, atual.razao_social)
+    }
+    if (atual) {
+      await cliente.query('ROLLBACK')
+      return
+    }
+
+    await cliente.query(
+      `INSERT INTO core.vinculo_cliente (account_id, fonte, chave, origem, motivo, criado_por)
+       VALUES ($1, $2, $3, $4, NULLIF($5,''), $6)`,
+      [d.accountId, d.fonte, chave, origem, motivo, id.email],
+    )
+    await cliente.query(
+      `INSERT INTO core.vinculo_evento (account_id, fonte, chave, acao, origem, motivo, quem)
+       VALUES ($1, $2, $3, 'vinculou', $4, NULLIF($5,''), $6)`,
+      [d.accountId, d.fonte, chave, origem, motivo, id.email],
+    )
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  } finally {
+    cliente.release()
+  }
+}
+
+/**
+ * Desliga uma identidade. Exige motivo SEMPRE — inclusive para vínculo automático.
+ *
+ * Desvincular reduz o faturamento que o cliente mostra. É a operação com maior
+ * chance de assustar alguém depois, e a que mais precisa de explicação escrita.
+ */
+export async function desvincular(
+  db: pg.Pool,
+  id: Identidade,
+  d: { accountId: string; fonte: FonteDeVinculo; chave: string; motivo: string },
+): Promise<void> {
+  const motivo = d.motivo?.trim() ?? ''
+  if (motivo.length < 10) {
+    throw new VinculoInvalidoError(
+      'desvincular exige motivo escrito — o faturamento do cliente vai mudar de valor, e a trilha é o que explica isso depois',
+    )
+  }
+  const cliente = await db.connect()
+  try {
+    await cliente.query('BEGIN')
+    const { rowCount } = await cliente.query(
+      `DELETE FROM core.vinculo_cliente WHERE account_id = $1 AND fonte = $2 AND chave = $3`,
+      [d.accountId, d.fonte, d.chave],
+    )
+    if (rowCount === 0) {
+      throw new VinculoInvalidoError('esta identidade não está vinculada a esta conta')
+    }
+    await cliente.query(
+      `INSERT INTO core.vinculo_evento (account_id, fonte, chave, acao, motivo, quem)
+       VALUES ($1, $2, $3, 'desvinculou', $4, $5)`,
+      [d.accountId, d.fonte, d.chave, motivo, id.email],
+    )
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  } finally {
+    cliente.release()
+  }
+}
+
+/**
+ * A fila de match: contas onde o vínculo provavelmente está incompleto ou errado.
+ *
+ * ORDENADA POR DINHEIRO EM JOGO, e não por nome ou por data. Uma lista de 779
+ * contas sem vínculo ordenada alfabeticamente é uma lista que ninguém termina; a
+ * primeira página tem que ser onde o erro custa mais. A Swile — R$ 1,5 milhão
+ * pendurados numa ficha não vinculada — aparece em cima.
+ */
+export interface LinhaDeMatch {
+  readonly accountId: string
+  readonly conta: string
+  readonly cnpj: string | null
+  readonly ativo: boolean
+  readonly vinculosOmie: number
+  readonly candidatos: number
+  readonly candidatoValorCentavos: number
+  readonly melhorEvidencia: 'hubspot' | 'raiz' | 'nome' | null
+  readonly vinculadoValorCentavos: number
+  readonly apontaParaInativa: boolean
+}
+
+export async function filaDeMatch(
+  db: pg.Pool,
+  { limite = 100 }: { limite?: number } = {},
+): Promise<LinhaDeMatch[]> {
+  const { rows } = await db.query<LinhaDeMatch>(
+    `WITH conta AS (
+       SELECT a.id, a.razao_social, a.cnpj, a.ativo,
+              regexp_replace(coalesce(a.cnpj,''), '[^0-9]', '', 'g') doc,
+              upper(split_part(regexp_replace(a.razao_social, '[^A-Za-z0-9 ]', '', 'g'), ' ', 1)) primeira
+         FROM core.account a
+     ),
+     vinc AS (
+       SELECT v.account_id, count(*) FILTER (WHERE v.fonte='omie') n_omie,
+              coalesce(sum(t.v) FILTER (WHERE v.fonte='omie'), 0) valor,
+              bool_and(o.inativo) FILTER (WHERE v.fonte='omie') todas_inativas
+         FROM core.vinculo_cliente v
+         LEFT JOIN core.omie_cliente o ON v.fonte='omie' AND o.documento = v.chave
+         LEFT JOIN LATERAL (
+                SELECT sum(valor_centavos) v FROM core.omie_titulo
+                 WHERE documento = v.chave AND (vencimento IS NULL OR vencimento <= current_date)
+              ) t ON true
+        GROUP BY v.account_id
+     ),
+     cand AS (
+       SELECT c.id account_id, count(*) n,
+              coalesce(sum(t.v),0) valor,
+              max(CASE WHEN o.hubspot_id IS NOT NULL AND o.hubspot_id IN
+                        (SELECT chave FROM core.vinculo_cliente h
+                          WHERE h.account_id=c.id AND h.fonte='hubspot') THEN 3
+                       WHEN length(c.doc)=14 AND left(o.documento,8)=left(c.doc,8) THEN 2
+                       ELSE 1 END) forca,
+              bool_or(NOT o.inativo) tem_ativa
+         FROM conta c
+         JOIN core.omie_cliente o
+           ON (o.hubspot_id IS NOT NULL AND o.hubspot_id IN
+                 (SELECT chave FROM core.vinculo_cliente h WHERE h.account_id=c.id AND h.fonte='hubspot'))
+           OR (length(c.doc)=14 AND length(o.documento)=14 AND left(o.documento,8)=left(c.doc,8))
+           OR (length(c.primeira) >= 5 AND upper(o.razao_social) LIKE c.primeira || '%')
+         LEFT JOIN LATERAL (
+                SELECT sum(valor_centavos) v FROM core.omie_titulo
+                 WHERE documento = o.documento AND (vencimento IS NULL OR vencimento <= current_date)
+              ) t ON true
+        WHERE NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
+                           WHERE v.account_id=c.id AND v.fonte='omie' AND v.chave=o.documento)
+          AND NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
+                           WHERE v.fonte='omie' AND v.chave=o.documento)
+        GROUP BY c.id
+     )
+     SELECT c.id::text AS "accountId", c.razao_social AS conta, c.cnpj, c.ativo,
+            coalesce(v.n_omie,0)::int AS "vinculosOmie",
+            coalesce(k.n,0)::int AS candidatos,
+            coalesce(k.valor,0)::bigint AS "candidatoValorCentavos",
+            CASE k.forca WHEN 3 THEN 'hubspot' WHEN 2 THEN 'raiz' WHEN 1 THEN 'nome' END AS "melhorEvidencia",
+            coalesce(v.valor,0)::bigint AS "vinculadoValorCentavos",
+            coalesce(v.todas_inativas AND k.tem_ativa, false) AS "apontaParaInativa"
+       FROM conta c
+       LEFT JOIN vinc v ON v.account_id = c.id
+       LEFT JOIN cand k ON k.account_id = c.id
+      WHERE coalesce(k.n,0) > 0
+      ORDER BY coalesce(k.valor,0) DESC, c.razao_social
+      LIMIT $1`,
+    [limite],
+  )
+  return rows
+}
+
+export interface ResumoDoMatch {
+  readonly contasComCandidato: number
+  readonly valorPendenteCentavos: number
+  readonly contasSemVinculo: number
+  readonly apontandoParaInativa: number
+}
+
+export async function resumoDoMatch(db: pg.Pool): Promise<ResumoDoMatch> {
+  const linhas = await filaDeMatch(db, { limite: 5000 })
+  return {
+    contasComCandidato: linhas.length,
+    valorPendenteCentavos: linhas.reduce((s, l) => s + Number(l.candidatoValorCentavos), 0),
+    contasSemVinculo: linhas.filter((l) => l.vinculosOmie === 0).length,
+    apontandoParaInativa: linhas.filter((l) => l.apontaParaInativa).length,
+  }
+}
