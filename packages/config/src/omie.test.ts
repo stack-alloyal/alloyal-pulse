@@ -17,7 +17,14 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { documentoUtil, gravarOmie, type FichaOmie, type MovimentoOmie } from './omie.js'
+import {
+  documentoUtil,
+  gravarExtras,
+  gravarOmie,
+  type BaixaOmie,
+  type FichaOmie,
+  type MovimentoOmie,
+} from './omie.js'
 
 /** Um `pg.Pool` de mentira que guarda os parâmetros de cada consulta. */
 function bancoFalso() {
@@ -87,6 +94,41 @@ describe('gravação do Omie', () => {
     const r = await gravarOmie(pool, { fichas: [], movimentos: [] })
     assert.equal(chamadas.length, 0)
     assert.deepEqual(r, { fichas: 0, movimentos: 0 })
+  })
+})
+
+describe('baixas', () => {
+  const baixa = (codigoTitulo: number, pagamento: string | null, pagoCentavos = 0): BaixaOmie => ({
+    codigoTitulo, documento: '11222333000181', pagamento, pagoCentavos,
+    jurosCentavos: 0, multaCentavos: 0, descontoCentavos: 0, categoria: null,
+  })
+
+  test('baixa SEM data de pagamento é gravada', async () => {
+    // Derrubou o C20 depois de 15 minutos de varredura: `pagamento` estava na
+    // PRIMARY KEY, que proíbe nulo, e 3.391 das 25.074 baixas não têm data.
+    const { pool, chamadas } = bancoFalso()
+    await gravarExtras(pool, { baixas: [baixa(1, null)] })
+    const enviadas = JSON.parse(String(chamadas[0]?.params[0])) as { pagamento: string | null }[]
+    assert.equal(enviadas.length, 1)
+    assert.equal(enviadas[0]?.pagamento, null)
+  })
+
+  test('duas baixas iguais sem data contam como uma', async () => {
+    // A chave natural inclui a data. Com duas nulas, a deduplicação em JS é a
+    // única defesa antes do banco — e sem ela o INSERT inteiro seria recusado.
+    const { pool, chamadas } = bancoFalso()
+    await gravarExtras(pool, { baixas: [baixa(1, null), baixa(1, null)] })
+    const enviadas = JSON.parse(String(chamadas[0]?.params[0])) as unknown[]
+    assert.equal(enviadas.length, 1)
+  })
+
+  test('mesma data e valores diferentes são baixas distintas', async () => {
+    // Título que recebe parcial e depois o resto no mesmo dia. Colapsar as duas
+    // faria o total recebido encolher em silêncio.
+    const { pool, chamadas } = bancoFalso()
+    await gravarExtras(pool, { baixas: [baixa(1, '2026-02-02', 100), baixa(1, '2026-02-02', 900)] })
+    const enviadas = JSON.parse(String(chamadas[0]?.params[0])) as unknown[]
+    assert.equal(enviadas.length, 2)
   })
 })
 

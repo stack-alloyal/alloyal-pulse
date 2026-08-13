@@ -700,7 +700,10 @@ export async function gravarExtras(
          FROM jsonb_to_recordset($1::jsonb) AS x(
            codigo_titulo bigint, pagamento date, documento text, pago_centavos bigint,
            juros_centavos bigint, multa_centavos bigint, desconto_centavos bigint, categoria text)
-       ON CONFLICT (codigo_titulo, pagamento, pago_centavos) DO UPDATE SET
+       -- O alvo é o índice EXPRESSO da 0043, e não a lista de colunas: 3.391
+       -- baixas não têm data, e NULL não se compara consigo mesmo num único.
+       ON CONFLICT (codigo_titulo, coalesce(pagamento, DATE '0001-01-01'), pago_centavos)
+       DO UPDATE SET
          documento=EXCLUDED.documento, juros_centavos=EXCLUDED.juros_centavos,
          multa_centavos=EXCLUDED.multa_centavos, desconto_centavos=EXCLUDED.desconto_centavos,
          categoria=EXCLUDED.categoria, sincronizado_em=now()`,
