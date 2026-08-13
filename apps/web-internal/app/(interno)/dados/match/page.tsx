@@ -73,9 +73,13 @@ export default async function MatchEMerge() {
             rotulo="Faturamento não atribuído"
             valor={BRL(resumo.valorPendenteCentavos)}
             tom={resumo.valorPendenteCentavos > 0 ? 'amber' : undefined}
-            nota="já vencido, em fichas sem dono"
+            nota="já vencido, cada ficha contada uma vez"
           />
-          <Kpi rotulo="Contas com candidato" valor={N(resumo.contasComCandidato)} nota="alguma ficha parece ser delas" />
+          <Kpi
+            rotulo="Fichas sem dono"
+            valor={N(resumo.fichasLivres)}
+            nota={`reivindicadas por ${N(resumo.contasComCandidato)} conta(s)`}
+          />
           <Kpi rotulo="Sem vínculo nenhum" valor={N(resumo.contasSemVinculo)} nota="nenhuma ficha do Omie ligada" />
           <Kpi
             rotulo="Ligadas só a ficha morta"

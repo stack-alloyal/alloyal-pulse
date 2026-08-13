@@ -141,6 +141,14 @@ export interface Candidato {
 const FORCA: Record<Candidato['evidencia'], number> = { hubspot: 3, raiz: 2, nome: 1 }
 
 /**
+ * Quantas fichas um termo pode compartilhar e ainda identificar alguém.
+ *
+ * 6 é escolha, e a medição sustenta: os termos que passavam a peneira antiga
+ * apareciam em 40 a 167 fichas. Acima disso o termo é categoria, não nome.
+ */
+export const LIMITE_TERMO_RARO = 6
+
+/**
  * Procura identidades do Omie que parecem ser desta conta e ainda não estão ligadas.
  *
  * Três evidências, da mais forte para a mais fraca:
@@ -150,17 +158,35 @@ const FORCA: Record<Candidato['evidencia'], number> = { hubspot: 3, raiz: 2, nom
  *   antigo que virou empresa nova.
  * · `raiz` — mesma raiz de CNPJ. Boa, e insuficiente sozinha: matriz e filial
  *   compartilham raiz e podem ser contas diferentes de propósito.
- * · `nome` — mesmo primeiro termo da razão social, com no mínimo 5 letras. É a mais
- *   fraca e está aqui porque foi a ÚNICA que encontraria a Swile. Fica sempre
- *   rotulada como fraca na tela.
+ * · `nome` — mesmo primeiro termo da razão social, e só quando esse termo é RARO.
+ *   É a mais fraca e está aqui porque foi a única que encontraria a Swile.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A RARIDADE NÃO É REFINAMENTO, é a diferença entre a tela servir e enganar.  │
+ * │ Vi na primeira versão pronta: "Banco Afro" aparecia com R$ 949 mil          │
+ * │ pendentes porque `BANCO` casa com todo banco do Omie. Medido, os termos      │
+ * │ iniciais mais comuns são CASHBACK (167 fichas), LUCAS (126), MARIA (100),   │
+ * │ ASSOCIACAO (85), POSTO (56) — nomes próprios de pessoa física e palavras    │
+ * │ genéricas de empresa.                                                      │
+ * │                                                                            │
+ * │ Lista de palavras proibidas seria interminável e teria que ser mantida à    │
+ * │ mão. A raridade se mede: termo em mais de LIMITE_TERMO_RARO fichas não      │
+ * │ identifica ninguém, e a evidência simplesmente não nasce.                   │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 export async function candidatosDaConta(db: pg.Pool, accountId: string): Promise<Candidato[]> {
   const { rows } = await db.query<Candidato & { forca: number }>(
     `WITH conta AS (
        SELECT a.id, a.razao_social, a.cnpj,
               regexp_replace(coalesce(a.cnpj,''), '[^0-9]', '', 'g') doc,
-              upper(split_part(regexp_replace(a.razao_social, '[^A-Za-z0-9 ]', '', 'g'), ' ', 1)) primeira
+              core.termo(a.razao_social) primeira
          FROM core.account a WHERE a.id = $1
+     ),
+     raros AS (
+       SELECT core.termo(o.razao_social) t
+         FROM core.omie_cliente o, conta c
+        WHERE core.termo(o.razao_social) = c.primeira
+        GROUP BY 1 HAVING count(*) <= $2
      ),
      hubs AS (
        SELECT chave FROM core.vinculo_cliente WHERE account_id = $1 AND fonte = 'hubspot'
@@ -180,10 +206,14 @@ export async function candidatosDaConta(db: pg.Pool, accountId: string): Promise
           AND left(o.documento, 8) = left(c.doc, 8)
        UNION ALL
        SELECT o.documento, o.razao_social, o.inativo, 'nome',
-              'razão social começa com "' || c.primeira || '"'
+              'mesmo primeiro termo "' || c.primeira || '", raro no Omie'
          FROM core.omie_cliente o, conta c
         WHERE length(c.primeira) >= 5
-          AND upper(o.razao_social) LIKE c.primeira || '%'
+          AND core.termo(o.razao_social) = c.primeira
+          -- Só termo RARO. Ver o comentário da função: BANCO casa com todo banco.
+          -- A frequência sai de uma agregação, não de subconsulta por linha: a
+          -- primeira versão levou a tela a "timed out" na carga real.
+          AND c.primeira IN (SELECT t FROM raros)
      ),
      -- A mesma ficha pode chegar por duas evidências; fica a mais forte.
      melhor AS (
@@ -208,7 +238,7 @@ export async function candidatosDaConta(db: pg.Pool, accountId: string): Promise
                WHERE v.account_id = $1 AND v.fonte='omie' AND v.chave = m.chave)
       ORDER BY m.forca DESC, coalesce(t.v,0) DESC
       LIMIT 25`,
-    [accountId],
+    [accountId, LIMITE_TERMO_RARO],
   )
   return rows.map(({ forca: _forca, ...c }) => c)
 }
@@ -376,45 +406,66 @@ export async function filaDeMatch(
     `WITH conta AS (
        SELECT a.id, a.razao_social, a.cnpj, a.ativo,
               regexp_replace(coalesce(a.cnpj,''), '[^0-9]', '', 'g') doc,
-              upper(split_part(regexp_replace(a.razao_social, '[^A-Za-z0-9 ]', '', 'g'), ' ', 1)) primeira
+              core.termo(a.razao_social) primeira
          FROM core.account a
      ),
+     -- Frequência de cada termo UMA vez. Com subconsulta por linha esta tela
+     -- devolvia "timed out" na base real.
+     raros AS (
+       SELECT core.termo(razao_social) t FROM core.omie_cliente
+        GROUP BY 1 HAVING count(*) <= $2
+     ),
+     -- TRÊS RAMOS EM UNION ALL, e não um OR. Com OR o planejador não usa índice
+     -- nenhum e cai em laço aninhado sobre 3.242 contas × 9.498 fichas.
+     pares AS (
+       SELECT c.id account_id, o.documento, 3 forca
+         FROM conta c
+         JOIN core.vinculo_cliente h ON h.account_id = c.id AND h.fonte = 'hubspot'
+         JOIN core.omie_cliente o ON o.hubspot_id = h.chave
+       UNION ALL
+       SELECT c.id, o.documento, 2
+         FROM conta c
+         JOIN core.omie_cliente o
+           ON length(c.doc) = 14 AND length(o.documento) = 14
+          AND left(o.documento, 8) = left(c.doc, 8)
+       UNION ALL
+       SELECT c.id, o.documento, 1
+         FROM conta c
+         JOIN core.omie_cliente o ON core.termo(o.razao_social) = c.primeira
+        WHERE length(c.primeira) >= 5 AND c.primeira IN (SELECT t FROM raros)
+     ),
+     -- Só ficha SEM DONO. A que já pertence a alguém não é candidata de ninguém —
+     -- a mesma ficha em duas contas contaria o faturamento duas vezes.
+     livres AS (
+       SELECT p.account_id, p.documento, max(p.forca) forca
+         FROM pares p
+        WHERE NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
+                           WHERE v.fonte = 'omie' AND v.chave = p.documento)
+        GROUP BY 1, 2
+     ),
+     peso AS (
+       SELECT documento, count(*) n, sum(valor_centavos) v
+         FROM core.omie_titulo
+        WHERE vencimento IS NULL OR vencimento <= current_date
+        GROUP BY 1
+     ),
+     cand AS (
+       SELECT l.account_id, count(*)::int n,
+              coalesce(sum(p.v), 0) valor, max(l.forca) forca,
+              bool_or(NOT o.inativo) tem_ativa
+         FROM livres l
+         JOIN core.omie_cliente o ON o.documento = l.documento
+         LEFT JOIN peso p ON p.documento = l.documento
+        GROUP BY l.account_id
+     ),
      vinc AS (
-       SELECT v.account_id, count(*) FILTER (WHERE v.fonte='omie') n_omie,
-              coalesce(sum(t.v) FILTER (WHERE v.fonte='omie'), 0) valor,
+       SELECT v.account_id, count(*) FILTER (WHERE v.fonte='omie')::int n_omie,
+              coalesce(sum(p.v) FILTER (WHERE v.fonte='omie'), 0) valor,
               bool_and(o.inativo) FILTER (WHERE v.fonte='omie') todas_inativas
          FROM core.vinculo_cliente v
          LEFT JOIN core.omie_cliente o ON v.fonte='omie' AND o.documento = v.chave
-         LEFT JOIN LATERAL (
-                SELECT sum(valor_centavos) v FROM core.omie_titulo
-                 WHERE documento = v.chave AND (vencimento IS NULL OR vencimento <= current_date)
-              ) t ON true
+         LEFT JOIN peso p ON v.fonte='omie' AND p.documento = v.chave
         GROUP BY v.account_id
-     ),
-     cand AS (
-       SELECT c.id account_id, count(*) n,
-              coalesce(sum(t.v),0) valor,
-              max(CASE WHEN o.hubspot_id IS NOT NULL AND o.hubspot_id IN
-                        (SELECT chave FROM core.vinculo_cliente h
-                          WHERE h.account_id=c.id AND h.fonte='hubspot') THEN 3
-                       WHEN length(c.doc)=14 AND left(o.documento,8)=left(c.doc,8) THEN 2
-                       ELSE 1 END) forca,
-              bool_or(NOT o.inativo) tem_ativa
-         FROM conta c
-         JOIN core.omie_cliente o
-           ON (o.hubspot_id IS NOT NULL AND o.hubspot_id IN
-                 (SELECT chave FROM core.vinculo_cliente h WHERE h.account_id=c.id AND h.fonte='hubspot'))
-           OR (length(c.doc)=14 AND length(o.documento)=14 AND left(o.documento,8)=left(c.doc,8))
-           OR (length(c.primeira) >= 5 AND upper(o.razao_social) LIKE c.primeira || '%')
-         LEFT JOIN LATERAL (
-                SELECT sum(valor_centavos) v FROM core.omie_titulo
-                 WHERE documento = o.documento AND (vencimento IS NULL OR vencimento <= current_date)
-              ) t ON true
-        WHERE NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
-                           WHERE v.account_id=c.id AND v.fonte='omie' AND v.chave=o.documento)
-          AND NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
-                           WHERE v.fonte='omie' AND v.chave=o.documento)
-        GROUP BY c.id
      )
      SELECT c.id::text AS "accountId", c.razao_social AS conta, c.cnpj, c.ativo,
             coalesce(v.n_omie,0)::int AS "vinculosOmie",
@@ -424,28 +475,78 @@ export async function filaDeMatch(
             coalesce(v.valor,0)::bigint AS "vinculadoValorCentavos",
             coalesce(v.todas_inativas AND k.tem_ativa, false) AS "apontaParaInativa"
        FROM conta c
+       JOIN cand k ON k.account_id = c.id
        LEFT JOIN vinc v ON v.account_id = c.id
-       LEFT JOIN cand k ON k.account_id = c.id
-      WHERE coalesce(k.n,0) > 0
-      ORDER BY coalesce(k.valor,0) DESC, c.razao_social
+      ORDER BY k.valor DESC, c.razao_social
       LIMIT $1`,
-    [limite],
+    [limite, LIMITE_TERMO_RARO],
   )
   return rows
 }
 
 export interface ResumoDoMatch {
   readonly contasComCandidato: number
+  /** Fichas do Omie sem dono que alguma conta reivindica. Contadas UMA vez. */
+  readonly fichasLivres: number
   readonly valorPendenteCentavos: number
   readonly contasSemVinculo: number
   readonly apontandoParaInativa: number
 }
 
+/**
+ * O resumo conta FICHA DISTINTA, e não a soma das linhas da fila.
+ *
+ * Somar por conta inflava o total: quatro contas "Hinova" reivindicam as MESMAS
+ * fichas, e o valor entrava quatro vezes. A primeira versão exibia R$ 46 milhões
+ * de "faturamento não atribuído" numa base cujo faturamento vencido inteiro é
+ * R$ 140 milhões — um total que se soma mais de uma vez não é total.
+ */
 export async function resumoDoMatch(db: pg.Pool): Promise<ResumoDoMatch> {
   const linhas = await filaDeMatch(db, { limite: 5000 })
+  const { rows } = await db.query<{ fichas: string; valor: string }>(
+    `WITH conta AS (
+       SELECT a.id, regexp_replace(coalesce(a.cnpj,''), '[^0-9]', '', 'g') doc,
+              core.termo(a.razao_social) primeira
+         FROM core.account a
+     ),
+     raros AS (
+       SELECT core.termo(razao_social) t FROM core.omie_cliente
+        GROUP BY 1 HAVING count(*) <= $1
+     ),
+     -- TRÊS RAMOS EM UNION, e não um OR. Com OR o planejador não usa índice
+     -- nenhum e cai em laço aninhado: a primeira versão levava 30 s. Cada ramo
+     -- sozinho usa o índice da sua condição.
+     livres AS (
+       SELECT DISTINCT x.documento FROM (
+         SELECT o.documento
+           FROM core.omie_cliente o
+           JOIN core.vinculo_cliente h ON h.fonte='hubspot' AND h.chave = o.hubspot_id
+          WHERE o.hubspot_id IS NOT NULL
+         UNION
+         SELECT o.documento
+           FROM core.omie_cliente o JOIN conta c
+             ON length(c.doc) = 14 AND length(o.documento) = 14
+            AND left(o.documento, 8) = left(c.doc, 8)
+         UNION
+         SELECT o.documento
+           FROM core.omie_cliente o JOIN conta c
+             ON core.termo(o.razao_social) = c.primeira
+          WHERE length(c.primeira) >= 5 AND c.primeira IN (SELECT t FROM raros)
+       ) x
+       WHERE NOT EXISTS (SELECT 1 FROM core.vinculo_cliente v
+                          WHERE v.fonte='omie' AND v.chave = x.documento)
+     )
+     SELECT count(*)::text fichas,
+            coalesce((SELECT sum(valor_centavos) FROM core.omie_titulo
+                       WHERE documento IN (SELECT documento FROM livres)
+                         AND (vencimento IS NULL OR vencimento <= current_date)), 0)::text valor
+       FROM livres`,
+    [LIMITE_TERMO_RARO],
+  )
   return {
     contasComCandidato: linhas.length,
-    valorPendenteCentavos: linhas.reduce((s, l) => s + Number(l.candidatoValorCentavos), 0),
+    fichasLivres: Number(rows[0]?.fichas ?? 0),
+    valorPendenteCentavos: Number(rows[0]?.valor ?? 0),
     contasSemVinculo: linhas.filter((l) => l.vinculosOmie === 0).length,
     apontandoParaInativa: linhas.filter((l) => l.apontaParaInativa).length,
   }
