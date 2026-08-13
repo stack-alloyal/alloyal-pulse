@@ -297,6 +297,30 @@ export async function lerMovimentos(
 }
 
 /**
+ * Deduplica por chave, mantendo a ÚLTIMA ocorrência.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ Não é zelo preventivo: derrubou o C20 na primeira execução em produção, em  │
+ * │ 13/08/2026, depois de 17 minutos de varredura. `ON CONFLICT DO UPDATE`      │
+ * │ recusa o lote inteiro com "cannot affect row a second time" quando a MESMA  │
+ * │ chave aparece duas vezes no comando — o Postgres não sabe qual das duas     │
+ * │ deveria vencer, e não escolhe por você.                                     │
+ * │                                                                            │
+ * │ E as chaves repetem por dois motivos reais: o Omie tem 21 títulos com       │
+ * │ código duplicado, e a paginação de 193 páginas anda enquanto a base muda —  │
+ * │ um registro pode aparecer em duas páginas.                                  │
+ * │                                                                            │
+ * │ A ÚLTIMA vence porque a varredura vai da página 1 em diante: quando um      │
+ * │ registro reaparece adiante, a ocorrência mais recente é a melhor aposta.    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+function porChave<T>(itens: readonly T[], chave: (t: T) => number | string): T[] {
+  const m = new Map<number | string, T>()
+  for (const i of itens) m.set(chave(i), i)
+  return [...m.values()]
+}
+
+/**
  * Grava as duas cópias. `ON CONFLICT DO UPDATE` em vez de apagar e reinserir:
  * apagar deixaria a tela vazia durante a carga, e uma carga PARCIAL apagaria dado
  * bom para gravar menos do que havia.
@@ -308,7 +332,7 @@ export async function gravarOmie(
   let fichas = 0
   let movimentos = 0
 
-  for (const lote of emLotes(dados.fichas ?? [], 500)) {
+  for (const lote of emLotes(porChave(dados.fichas ?? [], (f) => f.codigoOmie), 500)) {
     const { rowCount } = await db.query(
       `INSERT INTO core.omie_cliente
          (documento, codigo_omie, razao_social, nome_fantasia, pessoa_fisica, inativo,
@@ -341,7 +365,7 @@ export async function gravarOmie(
     fichas += rowCount ?? 0
   }
 
-  for (const lote of emLotes(dados.movimentos ?? [], 1000)) {
+  for (const lote of emLotes(porChave(dados.movimentos ?? [], (m) => m.codigoTitulo), 1000)) {
     const { rowCount } = await db.query(
       `INSERT INTO core.omie_titulo
          (codigo_titulo, documento, codigo_cliente, categoria, status, emissao, vencimento,
