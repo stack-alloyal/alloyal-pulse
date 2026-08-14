@@ -39,8 +39,10 @@ import {
   gravarCategorias,
   gravarExtras,
   gravarOmie,
+  gravarOrdensDeServico,
   lerCategorias,
   lerContratos,
+  lerOrdensDeServico,
   lerVendedores,
   lerFichas,
   lerLogoDoApp,
@@ -776,6 +778,15 @@ export const c20Omie = defineCycle({
       `extras: ${extras.vendedores} vendedor(es) · ${extras.contratos} contrato(s) · ${extras.baixas} baixa(s)`,
     );
 
+    // As ordens de serviço são o que diz O QUE foi cobrado — o título só tem o
+    // código da categoria. Vêm por último porque dependem de `omie_cliente` já
+    // gravada para resolver o documento.
+    const os = await lerOrdensDeServico(cred, { log: ctx.log });
+    const gos = await gravarOrdensDeServico(db, os.ordens);
+    ctx.log(
+      `ordens de serviço: ${gos.ordens} em ${os.paginas} página(s) · ${gos.servicos} item(ns)${os.parcial ? " — PARCIAL" : ""}`,
+    );
+
     // Vincula o que o HubSpot já declara. Vem ANTES da conferência porque muda o
     // conjunto de identidades da conta, e a conferência lê esse conjunto.
     const auto = await vincularPeloHubspot(db);
@@ -793,9 +804,10 @@ export const c20Omie = defineCycle({
     return {
       linhasLidas:
         fichas.fichas.length + mov.movimentos.length + mov.baixas.length +
-        vend.length + ctr.contratos.length,
+        vend.length + ctr.contratos.length + os.ordens.length,
       linhasGravadas:
-        r.fichas + r.movimentos + extras.vendedores + extras.contratos + extras.baixas,
+        r.fichas + r.movimentos + extras.vendedores + extras.contratos + extras.baixas +
+        gos.ordens + gos.servicos,
       // `parcial` sobe no detalhe para a tela de Sincronização mostrar que a
       // varredura não terminou — uma carga parcial que se anuncia "ok" faz alguém
       // concluir que o cliente sumiu do Omie.
@@ -806,7 +818,9 @@ export const c20Omie = defineCycle({
         vendedores: extras.vendedores,
         contratos: extras.contratos,
         baixas: extras.baixas,
-        parcial: fichas.parcial || mov.parcial || cats.parcial || ctr.parcial,
+        ordensDeServico: gos.ordens,
+        itensDeServico: gos.servicos,
+        parcial: fichas.parcial || mov.parcial || cats.parcial || ctr.parcial || os.parcial,
         vinculosAutomaticos: auto,
         conferencia: fila,
       },

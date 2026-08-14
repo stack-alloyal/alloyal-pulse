@@ -719,3 +719,168 @@ export async function gravarExtras(
 
   return { vendedores, contratos, baixas }
 }
+
+// ═══ Ordens de serviço ═══════════════════════════════════════════════════════
+
+export interface ServicoDaOS {
+  sequencia: number
+  descricao: string | null
+  categoria: string | null
+  codigoServico: number | null
+  quantidade: number | null
+  valorUnitarioCentavos: number
+}
+
+export interface OrdemDeServicoOmie {
+  codigo: number
+  numero: string | null
+  codigoCliente: number | null
+  etapa: string | null
+  cancelada: boolean
+  faturada: boolean
+  previsao: string | null
+  incluidaEm: string | null
+  faturadaEm: string | null
+  canceladaEm: string | null
+  valorCentavos: number
+  categoria: string | null
+  servicos: ServicoDaOS[]
+}
+
+/**
+ * Varre as ordens de serviço. 22.444 na conta, 50 por página.
+ *
+ * É onde mora a DESCRIÇÃO do que foi cobrado — o título a receber só carrega o
+ * código da categoria, e "1.01.03" não conta a ninguém que aquilo foi
+ * "Manutenção do App Anuidade Zero".
+ */
+export async function lerOrdensDeServico(
+  cred: CredencialOmie,
+  { log = () => {} }: { log?: (m: string) => void } = {},
+): Promise<{ ordens: OrdemDeServicoOmie[]; paginas: number; parcial: boolean }> {
+  const ordens: OrdemDeServicoOmie[] = []
+  let paginas = 0
+  let parcial = false
+  let total = 1
+
+  for (let p = 1; p <= total; p++) {
+    const r = await chamarOmie(cred, 'servicos/os', 'ListarOS', {
+      pagina: p,
+      registros_por_pagina: 50,
+    })
+    if (r.falha) {
+      log(`ordens de serviço, página ${p}: ${r.falha.slice(0, 160)}`)
+      parcial = true
+      break
+    }
+    total = Number(r.corpo['total_de_paginas'] ?? p)
+    const lote = (r.corpo['osCadastro'] ?? []) as Record<string, unknown>[]
+    if (lote.length === 0) break
+    paginas = p
+    for (const os of lote) {
+      const cab = (os['Cabecalho'] ?? {}) as Record<string, unknown>
+      const inf = (os['InfoCadastro'] ?? {}) as Record<string, unknown>
+      const adic = (os['InformacoesAdicionais'] ?? {}) as Record<string, unknown>
+      const codigo = Number(cab['nCodOS'])
+      if (!Number.isFinite(codigo) || codigo <= 0) continue
+      const itens = (os['ServicosPrestados'] ?? []) as Record<string, unknown>[]
+      ordens.push({
+        codigo,
+        numero: (String(cab['cNumOS'] ?? '').trim() || null),
+        codigoCliente: cab['nCodCli'] ? Number(cab['nCodCli']) : null,
+        etapa: (String(cab['cEtapa'] ?? '').trim() || null),
+        cancelada: inf['cCancelada'] === 'S',
+        faturada: inf['cFaturada'] === 'S',
+        previsao: data(cab['dDtPrevisao']),
+        incluidaEm: data(inf['dDtInc']),
+        faturadaEm: data(inf['dDtFat']),
+        canceladaEm: data(inf['dDtCanc']),
+        valorCentavos: centavos(cab['nValorTotal']),
+        categoria: (String(adic['cCodCateg'] ?? '').trim() || null),
+        servicos: itens.map((i, idx) => ({
+          // `nSeqItem` quando existe; o índice como reserva. A sequência entra na
+          // chave primária, então precisa existir sempre — sem ela, dois serviços
+          // da mesma OS colidiriam e um sumiria.
+          sequencia: Number(i['nSeqItem'] ?? idx + 1),
+          descricao: (String(i['cDescServ'] ?? '').trim() || null),
+          categoria: (String(i['cCodCategItem'] ?? '').trim() || null),
+          codigoServico: i['nCodServico'] ? Number(i['nCodServico']) : null,
+          quantidade: i['nQtde'] === undefined ? null : Number(i['nQtde']),
+          valorUnitarioCentavos: centavos(i['nValUnit']),
+        })),
+      })
+    }
+  }
+  return { ordens, paginas, parcial }
+}
+
+export async function gravarOrdensDeServico(
+  db: pg.Pool,
+  ordens: readonly OrdemDeServicoOmie[],
+): Promise<{ ordens: number; servicos: number }> {
+  if (ordens.length === 0) return { ordens: 0, servicos: 0 }
+  const unicas = porChave(ordens, (o) => o.codigo)
+  let gravadas = 0
+  let servicos = 0
+
+  for (const lote of emLotes(unicas, 500)) {
+    const r = await db.query(
+      `INSERT INTO core.omie_os
+         (codigo, numero, codigo_cliente, documento, etapa, cancelada, faturada,
+          previsao, incluida_em, faturada_em, cancelada_em, valor_centavos, categoria,
+          sincronizado_em)
+       SELECT x.codigo, x.numero, x.codigo_cliente,
+              (SELECT o.documento FROM core.omie_cliente o WHERE o.codigo_omie = x.codigo_cliente),
+              x.etapa, x.cancelada, x.faturada, x.previsao, x.incluida_em, x.faturada_em,
+              x.cancelada_em, x.valor_centavos, x.categoria, now()
+         FROM jsonb_to_recordset($1::jsonb) AS x(
+           codigo bigint, numero text, codigo_cliente bigint, etapa text,
+           cancelada boolean, faturada boolean, previsao date, incluida_em date,
+           faturada_em date, cancelada_em date, valor_centavos bigint, categoria text)
+       ON CONFLICT (codigo) DO UPDATE SET
+         numero=EXCLUDED.numero, codigo_cliente=EXCLUDED.codigo_cliente,
+         documento=EXCLUDED.documento, etapa=EXCLUDED.etapa,
+         cancelada=EXCLUDED.cancelada, faturada=EXCLUDED.faturada,
+         previsao=EXCLUDED.previsao, incluida_em=EXCLUDED.incluida_em,
+         faturada_em=EXCLUDED.faturada_em, cancelada_em=EXCLUDED.cancelada_em,
+         valor_centavos=EXCLUDED.valor_centavos, categoria=EXCLUDED.categoria,
+         sincronizado_em=now()`,
+      [JSON.stringify(lote.map((o) => ({
+        codigo: o.codigo, numero: o.numero, codigo_cliente: o.codigoCliente, etapa: o.etapa,
+        cancelada: o.cancelada, faturada: o.faturada, previsao: o.previsao,
+        incluida_em: o.incluidaEm, faturada_em: o.faturadaEm, cancelada_em: o.canceladaEm,
+        valor_centavos: o.valorCentavos, categoria: o.categoria,
+      })))],
+    )
+    gravadas += r.rowCount ?? 0
+
+    // Os itens vão depois, e num lote próprio: a chave estrangeira exige que a OS
+    // já exista, e um item sem OS derrubaria o comando inteiro.
+    const itens = lote.flatMap((o) =>
+      porChave(o.servicos, (s) => s.sequencia).map((s) => ({
+        os_codigo: o.codigo, sequencia: s.sequencia, descricao: s.descricao,
+        categoria: s.categoria, codigo_servico: s.codigoServico,
+        quantidade: s.quantidade, valor_unitario_centavos: s.valorUnitarioCentavos,
+      })),
+    )
+    if (itens.length === 0) continue
+    const ri = await db.query(
+      `INSERT INTO core.omie_os_servico
+         (os_codigo, sequencia, descricao, categoria, codigo_servico, quantidade,
+          valor_unitario_centavos)
+       SELECT x.os_codigo, x.sequencia, x.descricao, x.categoria, x.codigo_servico,
+              x.quantidade, x.valor_unitario_centavos
+         FROM jsonb_to_recordset($1::jsonb) AS x(
+           os_codigo bigint, sequencia smallint, descricao text, categoria text,
+           codigo_servico bigint, quantidade numeric, valor_unitario_centavos bigint)
+       ON CONFLICT (os_codigo, sequencia) DO UPDATE SET
+         descricao=EXCLUDED.descricao, categoria=EXCLUDED.categoria,
+         codigo_servico=EXCLUDED.codigo_servico, quantidade=EXCLUDED.quantidade,
+         valor_unitario_centavos=EXCLUDED.valor_unitario_centavos`,
+      [JSON.stringify(itens)],
+    )
+    servicos += ri.rowCount ?? 0
+  }
+
+  return { ordens: gravadas, servicos }
+}
