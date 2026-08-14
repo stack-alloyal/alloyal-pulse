@@ -50,7 +50,7 @@ export default async function Contratos({
       <Topo
         href="/contratos"
         acoes={
-          <span className="text-[13px] text-ink-2">
+          <span className="text-corpo text-ink-2">
             {legiveis.length} de {CLAUSULAS.length - 1} tipos visíveis para o seu papel
           </span>
         }
@@ -83,7 +83,7 @@ export default async function Contratos({
             <Btn type="submit">Buscar</Btn>
           </form>
           {spec && (
-            <p className="mt-3 text-[13px] text-ink-2">
+            <p className="mt-3 text-corpo text-ink-2">
               <strong className="font-semibold">{spec.rotulo}</strong> — {spec.pergunta}
               {spec.valores && (
                 <span className="text-ink-3"> Valores: {spec.valores.join(' · ')}.</span>
@@ -127,14 +127,14 @@ export default async function Contratos({
                     {c.restrito ? c.avisoRestricao : valorLegivel(c.valorEstruturado)}
                   </span>,
                   c.restrito ? (
-                    <span className="text-[12px] text-ink-4">—</span>
+                    <span className="text-meta text-ink-4">—</span>
                   ) : (
-                    <span className="text-[12.5px] text-ink-2">
+                    <span className="text-meta text-ink-2">
                       {c.documentoTitulo ?? 'sem documento'}
                       {c.trecho && <span className="text-ink-3"> · {c.trecho}</span>}
                     </span>
                   ),
-                  <span className="tabular-nums text-[12.5px]">
+                  <span className="tabular-nums text-meta">
                     desde {c.validoDe}
                     {c.validoAte && ` até ${c.validoAte}`}
                   </span>,
@@ -151,7 +151,7 @@ export default async function Contratos({
           </Card>
         )}
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           A audiência é declarada por <strong className="font-semibold">tipo</strong> de cláusula,
           uma vez, e aplicada automaticamente em todo contrato. Cláusula fora da sua faixa aparece
           com o tipo visível e o valor oculto — esconder a existência faria você concluir que ela

@@ -80,7 +80,7 @@ export default async function Calendario({
         icone={CalendarDays}
         titulo="Calendário contratual"
         proposito={`Próximos ${HORIZONTE_MESES} meses`}
-        acoes={<span className="text-[13px] text-ink-2">{datas.length} data(s) crítica(s)</span>}
+        acoes={<span className="text-corpo text-ink-2">{datas.length} data(s) crítica(s)</span>}
       />
       <Corpo className="grid gap-5">
         {q.erro && <Aviso tom="erro" papel="alert">{q.erro}</Aviso>}
@@ -118,7 +118,7 @@ export default async function Calendario({
                 </span>,
               ])}
             />
-            <p className="mt-3 max-w-[80ch] text-[12.5px] text-ink-3">
+            <p className="mt-3 max-w-[80ch] text-meta text-ink-3">
               O MRR afetado conta cada conta uma vez por mês: vencimento, janela de aviso e reajuste
               da mesma conta no mesmo mês afetam o faturamento uma vez, não três.
             </p>
@@ -151,29 +151,29 @@ export default async function Calendario({
                     )}
                   >
                     <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="tabular-nums text-[12.5px] font-semibold text-ink">
+                      <span className="tabular-nums text-meta font-semibold text-ink">
                         {d.data}
                       </span>
-                      <span className={cn('text-[12.5px] font-semibold', w.cor)}>{w.texto}</span>
+                      <span className={cn('text-meta font-semibold', w.cor)}>{w.texto}</span>
                       <Badge tone={t.tom}>{t.rotulo}</Badge>
                       <Link
                         href={`/contratos/${d.accountId}`}
-                        className="text-[13.5px] font-semibold text-purple-700 hover:text-purple-500"
+                        className="text-corpo font-semibold text-purple-700 hover:text-purple-500"
                       >
                         {d.conta}
                       </Link>
-                      <span className="tabular-nums text-[12.5px] text-ink-3">
+                      <span className="tabular-nums text-meta text-ink-3">
                         {REAIS(d.mrrCentavos)}/mês
                       </span>
                       {d.irreversivel && (
-                        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-orange-700">
+                        <span className="text-nota font-semibold uppercase tracking-wide text-orange-700">
                           irreversível
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-[13px] text-ink-2">{d.descricao}</p>
+                    <p className="mt-1 text-corpo text-ink-2">{d.descricao}</p>
                     {d.donoEmail && (
-                      <p className="mt-0.5 text-[11.5px] text-ink-3">dono: {d.donoEmail}</p>
+                      <p className="mt-0.5 text-nota text-ink-3">dono: {d.donoEmail}</p>
                     )}
 
                     {obrigacaoId && (
@@ -204,7 +204,7 @@ export default async function Calendario({
           )}
         </Card>
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           A <strong className="font-semibold">janela de aviso</strong> é a data que a operação mais
           esquece e a mais caroa: com renovação automática, deixá-la passar prende por mais um
           ciclo; com renovação expressa, perde o contrato por silêncio. A mesma data, duas

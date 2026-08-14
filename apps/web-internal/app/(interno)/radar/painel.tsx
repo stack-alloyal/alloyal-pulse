@@ -241,13 +241,13 @@ export function PainelDoRadar() {
           ) : (
             <form onSubmit={enviar} onPaste={aoColar} className="grid gap-3">
               <div className="flex items-center">
-                <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+                <h3 className="text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
                   Novo report
                 </h3>
                 <Btn
                   variant="ghost"
                   onClick={() => setMostrarForm(false)}
-                  className="ml-auto h-7 border-0 px-2 text-[12.5px] text-ink-3"
+                  className="ml-auto h-7 border-0 px-2 text-meta text-ink-3"
                 >
                   Cancelar
                 </Btn>
@@ -289,7 +289,7 @@ export function PainelDoRadar() {
               />
 
               <div className="grid gap-1.5">
-                <span className="text-[13px] font-medium text-ink-2">
+                <span className="text-corpo font-medium text-ink-2">
                   Anexos{' '}
                   <span className="font-normal text-ink-3">
                     — até 10 MB cada e 20 MB no total, ou cole com Ctrl+V
@@ -310,7 +310,7 @@ export function PainelDoRadar() {
                   <Btn
                     variant="ghost"
                     onClick={() => seletor.current?.click()}
-                    className="h-8 px-2.5 text-[12.5px] font-medium text-ink-2"
+                    className="h-8 px-2.5 text-meta font-medium text-ink-2"
                   >
                     <Paperclip className="h-3.5 w-3.5" /> Anexar arquivo
                   </Btn>
@@ -318,7 +318,7 @@ export function PainelDoRadar() {
                     <span
                       key={`${f.name}-${i}`}
                       title={f.name}
-                      className="inline-flex max-w-56 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-[12px] text-ink-2"
+                      className="inline-flex max-w-56 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-meta text-ink-2"
                     >
                       {f.type.startsWith('image/') ? (
                         <ImagePlus className="h-3 w-3 shrink-0 text-purple-500" />
@@ -356,7 +356,7 @@ export function PainelDoRadar() {
 
         <section className="px-5 py-4">
           <div className="mb-3 flex items-center gap-2">
-            <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+            <h3 className="text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
               Todos os reports {itens.length > 0 && `(${visiveis.length}/${itens.length})`}
             </h3>
             <Btn
@@ -373,7 +373,7 @@ export function PainelDoRadar() {
             <Select
               value={filtroStatus}
               onChange={(e) => setFiltroStatus(e.target.value)}
-              className="h-8 text-[12.5px]"
+              className="h-8 text-meta"
             >
               <option value="todos">Status: todos</option>
               <option value="aberto">Em aberto</option>
@@ -385,7 +385,7 @@ export function PainelDoRadar() {
             <Select
               value={filtroAutoria}
               onChange={(e) => setFiltroAutoria(e.target.value)}
-              className="h-8 text-[12.5px]"
+              className="h-8 text-meta"
             >
               <option value="todos">Autor: todos</option>
               <option value="meus">Abertos por mim</option>
@@ -394,9 +394,9 @@ export function PainelDoRadar() {
           </div>
 
           {carregando && itens.length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-ink-3">Carregando…</p>
+            <p className="py-6 text-center text-corpo text-ink-3">Carregando…</p>
           ) : visiveis.length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-ink-3">
+            <p className="py-6 text-center text-corpo text-ink-3">
               {itens.length === 0
                 ? 'Nenhum report do Pulse ainda.'
                 : 'Nenhum report com esses filtros.'}
@@ -409,8 +409,8 @@ export function PainelDoRadar() {
                     <span className="shrink-0" title={d.tipo}>
                       {EMOJI_DO_TIPO[d.tipo] ?? '•'}
                     </span>
-                    <p className="text-[13.5px] font-medium leading-snug text-ink">{d.titulo}</p>
-                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-3">
+                    <p className="text-corpo font-medium leading-snug text-ink">{d.titulo}</p>
+                    <span className="ml-auto shrink-0 text-nota tabular-nums text-ink-3">
                       #{d.protocolo}
                     </span>
                   </div>
@@ -425,7 +425,7 @@ export function PainelDoRadar() {
                         {new Date(d.previsaoSolucao).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
                       </Badge>
                     )}
-                    <span className="ml-auto text-[11px] text-ink-3">
+                    <span className="ml-auto text-nota text-ink-3">
                       {d.autor.split('@')[0]} · {dia(d.createdAt)}
                     </span>
                   </div>
@@ -434,7 +434,7 @@ export function PainelDoRadar() {
                       para respondê-la. Responder é no Radar: é lá que a devolutiva
                       é escrita e que o histórico da demanda vive. */}
                   {d.status === 'aguardando_retorno' && (
-                    <div className="mt-2 rounded-md bg-purple-50 px-2.5 py-2 text-[12px] leading-snug text-ink-2">
+                    <div className="mt-2 rounded-md bg-purple-50 px-2.5 py-2 text-meta leading-snug text-ink-2">
                       <p className="font-medium text-purple-700">⏳ O time aguarda um retorno</p>
                       {d.pendencia && <p className="mt-1 whitespace-pre-wrap">{d.pendencia}</p>}
                       {radar && (
@@ -450,17 +450,17 @@ export function PainelDoRadar() {
                     </div>
                   )}
                   {d.notaDeRelease && (
-                    <p className="mt-2 rounded-md bg-green-50 px-2.5 py-1.5 text-[12px] leading-snug text-green">
+                    <p className="mt-2 rounded-md bg-green-50 px-2.5 py-1.5 text-meta leading-snug text-green">
                       ✨ {d.notaDeRelease}
                     </p>
                   )}
                   {d.detalheResolucao && (
                     <details className="group mt-2">
-                      <summary className="cursor-pointer list-none text-[12px] font-medium text-purple-700">
+                      <summary className="cursor-pointer list-none text-meta font-medium text-purple-700">
                         <span className="group-open:hidden">▸ Ver detalhes</span>
                         <span className="hidden group-open:inline">▾ Ocultar detalhes</span>
                       </summary>
-                      <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-surface px-2.5 py-2 text-[12px] leading-relaxed text-ink-2">
+                      <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-surface px-2.5 py-2 text-meta leading-relaxed text-ink-2">
                         {d.detalheResolucao}
                       </p>
                     </details>

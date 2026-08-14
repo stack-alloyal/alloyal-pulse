@@ -98,7 +98,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
           <span className="flex items-center gap-2">
             <Link
               href={`/contas/${accountId}`}
-              className="text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+              className="text-corpo font-semibold text-purple-700 hover:text-purple-500"
             >
               Cliente 360 →
             </Link>
@@ -115,13 +115,13 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
           <Kpi rotulo="MRR" valor={REAIS(c.mrr_centavos)} nota={c.tipo_receita ?? undefined} />
           <Kpi
             rotulo="Vigência"
-            valor={<span className="text-[22px]">{c.vigencia_fim ?? '—'}</span>}
+            valor={c.vigencia_fim ?? '—'}
             /* O fim CONTRATADO e o encerramento de fato são fatos diferentes, e a
                diferença entre eles é o prazo restante — o que caracteriza multa. */
             nota={c.encerrado_em ? `encerrado de fato em ${c.encerrado_em}` : 'fim contratado'}
             {...(c.encerrado_em ? { tom: 'red' as const } : {})}
           />
-          <Kpi rotulo="Renovação" valor={<span className="text-[22px]">{c.renovacao ?? '—'}</span>} />
+          <Kpi rotulo="Renovação" valor={c.renovacao ?? '—'} />
           <Kpi
             rotulo="Cláusulas"
             valor={clausulas.length}
@@ -145,7 +145,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
 
         <Card title="O que vale hoje">
           {clausulas.length === 0 ? (
-            <p className="text-[13px] text-ink-3">
+            <p className="text-corpo text-ink-3">
               Nenhuma cláusula registrada para esta conta. A captação começa pela fila de
               confirmação, ordenada por MRR — este contrato aparece lá conforme o valor.
             </p>
@@ -165,14 +165,14 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
                     )}
                   >
                     <div className="flex flex-wrap items-baseline gap-2">
-                      <strong className="text-[13.5px] font-bold text-ink">{x.rotulo}</strong>
+                      <strong className="text-corpo font-bold text-ink">{x.rotulo}</strong>
                       {x.restrito ? (
-                        <span className="inline-flex items-center gap-1 text-[13px] text-ink-3">
+                        <span className="inline-flex items-center gap-1 text-corpo text-ink-3">
                           <Lock className="h-[13px] w-[13px]" />
                           {x.avisoRestricao}
                         </span>
                       ) : (
-                        <span className="text-[13.5px] text-ink">
+                        <span className="text-corpo text-ink">
                           {valorLegivel(x.valorEstruturado)}
                         </span>
                       )}
@@ -181,15 +181,15 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
                       )}
                     </div>
 
-                    {spec && <p className="mt-1 text-[12px] text-ink-3">{spec.pergunta}</p>}
+                    {spec && <p className="mt-1 text-meta text-ink-3">{spec.pergunta}</p>}
 
                     {!x.restrito && x.texto && (
-                      <p className="mt-2 whitespace-pre-wrap text-[12.5px] leading-relaxed text-ink-2">
+                      <p className="mt-2 whitespace-pre-wrap text-meta leading-relaxed text-ink-2">
                         {x.texto}
                       </p>
                     )}
 
-                    <p className="mt-2 text-[11.5px] text-ink-3">
+                    <p className="mt-2 text-nota text-ink-3">
                       {x.restrito ? (
                         <>procedência oculta junto com o valor</>
                       ) : (
@@ -206,7 +206,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
                       {hist && (
                         <>
                           {' · '}
-                          <span className="font-semibold text-amber-700">
+                          <span className="font-semibold text-orange-700">
                             alterada {hist.versoes.length - 1}× por aditivo
                           </span>
                         </>
@@ -224,7 +224,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
             <ul className="grid gap-4">
               {mudaram.map((h) => (
                 <li key={h.tipo}>
-                  <strong className="text-[13.5px] font-bold text-ink">
+                  <strong className="text-corpo font-bold text-ink">
                     {especificacao(h.tipo)?.rotulo}
                   </strong>
                   <ol className="mt-1.5 grid gap-1">
@@ -232,7 +232,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
                       <li
                         key={v.id}
                         className={cn(
-                          'flex flex-wrap items-baseline gap-2 border-l-2 pl-3 text-[12.5px]',
+                          'flex flex-wrap items-baseline gap-2 border-l-2 pl-3 text-meta',
                           v.estado === 'substituida'
                             ? 'border-line text-ink-3'
                             : 'border-purple-500 text-ink',
@@ -255,7 +255,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
                 </li>
               ))}
             </ul>
-            <p className="mt-3 max-w-[80ch] text-[12.5px] text-ink-3">
+            <p className="mt-3 max-w-[80ch] text-meta text-ink-3">
               Cláusula nunca é editada — só substituída, com documento de origem. Por isso a linha
               antiga continua aqui: quem pergunta &ldquo;por que mudou?&rdquo; recebe o aditivo e a
               data.
@@ -264,7 +264,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
         )}
 
         {/* Rodapé permanente, como o PRD pede. */}
-        <p className="border-t border-line pt-4 text-[12.5px] text-ink-3">
+        <p className="border-t border-line pt-4 text-meta text-ink-3">
           O registro legal é o <strong className="font-semibold">documento assinado</strong>.
           Divergência entre esta ficha e o PDF é incidente de dado, e o PDF prevalece.
         </p>

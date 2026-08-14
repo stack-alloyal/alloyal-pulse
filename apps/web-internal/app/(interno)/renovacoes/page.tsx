@@ -69,7 +69,7 @@ function prazo(r: Renovacao): { texto: string; cor: string } {
   }
   return {
     texto: `vence em ${d} d · aviso abre em ${d - aviso} d`,
-    cor: d <= 45 ? 'text-amber-700' : 'text-ink-3',
+    cor: d <= 45 ? 'text-orange-700' : 'text-ink-3',
   }
 }
 
@@ -91,19 +91,19 @@ function Linha({ r }: { r: Renovacao }) {
       <div className="flex flex-wrap items-baseline gap-2">
         <Link
           href={`/contas/${r.accountId}`}
-          className="text-[14px] font-bold tracking-[-0.01em] text-purple-700 hover:text-purple-500"
+          className="text-cartao font-bold tracking-[-0.01em] text-purple-700 hover:text-purple-500"
         >
           {r.conta}
         </Link>
-        <span className="tabular-nums text-[12.5px] text-ink-3">
+        <span className="tabular-nums text-meta text-ink-3">
           {REAIS(r.mrrEmRiscoCentavos)}/mês em risco
         </span>
         <Badge tone={e.tom}>{e.rotulo}</Badge>
         {r.cenario && <Badge tone={CENARIO[r.cenario]!.tom}>{CENARIO[r.cenario]!.rotulo}</Badge>}
-        <span className={cn('ml-auto text-[12.5px] font-semibold', p.cor)}>{p.texto}</span>
+        <span className={cn('ml-auto text-meta font-semibold', p.cor)}>{p.texto}</span>
       </div>
 
-      {r.nota && <p className="mt-1.5 text-[12.5px] text-ink-2">{r.nota}</p>}
+      {r.nota && <p className="mt-1.5 text-meta text-ink-2">{r.nota}</p>}
 
       {aberta && (
         <div className="mt-3 grid gap-2 border-t border-line pt-3">
@@ -133,7 +133,7 @@ function Linha({ r }: { r: Renovacao }) {
             <Btn type="submit" name="desfecho" value="perdida" variant="danger">
               Perdida
             </Btn>
-            <span className="text-[12px] text-ink-3">
+            <span className="text-meta text-ink-3">
               O desfecho entra na acurácia da previsão, e não sai mais.
             </span>
           </form>
@@ -205,7 +205,7 @@ export default async function Renovacoes({
                 />
               )}
             </div>
-            <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+            <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
               A previsão é uma <strong className="font-semibold">faixa</strong>: no otimista tudo
               renova, no base renova o que ninguém marcou como perda provável, no pessimista só o
               que alguém marcou como certo. Número único seria falsa precisão. O erro do O6 ao lado
@@ -268,12 +268,12 @@ export default async function Renovacoes({
                   <span className="tabular-nums">{c.fechadas}</span>,
                   <span className="tabular-nums">{c.acertos}</span>,
                   taxa === null ? (
-                    <span className="text-[12.5px] text-ink-3">
+                    <span className="text-meta text-ink-3">
                       mínimo {MINIMO_PARA_ACURACIA}
                     </span>
                   ) : (
                     <span
-                      className={cn('tabular-nums', taxa >= 0.7 ? 'text-green' : 'text-amber-700')}
+                      className={cn('tabular-nums', taxa >= 0.7 ? 'text-green' : 'text-orange-700')}
                     >
                       {PCT(taxa)}
                     </span>
@@ -281,7 +281,7 @@ export default async function Renovacoes({
                 ]
               })}
             />
-            <p className="mt-3 max-w-[80ch] text-[12.5px] text-ink-3">
+            <p className="mt-3 max-w-[80ch] text-meta text-ink-3">
               Renovação fechada sem leitura registrada conta como não acerto. É o incentivo que
               importa: quem não avalia não pode aparecer com 100%.
             </p>
@@ -290,7 +290,7 @@ export default async function Renovacoes({
 
         {fechadas.length > 0 && (
           <details>
-            <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2 hover:text-ink">
+            <summary className="cursor-pointer select-none text-corpo font-semibold text-ink-2 hover:text-ink">
               {fechadas.length} já fechadas
             </summary>
             <ul className="mt-3 grid gap-3 opacity-75">

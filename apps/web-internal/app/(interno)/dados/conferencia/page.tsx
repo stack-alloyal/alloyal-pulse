@@ -45,7 +45,7 @@ export default async function Conferencia({
         proposito="onde Lecupon e Omie discordam sobre a mesma conta"
         icone={ScanSearch}
         acoes={
-          <span className="flex items-center gap-3 text-[13px]">
+          <span className="flex items-center gap-3 text-corpo">
             <span className="text-ink-2">
               {resumo.abertas} aberta(s) · {resumo.resolvidas} conferida(s)
               {resumo.ignoradas > 0 && ` · ${resumo.ignoradas} ignorada(s)`}
@@ -72,7 +72,7 @@ export default async function Conferencia({
           </Aviso>
         )}
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           O valor que o Pulse usa é o da <strong className="font-semibold">Lecupon</strong> —
           essa decisão já está aplicada. O que se confere aqui é se ela está{' '}
           <em>certa</em> em cada caso: os dois sistemas apontam para empresas diferentes no
@@ -95,7 +95,7 @@ export default async function Conferencia({
                 >
                   {i.conta}
                 </Link>,
-                <span className="tabular-nums text-[12.5px] text-ink-2">{i.cnpj ?? '—'}</span>,
+                <span className="tabular-nums text-meta text-ink-2">{i.cnpj ?? '—'}</span>,
                 i.statusCore === 'active' ? (
                   <Badge tone="green">ativa</Badge>
                 ) : (
@@ -104,13 +104,13 @@ export default async function Conferencia({
                 /* Os dois valores lado a lado na LISTA: em boa parte dos casos a
                    diferença é óbvia ao olhar, e obrigar a abrir a ficha para ver os
                    números seria um clique por nada. */
-                <span className="tabular-nums text-[12.5px] font-semibold text-ink">
+                <span className="tabular-nums text-meta font-semibold text-ink">
                   {i.valorLecupon ?? '—'}
                 </span>,
-                <span className="tabular-nums text-[12.5px] text-ink-2">{i.valorOmie ?? '—'}</span>,
+                <span className="tabular-nums text-meta text-ink-2">{i.valorOmie ?? '—'}</span>,
                 <Link
                   href={`/dados/conferencia/${i.id}`}
-                  className="whitespace-nowrap text-[12.5px] font-semibold text-purple-700 hover:text-purple-500"
+                  className="whitespace-nowrap text-meta font-semibold text-purple-700 hover:text-purple-500"
                 >
                   conferir →
                 </Link>,
@@ -137,11 +137,11 @@ export default async function Conferencia({
                 ) : (
                   <Badge tone="green">vale {i.decisao}</Badge>
                 ),
-                <span className="text-[12.5px] text-ink-2">{i.decididoPor?.split('@')[0] ?? '—'}</span>,
-                <span className="whitespace-nowrap text-[12.5px] tabular-nums text-ink-3">
+                <span className="text-meta text-ink-2">{i.decididoPor?.split('@')[0] ?? '—'}</span>,
+                <span className="whitespace-nowrap text-meta tabular-nums text-ink-3">
                   {i.decididoEm ? new Date(i.decididoEm).toLocaleDateString('pt-BR') : '—'}
                 </span>,
-                <span className="text-[12.5px] text-ink-2">{i.nota ?? '—'}</span>,
+                <span className="text-meta text-ink-2">{i.nota ?? '—'}</span>,
               ])}
             />
           </Card>

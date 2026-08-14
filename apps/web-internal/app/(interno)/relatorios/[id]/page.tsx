@@ -62,7 +62,7 @@ export default async function Relatorio({ params }: { params: Promise<{ id: stri
               <Link
                 href={`/relatorios/${r.id}/imprimir`}
                 target="_blank"
-                className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+                className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
               >
                 <Printer className="h-[14px] w-[14px]" />
                 Versão de impressão
@@ -70,7 +70,7 @@ export default async function Relatorio({ params }: { params: Promise<{ id: stri
             )}
             <Link
               href={`/contas/${r.accountId}`}
-              className="text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+              className="text-corpo font-semibold text-purple-700 hover:text-purple-500"
             >
               Cliente 360 →
             </Link>
@@ -126,14 +126,14 @@ export default async function Relatorio({ params }: { params: Promise<{ id: stri
                 <Btn type="submit">
                   {r.estado === 'revisado' ? 'Salvar revisão' : 'Revisar e congelar'}
                 </Btn>
-                <span className="text-[12.5px] text-ink-3">
+                <span className="text-meta text-ink-3">
                   Revisar congela os números: a partir daí eles não mudam mesmo que a métrica seja
                   recalculada.
                 </span>
               </div>
             </form>
           ) : (
-            <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink">
+            <p className="whitespace-pre-wrap text-corpo leading-relaxed text-ink">
               {r.fraseFinal}
             </p>
           )}
@@ -141,7 +141,7 @@ export default async function Relatorio({ params }: { params: Promise<{ id: stri
           {/* As duas frases ficam. A divergência entre elas mostra onde a geração
               erra sempre — e é a única forma de melhorá-la. */}
           {r.fraseGerada && r.fraseFinal && r.fraseGerada !== r.fraseFinal && (
-            <details className="mt-3 text-[12.5px]">
+            <details className="mt-3 text-meta">
               <summary className="cursor-pointer select-none text-ink-3 hover:text-ink-2">
                 ver a frase que a máquina escreveu
               </summary>
@@ -169,7 +169,7 @@ export default async function Relatorio({ params }: { params: Promise<{ id: stri
                 Enviar e congelar definitivamente
               </Btn>
             </form>
-            <p className="mt-3 max-w-[80ch] text-[12.5px] text-ink-3">
+            <p className="mt-3 max-w-[80ch] text-meta text-ink-3">
               O envio do e-mail em si depende de integração que ainda não existe. O que este passo
               grava é a prova de <em>que</em> foi enviado, <em>para quem</em> e <em>com que
               números</em> — e é essa prova que sustenta a conversa três meses depois.

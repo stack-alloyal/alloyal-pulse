@@ -51,7 +51,7 @@ export default async function Configuracoes({
       <Topo
         href="/configuracoes"
         acoes={
-          <span className="flex items-center gap-3 text-[13px]">
+          <span className="flex items-center gap-3 text-corpo">
             <Link
                 href="/configuracoes/usuarios"
                 className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
@@ -115,7 +115,7 @@ export default async function Configuracoes({
           </Aviso>
         )}
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           Cada valor abaixo vale <strong className="font-semibold">na próxima rodada</strong> do
           worker — não é preciso reiniciar nada. Campo em branco não é zero: para voltar ao padrão,
           escreva o valor padrão que está indicado. Toda mudança fica no{' '}
@@ -138,8 +138,8 @@ export default async function Configuracoes({
                     <form key={a.chave} action={salvarAjuste} className="grid gap-2">
                       <input type="hidden" name="chave" value={a.chave} />
                       <div className="flex flex-wrap items-baseline gap-2">
-                        <strong className="text-[13.5px] font-bold text-ink">{a.rotulo}</strong>
-                        <code className="text-[11.5px] text-ink-3">{a.chave}</code>
+                        <strong className="text-corpo font-bold text-ink">{a.rotulo}</strong>
+                        <code className="text-nota text-ink-3">{a.chave}</code>
                         {gravado ? (
                           <Badge tone="indigo">
                             mudado por {gravado.por.split('@')[0]} em{' '}
@@ -150,7 +150,7 @@ export default async function Configuracoes({
                         )}
                       </div>
 
-                      <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+                      <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
                         {a.efeito}
                       </p>
 
@@ -174,7 +174,7 @@ export default async function Configuracoes({
                         <Btn type="submit">Salvar</Btn>
                       </div>
 
-                      <p className="text-[12px] text-ink-3">
+                      <p className="text-meta text-ink-3">
                         Padrão <strong className="font-semibold">{String(a.padrao)}</strong>
                         {a.minimo !== undefined && ` · mínimo ${a.minimo}`}
                         {a.maximo !== undefined && ` · máximo ${a.maximo}`}

@@ -59,7 +59,7 @@ export default async function Usuarios({
         acoes={
           <Link
             href="/configuracoes"
-            className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
           >
             <ArrowLeft className="h-[14px] w-[14px]" />
             Configurações
@@ -103,7 +103,7 @@ export default async function Usuarios({
           actions={
             <Link
               href="/configuracoes/papeis"
-              className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+              className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
             >
               <ShieldCheck className="h-[14px] w-[14px]" />
               Papéis e permissões
@@ -118,12 +118,12 @@ export default async function Usuarios({
                 <div className="font-semibold text-ink">
                   {p.nome ?? p.email.split('@')[0]}
                   {p.email === eu.email && (
-                    <span className="ml-2 text-[11.5px] font-normal text-ink-3">(você)</span>
+                    <span className="ml-2 text-nota font-normal text-ink-3">(você)</span>
                   )}
                 </div>
-                <div className="text-[12.5px] text-ink-3">{p.email}</div>
+                <div className="text-meta text-ink-3">{p.email}</div>
                 {!p.nome && (
-                  <div className="mt-0.5 text-[11.5px] text-amber-700">sem nome preenchido</div>
+                  <div className="mt-0.5 text-nota text-orange-700">sem nome preenchido</div>
                 )}
               </>,
               p.papeis.length ? (
@@ -135,7 +135,7 @@ export default async function Usuarios({
                   ))}
                 </div>
               ) : (
-                <span className="text-[12.5px] text-ink-3">nenhum</span>
+                <span className="text-meta text-ink-3">nenhum</span>
               ),
               <Badge tone={p.ativo ? 'green' : 'red'}>{p.ativo ? 'ativo' : 'suspenso'}</Badge>,
               /* O motivo vai no MESMO formulário do botão, e não numa etapa depois:
@@ -166,7 +166,7 @@ export default async function Usuarios({
               </form>,
             ])}
           />
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             Suspender corta o acesso na hora e <strong className="text-ink">preserva os papéis</strong>
             . É o que serve para férias, licença e desligamento em análise — reativar devolve
             exatamente o que a pessoa tinha, sem ninguém reconstruir de memória.
@@ -188,7 +188,7 @@ export default async function Usuarios({
               <Btn type="submit">Cadastrar</Btn>
             </div>
           </form>
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             Cadastrar <strong className="text-ink">não dá acesso</strong>. Serve para o nome
             aparecer no header e para a pessoa existir antes de receber papel. Quem libera o acesso
             é <Link href="/configuracoes/papeis" className="font-semibold text-purple-700">Papéis</Link>

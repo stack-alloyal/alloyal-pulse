@@ -66,7 +66,7 @@ export function BotaoGoogle({
   return (
     <a
       href={destino}
-      className="mt-6 flex w-full items-center justify-center gap-2.5 rounded-md border border-line-strong bg-surface px-5 py-3 text-[14.5px] font-semibold text-ink transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-100"
+      className="mt-6 flex w-full items-center justify-center gap-2.5 rounded-md border border-line-strong bg-surface px-5 py-3 text-cartao font-semibold text-ink transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-100"
     >
       <IconeGoogle />
       {rotulo}

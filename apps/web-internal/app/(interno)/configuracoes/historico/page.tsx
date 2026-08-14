@@ -58,7 +58,7 @@ export default async function Historico() {
         acoes={
           <Link
             href="/configuracoes"
-            className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
           >
             <ArrowLeft className="h-[14px] w-[14px]" />
             Configurações
@@ -76,36 +76,36 @@ export default async function Historico() {
             <Table
               cols={['Quando', 'O quê', 'Chave', 'De → para', 'Quem', 'Motivo']}
               rows={mudancas.map((m) => [
-                <span className="whitespace-nowrap text-[12.5px] tabular-nums text-ink-2">
+                <span className="whitespace-nowrap text-meta tabular-nums text-ink-2">
                   {new Date(m.quando).toLocaleString('pt-BR')}
                 </span>,
                 <Badge tone={TOM[m.tipo] ?? 'slate'}>{ROTULO[m.tipo] ?? m.tipo}</Badge>,
-                <code className="text-[12px]">{m.chave}</code>,
+                <code className="text-meta">{m.chave}</code>,
                 m.tipo === 'segredo' ? (
                   /* Dito e não deixado em branco: célula vazia se leria como falha de
                      registro, e o que houve foi uma decisão. */
-                  <span className="text-[12.5px] text-ink-3">
+                  <span className="text-meta text-ink-3">
                     valor não registrado — a trilha não é cifrada
                   </span>
                 ) : (
-                  <span className="text-[12.5px] tabular-nums">
+                  <span className="text-meta tabular-nums">
                     <span className="text-ink-3">{valor(m.antes)}</span>
                     <span className="mx-1 text-ink-4">→</span>
                     <strong className="font-semibold text-ink">{valor(m.depois)}</strong>
                   </span>
                 ),
-                <span className="text-[12.5px] text-ink-2">{m.quem.split('@')[0]}</span>,
+                <span className="text-meta text-ink-2">{m.quem.split('@')[0]}</span>,
                 m.motivo ? (
-                  <span className="text-[12.5px] text-ink-2">{m.motivo}</span>
+                  <span className="text-meta text-ink-2">{m.motivo}</span>
                 ) : (
-                  <span className="text-[12px] text-ink-4">sem motivo declarado</span>
+                  <span className="text-meta text-ink-4">sem motivo declarado</span>
                 ),
               ])}
             />
           </Card>
         )}
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           Esta tabela não aceita alteração nem remoção — o banco recusa por trigger. Correção é
           registro novo, nunca edição do anterior: trilha que se conserta não sustenta nenhuma
           conversa sobre o que aconteceu.

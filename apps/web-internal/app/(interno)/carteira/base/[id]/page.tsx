@@ -81,8 +81,8 @@ function Campos({ pares }: { pares: [string, React.ReactNode][] }) {
     <dl className="grid gap-x-6 gap-y-0 sm:grid-cols-2">
       {pares.map(([r, v]) => (
         <div key={r} className="flex flex-wrap items-baseline gap-2 border-b border-line py-1.5 last:border-0">
-          <dt className="min-w-[11em] text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-3">{r}</dt>
-          <dd className="m-0 flex-1 break-words text-[13px] text-ink">{v || '—'}</dd>
+          <dt className="min-w-[11em] text-nota font-semibold uppercase tracking-[0.05em] text-ink-3">{r}</dt>
+          <dd className="m-0 flex-1 break-words text-corpo text-ink">{v || '—'}</dd>
         </div>
       ))}
     </dl>
@@ -159,7 +159,7 @@ export default async function FichaDeCliente({
         proposito={`${DOC(conta.cnpj)} · o cadastro do Admin e o financeiro do Omie`}
         icone={Building2}
         acoes={
-          <span className="flex items-center gap-3 text-[13px]">
+          <span className="flex items-center gap-3 text-corpo">
             <Badge tone={conta.ativo ? 'green' : 'slate'}>{conta.ativo ? 'ativo' : 'inativo'}</Badge>
             <Link
               href="/carteira/base"
@@ -206,7 +206,7 @@ export default async function FichaDeCliente({
         <div className="flex items-center gap-4">
           <span
             aria-hidden="true"
-            className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl text-[17px] font-semibold"
+            className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl text-title font-semibold"
             style={{ backgroundColor: `hsl(${h} 62% 92%)`, color: `hsl(${h} 55% 32%)` }}
           >
             {iniciaisDoCliente(conta.razaoSocial)}
@@ -215,8 +215,8 @@ export default async function FichaDeCliente({
             ) : null}
           </span>
           <div className="min-w-0">
-            <div className="text-[15px] font-bold text-ink">{omie?.nomeFantasia ?? conta.razaoSocial}</div>
-            <div className="text-[12.5px] text-ink-2">
+            <div className="text-secao font-bold text-ink">{omie?.nomeFantasia ?? conta.razaoSocial}</div>
+            <div className="text-meta text-ink-2">
               {conta.paiRazaoSocial ? (
                 <>
                   sub business de{' '}
@@ -282,7 +282,7 @@ export default async function FichaDeCliente({
             </div>
 
             {resumo.previsaoCentavos > 0 && (
-              <p className="text-[12.5px] leading-relaxed text-ink-3">
+              <p className="text-meta leading-relaxed text-ink-3">
                 Fora dos números acima:{' '}
                 <strong className="font-semibold text-ink-2">{BRL(resumo.previsaoCentavos)}</strong> em{' '}
                 {N(resumo.previsaoTitulos)} títulos de <strong className="font-semibold">previsão</strong> — a
@@ -310,9 +310,9 @@ export default async function FichaDeCliente({
               pares={[
                 ['Razão social', conta.razaoSocial],
                 ['CNPJ', <span className="tabular-nums">{DOC(conta.cnpj)}</span>],
-                ['Business ID', <span className="font-mono text-[12.5px]">{conta.brandId}</span>],
-                ['Branch ID', <span className="font-mono text-[12.5px]">{conta.branchId}</span>],
-                ['HubSpot ID', <span className="font-mono text-[12.5px]">{conta.hubspotCompanyId}</span>],
+                ['Business ID', <span className="font-mono text-meta">{conta.brandId}</span>],
+                ['Branch ID', <span className="font-mono text-meta">{conta.branchId}</span>],
+                ['HubSpot ID', <span className="font-mono text-meta">{conta.hubspotCompanyId}</span>],
                 ['Situação', conta.statusCore],
                 ['Porte · setor', [conta.porte, conta.setor].filter(Boolean).join(' · ')],
                 ['CSM', conta.csmEmail],
@@ -322,7 +322,7 @@ export default async function FichaDeCliente({
                 ['Usuários cadastrados', <span className="tabular-nums">{N(conta.usuariosCadastrados)}</span>],
               ]}
             />
-            <p className="mt-3 text-[11.5px] text-ink-3">
+            <p className="mt-3 text-nota text-ink-3">
               Sincronizado do core em {DATA(conta.sincronizadoEm)} · ciclo C18.
             </p>
           </Card>
@@ -342,7 +342,7 @@ export default async function FichaDeCliente({
                     ['Razão social', omie.razaoSocial],
                     ['Nome fantasia', omie.nomeFantasia],
                     ['Documento', <span className="tabular-nums">{DOC(omie.documento)}</span>],
-                    ['Código Omie', <span className="font-mono text-[12.5px]">{omie.codigoOmie}</span>],
+                    ['Código Omie', <span className="font-mono text-meta">{omie.codigoOmie}</span>],
                     ['Tipo', omie.pessoaFisica ? 'pessoa física' : 'pessoa jurídica'],
                     ['Data do cadastro', DATA(omie.cadastradoEm)],
                     ['Última alteração', DATA(omie.alteradoEm)],
@@ -353,7 +353,7 @@ export default async function FichaDeCliente({
                     [
                       'HubSpot ID',
                       omie.hubspotId ? (
-                        <span className="font-mono text-[12.5px]">
+                        <span className="font-mono text-meta">
                           {omie.hubspotId}
                           {conta.hubspotCompanyId && conta.hubspotCompanyId !== omie.hubspotId ? (
                             <> <Badge tone="red">difere do Admin</Badge></>
@@ -365,7 +365,7 @@ export default async function FichaDeCliente({
                 />
                 {omie.tags.length > 0 && (
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-3">Tags</span>
+                    <span className="text-nota font-semibold uppercase tracking-[0.05em] text-ink-3">Tags</span>
                     {omie.tags.map((t) => (
                       <Badge key={t} tone={t === 'Cliente' ? 'green' : 'slate'}>
                         {t}
@@ -375,13 +375,13 @@ export default async function FichaDeCliente({
                 )}
                 {Object.keys(omie.caracteristicas).length > 0 && (
                   <div className="mt-3">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-3">
+                    <div className="mb-1 text-nota font-semibold uppercase tracking-[0.05em] text-ink-3">
                       Características
                     </div>
                     <Campos pares={Object.entries(omie.caracteristicas).map(([k, v]) => [k, v])} />
                   </div>
                 )}
-                <p className="mt-3 text-[11.5px] text-ink-3">
+                <p className="mt-3 text-nota text-ink-3">
                   Sincronizado do Omie em {DATA(omie.sincronizadoEm)} · ciclo C20.
                 </p>
               </>
@@ -418,13 +418,13 @@ export default async function FichaDeCliente({
                           style={{ height: `${Math.round(recebido * 100)}%` }}
                         />
                       </span>
-                      <span className="whitespace-nowrap text-[9.5px] text-ink-3">{MES(m.mes)}</span>
+                      <span className="whitespace-nowrap text-micro text-ink-3">{MES(m.mes)}</span>
                     </div>
                   )
                 })}
               </div>
             </div>
-            <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+            <p className="mt-3 text-meta leading-relaxed text-ink-3">
               A barra inteira é o faturado; a parte cheia, o recebido. Últimos{' '}
               {ultimosMeses.length} meses de {N(passado.length)} — o histórico completo está na tabela abaixo.
             </p>
@@ -437,18 +437,18 @@ export default async function FichaDeCliente({
             <Table
               cols={['Categoria', 'Títulos', 'Valor']}
               rows={resumo.categorias.map((c) => [
-                <span className="text-[12.5px] font-medium text-ink">
+                <span className="text-meta font-medium text-ink">
                   {c.nome}
                   {/* O código sai da coluna e vira legenda: quem conversa sobre receita
                       fala "MRR", não "1.01.02". O código continua à vista para quem
                       precisa conferir no Omie. */}
-                  <span className="ml-1.5 font-mono text-[10.5px] text-ink-3">{c.categoria}</span>
+                  <span className="ml-1.5 font-mono text-tabela text-ink-3">{c.categoria}</span>
                 </span>,
                 <span className="tabular-nums text-ink-2">{N(c.titulos)}</span>,
                 <span className="tabular-nums font-semibold text-ink">{BRL(c.totalCentavos)}</span>,
               ])}
             />
-            <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+            <p className="mt-3 text-meta leading-relaxed text-ink-3">
               Os nomes vêm do plano de categorias do Omie, sincronizado pelo C20 — 225 categorias.{' '}
               <strong className="font-semibold text-ink">MRR</strong> (1.01.02) é a receita de assinatura e responde
               por 76% dos títulos da base inteira; <strong className="font-semibold text-ink">UPFRONT</strong> e{' '}
@@ -463,7 +463,7 @@ export default async function FichaDeCliente({
           actions={
             <Link
               href="/dados/match"
-              className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-purple-700 hover:text-purple-500"
+              className="inline-flex items-center gap-1 text-meta font-semibold text-purple-700 hover:text-purple-500"
             >
               <GitMerge className="h-[14px] w-[14px]" />
               área de match
@@ -471,7 +471,7 @@ export default async function FichaDeCliente({
           }
         >
           <div id="identidades" className="scroll-mt-24" />
-          <p className="mb-3 max-w-[90ch] text-[13px] leading-relaxed text-ink-2">
+          <p className="mb-3 max-w-[90ch] text-corpo leading-relaxed text-ink-2">
             Um cliente tem <strong className="font-semibold">mais de uma</strong> identidade em cada sistema: no Omie
             porque a empresa troca de CNPJ e o cadastro antigo fica, no HubSpot porque ganho, upsell e downsell criam
             empresa nova. Isso é história comercial, não erro — e é por isso que os números desta tela somam todas as
@@ -488,10 +488,10 @@ export default async function FichaDeCliente({
               cols={['Fonte', 'Identidade', 'Descrição', 'Origem', 'Faturamento', '']}
               rows={identidades.map((v) => [
                 <Badge tone={v.fonte === 'omie' ? 'indigo' : 'slate'}>{v.fonte}</Badge>,
-                <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">
                   {v.fonte === 'omie' ? DOC(v.chave) : v.chave}
                 </span>,
-                <span className="text-[12.5px] text-ink-2">
+                <span className="text-meta text-ink-2">
                   {v.rotulo ?? '—'}
                   {v.inativo === true && (
                     <>
@@ -500,21 +500,21 @@ export default async function FichaDeCliente({
                     </>
                   )}
                 </span>,
-                <span className="text-[12px] text-ink-3">
+                <span className="text-meta text-ink-3">
                   {v.origem}
                   {v.origem === 'manual' && v.motivo ? (
-                    <span className="block max-w-[36ch] text-[11.5px]">{v.motivo}</span>
+                    <span className="block max-w-[36ch] text-nota">{v.motivo}</span>
                   ) : null}
-                  <span className="block text-[11px]">
+                  <span className="block text-nota">
                     {v.criadoPor.split('@')[0]} · {DATA(v.criadoEm)}
                   </span>
                 </span>,
-                <span className="whitespace-nowrap tabular-nums text-[12.5px] text-ink">
+                <span className="whitespace-nowrap tabular-nums text-meta text-ink">
                   {v.fonte === 'omie' ? `${BRL(v.valorCentavos)} · ${N(v.titulos)} tít.` : '—'}
                 </span>,
                 podeEditar ? (
                   <details>
-                    <summary className="cursor-pointer select-none whitespace-nowrap text-[12px] text-ink-3 hover:text-ink-2">
+                    <summary className="cursor-pointer select-none whitespace-nowrap text-meta text-ink-3 hover:text-ink-2">
                       desvincular
                     </summary>
                     <form action={desvincularIdentidade} className="mt-2 grid gap-2">
@@ -536,7 +536,7 @@ export default async function FichaDeCliente({
                     </form>
                   </details>
                 ) : (
-                  <span className="text-[12px] text-ink-3">—</span>
+                  <span className="text-meta text-ink-3">—</span>
                 ),
               ])}
             />
@@ -545,16 +545,16 @@ export default async function FichaDeCliente({
           {/* ── Candidatos ── */}
           {livres.length > 0 && (
             <div className="mt-5">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
+              <div className="mb-2 text-nota font-semibold uppercase tracking-[0.06em] text-ink-3">
                 Candidatos · {N(livres.length)}
               </div>
               <Table
                 cols={['Identidade', 'Descrição', 'Por que apareceu', 'Faturamento', '']}
                 rows={livres.map((c) => [
-                  <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                  <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">
                     {DOC(c.chave)}
                   </span>,
-                  <span className="text-[12.5px] text-ink-2">
+                  <span className="text-meta text-ink-2">
                     {c.rotulo}
                     {c.inativo && (
                       <>
@@ -563,19 +563,19 @@ export default async function FichaDeCliente({
                       </>
                     )}
                   </span>,
-                  <span className="text-[12px] text-ink-2">
+                  <span className="text-meta text-ink-2">
                     <Badge tone={c.evidencia === 'hubspot' ? 'green' : c.evidencia === 'raiz' ? 'amber' : 'slate'}>
                       {c.evidencia === 'hubspot' ? 'mesmo HubSpot' : c.evidencia === 'raiz' ? 'mesma raiz' : 'nome parecido'}
                     </Badge>
-                    <span className="mt-0.5 block max-w-[44ch] text-[11.5px] text-ink-3">{c.detalhe}</span>
+                    <span className="mt-0.5 block max-w-[44ch] text-nota text-ink-3">{c.detalhe}</span>
                   </span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                  <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">
                     {BRL(c.valorCentavos)}
-                    <span className="block text-[11px] font-normal text-ink-3">{N(c.titulos)} títulos</span>
+                    <span className="block text-nota font-normal text-ink-3">{N(c.titulos)} títulos</span>
                   </span>,
                   podeEditar ? (
                     <details>
-                      <summary className="cursor-pointer select-none whitespace-nowrap text-[12px] font-semibold text-purple-700 hover:text-purple-500">
+                      <summary className="cursor-pointer select-none whitespace-nowrap text-meta font-semibold text-purple-700 hover:text-purple-500">
                         vincular
                       </summary>
                       <form action={vincularIdentidade} className="mt-2 grid gap-2">
@@ -596,11 +596,11 @@ export default async function FichaDeCliente({
                       </form>
                     </details>
                   ) : (
-                    <span className="text-[12px] text-ink-3">—</span>
+                    <span className="text-meta text-ink-3">—</span>
                   ),
                 ])}
               />
-              <p className="mt-2 max-w-[90ch] text-[12px] leading-relaxed text-ink-3">
+              <p className="mt-2 max-w-[90ch] text-meta leading-relaxed text-ink-3">
                 <strong className="font-semibold text-ink">A evidência vem junto de propósito.</strong>{' '}
                 <em>Mesmo HubSpot</em> é forte: a ficha do Omie declara um id que esta conta reivindica, e isso atravessa
                 a troca de CNPJ. <em>Nome parecido</em> é fraca e existe porque foi a única que encontraria a Swile —
@@ -610,7 +610,7 @@ export default async function FichaDeCliente({
           )}
 
           {candidatos.some((c) => c.jaVinculadaA) && (
-            <p className="mt-4 max-w-[90ch] text-[12px] leading-relaxed text-ink-3">
+            <p className="mt-4 max-w-[90ch] text-meta leading-relaxed text-ink-3">
               Outras fichas parecidas já pertencem a outra conta e não aparecem como candidatas:{' '}
               {candidatos
                 .filter((c) => c.jaVinculadaA)
@@ -624,23 +624,23 @@ export default async function FichaDeCliente({
           {/* ── A trilha ── */}
           {historico.length > 0 && (
             <details className="mt-5">
-              <summary className="cursor-pointer select-none text-[12.5px] font-semibold text-ink-2 hover:text-ink">
+              <summary className="cursor-pointer select-none text-meta font-semibold text-ink-2 hover:text-ink">
                 Histórico de vínculos · {N(historico.length)}
               </summary>
               <div className="mt-2">
                 <Table
                   cols={['Quando', 'Ação', 'Identidade', 'Quem', 'Motivo']}
                   rows={historico.map((e) => [
-                    <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-3">{DATA(e.quando)}</span>,
+                    <span className="whitespace-nowrap tabular-nums text-meta text-ink-3">{DATA(e.quando)}</span>,
                     <Badge tone={e.acao === 'vinculou' ? 'green' : 'red'}>{e.acao}</Badge>,
-                    <span className="whitespace-nowrap tabular-nums text-[12px] text-ink">
+                    <span className="whitespace-nowrap tabular-nums text-meta text-ink">
                       {e.fonte === 'omie' ? DOC(e.chave) : e.chave}
                     </span>,
-                    <span className="text-[12px] text-ink-2">{e.quem.split('@')[0]}</span>,
-                    <span className="text-[12px] text-ink-2">{e.motivo ?? e.origem ?? '—'}</span>,
+                    <span className="text-meta text-ink-2">{e.quem.split('@')[0]}</span>,
+                    <span className="text-meta text-ink-2">{e.motivo ?? e.origem ?? '—'}</span>,
                   ])}
                 />
-                <p className="mt-2 max-w-[90ch] text-[12px] text-ink-3">
+                <p className="mt-2 max-w-[90ch] text-meta text-ink-3">
                   A trilha não se corrige — desvincular entra como evento novo. É o que responde &quot;por que o
                   faturamento deste cliente mudou de valor?&quot; três meses depois.
                 </p>
@@ -657,7 +657,7 @@ export default async function FichaDeCliente({
             /* Filtro por LINK e não por JavaScript: o estado mora na URL, sobrevive a
                recarregar, e pode ser mandado por mensagem para outra pessoa olhar
                exatamente o mesmo recorte. É o mesmo padrão do `?abrir=` da Base. */
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta">
               <span className="text-ink-3">situação:</span>
               {SITUACOES.map((sit) => {
                 const ativa = (q.sit ?? 'todas') === sit
@@ -676,7 +676,7 @@ export default async function FichaDeCliente({
           }
         >
           {resumo.categorias.length > 1 && (
-            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-3 text-[12px]">
+            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-3 text-meta">
               <span className="text-ink-3">categoria:</span>
               <Link
                 scroll={false}
@@ -709,22 +709,22 @@ export default async function FichaDeCliente({
               <Table
                 cols={['Título', 'Categoria', 'Emissão', 'Vencimento', 'Pagamento', 'Valor', 'Recebido', 'Aberto', 'Situação']}
                 rows={faturamento.map((t) => [
-                  <span className="font-mono text-[11.5px] text-ink-3">{t.codigoTitulo}</span>,
-                  <span className="text-[11.5px] text-ink-2">
+                  <span className="font-mono text-nota text-ink-3">{t.codigoTitulo}</span>,
+                  <span className="text-nota text-ink-2">
                     {t.categoriaNome ?? t.categoria ?? '—'}
                   </span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">{DATA(t.emissao)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12px] text-ink">{DATA(t.vencimento)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">{DATA(t.pagamento)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12px] font-semibold text-ink">{BRL(t.valorCentavos)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">{BRL(t.pagoCentavos)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{DATA(t.emissao)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink">{DATA(t.vencimento)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{DATA(t.pagamento)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">{BRL(t.valorCentavos)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{BRL(t.pagoCentavos)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">
                     {Number(t.abertoCentavos) > 0 ? BRL(t.abertoCentavos) : '—'}
                   </span>,
                   <Badge tone={TOM_SITUACAO[t.situacao] ?? 'slate'}>{ROTULO_SITUACAO[t.situacao] ?? t.status?.toLowerCase() ?? '—'}</Badge>,
                 ])}
               />
-              <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+              <p className="mt-3 text-meta leading-relaxed text-ink-3">
                 {q.sit || q.cat ? (
                   <>
                     Filtrado. <Link href={comFiltro(conta.id, {})} className="font-semibold text-purple-700">

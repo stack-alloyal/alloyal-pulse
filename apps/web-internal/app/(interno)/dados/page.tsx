@@ -171,7 +171,7 @@ export default async function Painel() {
       <Topo
         href="/dados"
         acoes={
-          <span className="flex items-center gap-3 text-[13px]">
+          <span className="flex items-center gap-3 text-corpo">
             <Link
               href="/dados/match"
               className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
@@ -197,7 +197,7 @@ export default async function Painel() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Kpi
               rotulo="Snapshot"
-              valor={<span className="text-[22px]">{estado.competencia}</span>}
+              valor={estado.competencia}
               nota={`publicado ${haQuanto(estado.gerado_em)}`}
             />
             <Kpi rotulo="Contas" valor={estado.contas} nota={`${estado.completos} completas`} />
@@ -227,7 +227,7 @@ export default async function Painel() {
           <Aviso tom="alerta">
             Nenhum snapshot consolidado ainda. O primeiro sai depois que os ciclos de captação
             rodarem — ou agora mesmo, contra massa sintética, com{' '}
-            <code className="rounded bg-surface px-1 py-0.5 text-[12px]">make seed</code>.
+            <code className="rounded bg-surface px-1 py-0.5 text-meta">make seed</code>.
           </Aviso>
         )}
 
@@ -273,16 +273,16 @@ export default async function Painel() {
                    lacuna e se diz isso ao cliente). Sem esta coluna as duas
                    situações mostram o mesmo alerta e esperam a mesma reação. */
                 l.ciclos === null ? (
-                  <span className="text-[12.5px] text-ink-2">
+                  <span className="text-meta text-ink-2">
                     <strong className="font-semibold">nenhum ciclo declarado</strong> — esta lacuna
                     não fecha sozinha
                   </span>
                 ) : !l.algum_implementado ? (
-                  <span className="text-[12.5px] text-ink-2">
+                  <span className="text-meta text-ink-2">
                     {l.ciclos.join(', ')} · <strong className="font-semibold">a construir</strong>
                   </span>
                 ) : (
-                  <span className="text-[12.5px] text-ink-2">{l.ciclos.join(', ')}</span>
+                  <span className="text-meta text-ink-2">{l.ciclos.join(', ')}</span>
                 ),
               ])}
             />
@@ -305,18 +305,18 @@ export default async function Painel() {
               <>
                 <span className="font-semibold">{c.id}</span>
                 <span className="text-ink-2"> · {c.descricao}</span>
-                <span className="mt-0.5 block text-[11.5px] text-ink-3">
+                <span className="mt-0.5 block text-nota text-ink-3">
                   {c.fonte} · {c.metodo}
                 </span>
               </>,
-              <span className="tabular-nums text-[12.5px]">{c.agenda ?? 'webhook'}</span>,
-              <span className={cn('tabular-nums text-[12.5px]', !c.ultimo_sucesso && 'text-ink-4')}>
+              <span className="tabular-nums text-meta">{c.agenda ?? 'webhook'}</span>,
+              <span className={cn('tabular-nums text-meta', !c.ultimo_sucesso && 'text-ink-4')}>
                 {haQuanto(c.ultimo_sucesso)}
               </span>,
-              <span className="tabular-nums text-[12.5px]">
+              <span className="tabular-nums text-meta">
                 {c.duracao_s !== null ? `${c.duracao_s}s` : '—'}
               </span>,
-              <span className="tabular-nums text-[12.5px]">{c.linhas_gravadas ?? '—'}</span>,
+              <span className="tabular-nums text-meta">{c.linhas_gravadas ?? '—'}</span>,
               /* Distinguir "não rodou porque falhou" de "não rodou porque ainda
                  não existe" — são conversas diferentes. */
               !c.implementado ? (
@@ -332,7 +332,7 @@ export default async function Painel() {
           />
         </Card>
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           Esta lista é gerada da declaração dos ciclos publicada pelo worker ao subir — ciclo novo
           aparece aqui sem ninguém mexer nesta tela.
         </p>

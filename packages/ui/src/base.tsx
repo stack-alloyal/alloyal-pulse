@@ -34,7 +34,7 @@ export function Card({
     <section className={cn('rounded-lg border border-line bg-surface shadow-sm', className)}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-3 border-b border-line px-[18px] py-[14px]">
-          <h2 className="text-[14px] font-bold tracking-[-0.01em] text-ink">{title}</h2>
+          <h2 className="text-cartao font-bold tracking-[-0.01em] text-ink">{title}</h2>
           <div className="flex gap-2">{actions}</div>
         </header>
       )}
@@ -85,7 +85,7 @@ export function Btn({
       value={value}
       title={title}
       className={cn(
-        'inline-flex h-9 items-center justify-center gap-[7px] whitespace-nowrap rounded-sm px-[14px] text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-[15px]',
+        'inline-flex h-9 items-center justify-center gap-[7px] whitespace-nowrap rounded-sm px-[14px] text-corpo font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-[15px]',
         styles,
         className,
       )}
@@ -96,7 +96,7 @@ export function Btn({
 }
 
 export const inputCls =
-  'w-full rounded-sm border border-line-strong bg-surface px-3 text-[13px] text-ink outline-none transition-colors placeholder:text-ink-4 focus:border-purple-500 focus:ring-2 focus:ring-purple-100'
+  'w-full rounded-sm border border-line-strong bg-surface px-3 text-corpo text-ink outline-none transition-colors placeholder:text-ink-4 focus:border-purple-500 focus:ring-2 focus:ring-purple-100'
 
 export function Field({
   label,
@@ -104,7 +104,7 @@ export function Field({
   ...props
 }: { label?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <label className="block text-[13px]">
+    <label className="block text-corpo">
       {label && <span className="mb-1 block font-medium text-ink-2">{label}</span>}
       <input {...props} className={cn('h-9', inputCls, className)} />
     </label>
@@ -118,7 +118,7 @@ export function Select({
   ...props
 }: { label?: string; children: React.ReactNode } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <label className="block text-[13px]">
+    <label className="block text-corpo">
       {label && <span className="mb-1 block font-medium text-ink-2">{label}</span>}
       <select {...props} className={cn('h-9', inputCls, className)}>
         {children}
@@ -142,7 +142,7 @@ export function TextArea({
   ...props
 }: { label?: React.ReactNode } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
-    <label className="block text-[13px]">
+    <label className="block text-corpo">
       {label && <span className="mb-1 block font-medium text-ink-2">{label}</span>}
       <textarea {...props} className={cn('py-2', inputCls, className)} />
     </label>
@@ -163,9 +163,9 @@ export function Table({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className={cn('w-full', denso ? 'text-[13px]' : 'text-[14px]')}>
+      <table className={cn('w-full', denso ? 'text-corpo' : 'text-cartao')}>
         <thead>
-          <tr className="border-b border-line text-left text-[10.5px] uppercase tracking-[0.08em] text-ink-3">
+          <tr className="border-b border-line text-left text-tabela uppercase tracking-[0.08em] text-ink-3">
             {cols.map((c, i) => (
               <th key={i} className={cn('font-semibold', denso ? 'py-1.5 pr-3' : 'px-3 py-2')}>
                 {c}
@@ -213,14 +213,18 @@ export function Badge({ children, tone = 'slate' }: { children: React.ReactNode;
     slate: 'bg-surface-2 text-ink-2 ring-1 ring-inset ring-line',
     green: 'bg-green-50 text-green',
     red: 'bg-red-50 text-red',
-    amber: 'bg-amber-50 text-amber-700',
+    // `text-orange-700` e não `text-orange-700`: âmbar não tem degrau escuro na
+    // paleta, então `amber-700` não compilava para NADA e o texto do selo herdava
+    // a cor de quem estivesse em volta. O documento usa laranja aqui pelo mesmo
+    // motivo — é o tom escuro que passa contraste sobre fundo âmbar.
+    amber: 'bg-amber-50 text-orange-700',
     indigo: 'bg-purple-50 text-purple-700',
-    pink: 'bg-[#FDE7F1] text-[#C0005A]',
+    pink: 'bg-pink-50 text-pink',
     orange: 'bg-orange-50 text-orange-700',
-    blue: 'bg-[#E6F0FE] text-[#1D4ED8]',
+    blue: 'bg-blue-50 text-blue',
   }[tone]
   return (
-    <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11.5px] font-medium', t)}>
+    <span className={cn('inline-block rounded-full px-2 py-0.5 text-nota font-medium', t)}>
       {children}
     </span>
   )
@@ -260,11 +264,11 @@ export function Kpi({
   const cor = tom ? { green: 'text-green', amber: 'text-amber', red: 'text-red' }[tom] : 'text-ink'
   return (
     <div className="rounded-lg border border-line bg-surface p-[18px] shadow-sm">
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+      <div className="text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
         {rotulo}
       </div>
       <div className={cn('mt-1.5 text-kpi tabular-nums', cor)}>{valor}</div>
-      {nota && <div className="mt-1 text-[12px] text-ink-2">{nota}</div>}
+      {nota && <div className="mt-1 text-meta text-ink-2">{nota}</div>}
     </div>
   )
 }
@@ -282,13 +286,13 @@ export function Aviso({
   const t = {
     info: 'border-line bg-surface-2 text-ink-2',
     ok: 'border-green/30 bg-green-50 text-green',
-    alerta: 'border-amber/30 bg-amber-50 text-amber-700',
+    alerta: 'border-amber/30 bg-amber-50 text-orange-700',
     erro: 'border-red/30 bg-red-50 text-red',
   }[tom]
   return (
     /* `px-3 py-2` é a medida do `ErrorBox` do Publi, de quem este componente é a
        generalização em quatro tons. Antes daqui havia um `py-[11px]` que eu inventei. */
-    <div role={papel} className={cn('rounded-md border px-3 py-2 text-[13px]', t)}>
+    <div role={papel} className={cn('rounded-md border px-3 py-2 text-corpo', t)}>
       {children}
     </div>
   )

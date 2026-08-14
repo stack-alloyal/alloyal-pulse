@@ -65,7 +65,7 @@ export default async function Relatorios({
         titulo="Relatórios do cliente"
         proposito={`Competência de referência: ${comp}`}
         acoes={
-          <span className="text-[13px] text-ink-2">
+          <span className="text-corpo text-ink-2">
             {relatorios.filter((r) => r.estado === 'enviado').length} enviado(s) ·{' '}
             {pendentes.length} pendente(s)
           </span>
@@ -99,7 +99,7 @@ export default async function Relatorios({
             <Field label="Competência" name="competencia" type="month" defaultValue={comp} required />
             <Btn type="submit">Montar rascunho</Btn>
           </form>
-          <p className="mt-3 max-w-[80ch] text-[12.5px] text-ink-3">
+          <p className="mt-3 max-w-[80ch] text-meta text-ink-3">
             Montar não envia. O rascunho traz os quatro blocos e uma frase de leitura automática —
             que é rascunho também: você conhece o contexto que o número não tem, e uma queda que veio
             de férias coletivas não é uma queda de interesse.
@@ -128,10 +128,10 @@ export default async function Relatorios({
                   </Link>,
                   <span className="tabular-nums">{r.competencia.slice(0, 7)}</span>,
                   <Badge tone={e.tom}>{e.rotulo}</Badge>,
-                  <span className="text-[12.5px] text-ink-3">
+                  <span className="text-meta text-ink-3">
                     {r.revisadoPor ? `${DATA(r.revisadoEm)} · ${r.revisadoPor}` : '—'}
                   </span>,
-                  <span className="text-[12.5px] text-ink-3">
+                  <span className="text-meta text-ink-3">
                     {r.enviadoEm ? `${DATA(r.enviadoEm)} · ${r.destinatario}` : '—'}
                   </span>,
                   r.estado === 'rascunho' || r.estado === 'revisado' ? (
@@ -142,7 +142,7 @@ export default async function Relatorios({
                       </Btn>
                     </form>
                   ) : (
-                    <span className="text-[12px] text-ink-4">—</span>
+                    <span className="text-meta text-ink-4">—</span>
                   ),
                 ]
               })}
@@ -150,7 +150,7 @@ export default async function Relatorios({
           )}
         </Card>
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           Relatório enviado <strong className="font-semibold">não muda</strong>. O cliente tem uma
           cópia, e recalcular os números faria &ldquo;vocês disseram 42%&rdquo; passar a exibir 38% —
           a conversa deixaria de ser sobre o clube e passaria a ser sobre a ferramenta. Para

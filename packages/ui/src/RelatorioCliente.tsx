@@ -97,12 +97,12 @@ function valorFormatado(n: NumeroDoRelatorioProps): string {
  * base para saber, e o cliente leria "não mudou nada".
  */
 function Variacao({ v }: { v: number | null }) {
-  if (v === null) return <span className="text-[11px] text-ink-4">sem mês anterior</span>
+  if (v === null) return <span className="text-nota text-ink-4">sem mês anterior</span>
   const pct = Math.round(v * 100)
   return (
     <span
       className={cn(
-        'text-[11.5px] font-semibold',
+        'text-nota font-semibold',
         v > 0.02 ? 'text-green' : v < -0.02 ? 'text-red' : 'text-ink-3',
       )}
     >
@@ -129,13 +129,13 @@ export function RelatorioCliente({
              a ordem na tela é a ordem da leitura. ── */}
       {frase && (
         <section>
-          <p className="max-w-[75ch] text-[15px] leading-relaxed text-ink">{frase}</p>
+          <p className="max-w-[75ch] text-secao leading-relaxed text-ink">{frase}</p>
         </section>
       )}
 
       {/* ── Bloco 1 ── */}
       <section>
-        <h2 className="mb-2 text-[15px] font-bold tracking-[-0.01em] text-ink">O que aconteceu</h2>
+        <h2 className="mb-2 text-secao font-bold tracking-[-0.01em] text-ink">O que aconteceu</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           {c.numeros.map((n) => (
             <div key={n.metrica} className="rounded-lg border border-line bg-surface p-4">
@@ -144,7 +144,7 @@ export function RelatorioCliente({
                   empurra o número para baixo e os três deixam de alinhar. */}
               <div
                 data-rotulo
-                className="text-[10.5px] font-semibold uppercase leading-tight tracking-[0.08em] text-ink-3"
+                className="text-tabela font-semibold uppercase leading-tight tracking-[0.08em] text-ink-3"
               >
                 {n.rotulo}
               </div>
@@ -165,7 +165,7 @@ export function RelatorioCliente({
              tela não mostrava. ── */}
       {c.evolucao.length > 1 && (
         <section>
-          <h2 className="mb-2 text-[15px] font-bold tracking-[-0.01em] text-ink">
+          <h2 className="mb-2 text-secao font-bold tracking-[-0.01em] text-ink">
             Evolução · {c.evolucao.length} meses
           </h2>
           {/* `Table` em modo denso, e não uma tabela à mão: as classes do cabeçalho
@@ -191,30 +191,30 @@ export function RelatorioCliente({
 
       {/* ── Bloco 3 ── */}
       <section>
-        <h2 className="mb-2 text-[15px] font-bold tracking-[-0.01em] text-ink">
+        <h2 className="mb-2 text-secao font-bold tracking-[-0.01em] text-ink">
           Comparativo com empresas semelhantes
         </h2>
         {c.comparativo.length === 0 ? (
-          <p className="text-[13px] text-ink-3">
+          <p className="text-corpo text-ink-3">
             Sem comparativo nesta competência.
           </p>
         ) : (
           <ul className="grid gap-2">
             {c.comparativo.map((x) => (
               <li key={x.metrica} className="rounded-md border border-line bg-surface-2 p-3">
-                <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+                <span className="text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
                   {ROTULO_METRICA[x.metrica] ?? x.metrica}
                 </span>
                 {x.suprimido ? (
                   /* Suprimido é EXPLICADO, não omitido — e sem dizer quantas empresas
                      há no recorte, porque esse número já é a informação que a
                      supressão protege. */
-                  <p className="mt-1 text-[13px] text-ink-2">
+                  <p className="mt-1 text-corpo text-ink-2">
                     Sem comparativo neste mês: o grupo de empresas de porte e setor semelhantes é
                     pequeno demais para uma comparação anônima.
                   </p>
                 ) : (
-                  <div className="mt-1 flex flex-wrap items-baseline gap-3 text-[13.5px]">
+                  <div className="mt-1 flex flex-wrap items-baseline gap-3 text-corpo">
                     <strong className="tabular-nums text-ink">{PCT(x.valor)}</strong>
                     <span className="text-ink-2">
                       {x.posicao ? (POSICAO[x.posicao] ?? x.posicao) : '—'} de{' '}
@@ -222,7 +222,7 @@ export function RelatorioCliente({
                           comparação que o gestor não sabe defender numa reunião. */}
                       <strong className="font-semibold">{x.nEmpresas} empresas</strong>
                     </span>
-                    <span className="tabular-nums text-[12px] text-ink-3">
+                    <span className="tabular-nums text-meta text-ink-3">
                       p25 {PCT(x.p25)} · mediana {PCT(x.p50)} · p75 {PCT(x.p75)}
                     </span>
                   </div>
@@ -236,7 +236,7 @@ export function RelatorioCliente({
       {/* ── Bloco 4 ── */}
       {c.acoes.length > 0 && (
         <section>
-          <h2 className="mb-2 text-[15px] font-bold tracking-[-0.01em] text-ink">
+          <h2 className="mb-2 text-secao font-bold tracking-[-0.01em] text-ink">
             O que depende de você
           </h2>
           <ul className="grid gap-2">
@@ -245,11 +245,11 @@ export function RelatorioCliente({
                 key={a.titulo}
                 className="rounded-md border border-line border-l-[3px] border-l-purple-500 bg-surface-2 p-3"
               >
-                <strong className="text-[13.5px] font-bold text-ink">{a.titulo}</strong>
-                <span className="ml-2 tabular-nums text-[12.5px] font-semibold text-purple-700">
+                <strong className="text-corpo font-bold text-ink">{a.titulo}</strong>
+                <span className="ml-2 tabular-nums text-meta font-semibold text-purple-700">
                   {a.numero}
                 </span>
-                <p className="mt-1 text-[13px] text-ink-2">{a.porque}</p>
+                <p className="mt-1 text-corpo text-ink-2">{a.porque}</p>
               </li>
             ))}
           </ul>
@@ -259,7 +259,7 @@ export function RelatorioCliente({
       {c.dadoParcial && (
         /* Dito no corpo e não num rodapé: o cliente precisa ler isto antes de usar o
            número numa decisão dele. */
-        <p className="rounded-md border border-amber/30 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-700">
+        <p className="rounded-md border border-amber/30 bg-amber-50 px-3 py-2 text-meta text-orange-700">
           Uma das fontes de dados não respondeu no fechamento deste mês. Os números acima podem ser
           revisados.
         </p>

@@ -33,12 +33,12 @@ export default function SemPermissao() {
     <main className="mx-auto flex min-h-screen max-w-[52ch] flex-col justify-center px-5">
       <AlloyalLogo className="mb-6 h-7" />
       <Card title="Sem acesso a esta área">
-        <p className="text-[13.5px] leading-relaxed text-ink-2">
+        <p className="text-corpo leading-relaxed text-ink-2">
           Você entrou com a sua conta Alloyal, mas ela não está com acesso a esta tela. Pode ser
           que ainda não tenha papel, que o papel não cubra esta área, ou que o acesso esteja
           suspenso.
         </p>
-        <p className="mt-3 text-[13.5px] leading-relaxed text-ink-2">
+        <p className="mt-3 text-corpo leading-relaxed text-ink-2">
           Quem administra o Pulse resolve os três casos em{' '}
           <strong className="font-semibold text-ink">Configurações</strong> — papel em{' '}
           <strong className="font-semibold text-ink">Papéis</strong>, suspensão em{' '}
@@ -47,7 +47,7 @@ export default function SemPermissao() {
         </p>
         <Link
           href="/"
-          className="mt-4 inline-block text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+          className="mt-4 inline-block text-corpo font-semibold text-purple-700 hover:text-purple-500"
         >
           Voltar ao início →
         </Link>

@@ -168,12 +168,12 @@ export function NovidadesDoRadar() {
     const naoLida = !lidas.has(n.id)
     return (
       <div
-        className={`flex gap-2 rounded-md px-2 py-2.5 text-[13px] leading-snug ${naoLida ? 'bg-purple-50' : ''}`}
+        className={`flex gap-2 rounded-md px-2 py-2.5 text-corpo leading-snug ${naoLida ? 'bg-purple-50' : ''}`}
       >
         <span className="shrink-0">{EMOJI_DO_TIPO[n.tipo] ?? '•'}</span>
         <div className="min-w-0 flex-1">
           <p className={naoLida ? 'font-medium text-ink' : 'text-ink-2'}>{n.notaDeRelease}</p>
-          {!compacto && <p className="mt-0.5 text-[11px] text-ink-3">{fmtDia(n.publicadoEm)}</p>}
+          {!compacto && <p className="mt-0.5 text-nota text-ink-3">{fmtDia(n.publicadoEm)}</p>}
         </div>
         {naoLida && (
           <Btn
@@ -216,7 +216,7 @@ export function NovidadesDoRadar() {
                 variant="ghost"
                 onClick={marcarTodas}
                 title="Marcar todas como lidas"
-                className="ml-auto h-auto gap-1 border-0 bg-transparent px-0 text-[11.5px] font-medium text-purple-700 hover:bg-transparent hover:underline [&_svg]:size-[14px]"
+                className="ml-auto h-auto gap-1 border-0 bg-transparent px-0 text-nota font-medium text-purple-700 hover:bg-transparent hover:underline [&_svg]:size-[14px]"
               >
                 <CheckCheck /> marcar todas
               </Btn>
@@ -226,9 +226,9 @@ export function NovidadesDoRadar() {
           <div className="-mx-1 my-1 h-px bg-line" />
 
           {!carregado ? (
-            <div className="px-2 py-3 text-[12.5px] text-ink-3">Carregando…</div>
+            <div className="px-2 py-3 text-meta text-ink-3">Carregando…</div>
           ) : itens.length === 0 ? (
-            <div className="px-2 py-3 text-[12.5px] text-ink-3">
+            <div className="px-2 py-3 text-meta text-ink-3">
               Nenhuma novidade publicada ainda.
             </div>
           ) : (
@@ -244,7 +244,7 @@ export function NovidadesDoRadar() {
           <Btn
             variant="ghost"
             onClick={abrirGaveta}
-            className="h-auto w-full justify-start border-0 bg-transparent px-2 py-2 text-[12.5px] font-medium text-purple-700 hover:bg-transparent hover:underline"
+            className="h-auto w-full justify-start border-0 bg-transparent px-2 py-2 text-meta font-medium text-purple-700 hover:bg-transparent hover:underline"
           >
             Ver todas as novidades →
           </Btn>
@@ -261,7 +261,7 @@ export function NovidadesDoRadar() {
             <Btn
               variant="ghost"
               onClick={marcarTodas}
-              className="h-8 border-0 px-2 text-[12px] text-purple-700 [&_svg]:size-[14px]"
+              className="h-8 border-0 px-2 text-meta text-purple-700 [&_svg]:size-[14px]"
             >
               <CheckCheck /> marcar todas
             </Btn>
@@ -270,13 +270,13 @@ export function NovidadesDoRadar() {
       >
         <div className="px-5 py-4">
           {itens.length === 0 && (
-            <p className="py-6 text-center text-[13px] text-ink-3">
+            <p className="py-6 text-center text-corpo text-ink-3">
               Nenhuma novidade publicada ainda.
             </p>
           )}
           {Object.entries(porDia).map(([quando, lista]) => (
             <section key={quando} className="mb-5">
-              <h3 className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+              <h3 className="mb-2 text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
                 {quando}
               </h3>
               <div className="flex flex-col gap-1.5">
@@ -304,7 +304,7 @@ export function NovidadesDoRadar() {
               </span>
               <div>
                 <h2 className="text-title text-ink">Novidades no Pulse</h2>
-                <p className="text-[12.5px] text-ink-3">
+                <p className="text-meta text-ink-3">
                   {naoLidas.length === 1
                     ? '1 atualização nova'
                     : `${naoLidas.length} atualizações novas`}{' '}
@@ -317,7 +317,7 @@ export function NovidadesDoRadar() {
                 <Nota key={n.id} n={n} />
               ))}
               {naoLidas.length > 6 && (
-                <p className="px-2 py-1 text-[12px] text-ink-3">…e mais {naoLidas.length - 6}.</p>
+                <p className="px-2 py-1 text-meta text-ink-3">…e mais {naoLidas.length - 6}.</p>
               )}
             </div>
             <div className="mt-4 flex justify-end gap-2">

@@ -78,7 +78,7 @@ export default async function Confirmar({
         href="/contratos"
         titulo="Confirmação de cláusulas"
         proposito="Ordenada por MRR — o contrato maior primeiro"
-        acoes={<span className="text-[13px] text-ink-2">{fila.length} proposta(s) na fila</span>}
+        acoes={<span className="text-corpo text-ink-2">{fila.length} proposta(s) na fila</span>}
       />
       <Corpo className="grid gap-5">
         {q.erro && <Aviso tom="erro" papel="alert">{q.erro}</Aviso>}
@@ -112,24 +112,24 @@ export default async function Confirmar({
                     <div className="flex flex-wrap items-baseline gap-2">
                       <Link
                         href={`/contratos/${c.accountId}`}
-                        className="text-[13.5px] font-bold text-purple-700 hover:text-purple-500"
+                        className="text-corpo font-bold text-purple-700 hover:text-purple-500"
                       >
                         {c.conta}
                       </Link>
-                      <span className="tabular-nums text-[12.5px] text-ink-3">
+                      <span className="tabular-nums text-meta text-ink-3">
                         {REAIS(c.mrrCentavos)}/mês
                       </span>
                       <Badge>{c.rotulo}</Badge>
-                      <span className="text-[13px] text-ink">{valorLegivel(c.valorEstruturado)}</span>
+                      <span className="text-corpo text-ink">{valorLegivel(c.valorEstruturado)}</span>
                       {c.diasParaVigencia !== null && c.diasParaVigencia < 120 && (
-                        <span className="ml-auto text-[12.5px] font-semibold text-amber-700">
+                        <span className="ml-auto text-meta font-semibold text-orange-700">
                           vence em {c.diasParaVigencia} d
                         </span>
                       )}
                     </div>
-                    {spec && <p className="mt-1 text-[12px] text-ink-3">{spec.pergunta}</p>}
+                    {spec && <p className="mt-1 text-meta text-ink-3">{spec.pergunta}</p>}
                     {c.texto && (
-                      <p className="mt-1.5 whitespace-pre-wrap text-[12.5px] leading-relaxed text-ink-2">
+                      <p className="mt-1.5 whitespace-pre-wrap text-meta leading-relaxed text-ink-2">
                         {c.texto}
                       </p>
                     )}
@@ -154,7 +154,7 @@ export default async function Confirmar({
                       <Btn type="submit">Confirmar</Btn>
                     </form>
                     {documentos.length === 0 && (
-                      <p className="mt-1.5 text-[12px] text-red">
+                      <p className="mt-1.5 text-meta text-red">
                         Esta conta não tem documento carregado. Sem documento não há procedência, e
                         sem procedência a cláusula não pode ser confirmada.
                       </p>
@@ -173,9 +173,9 @@ export default async function Confirmar({
             cols={['Tipo', 'Pergunta', 'Confirmadas', 'Propostas', 'Contas sem resposta']}
             rows={prog.map((p) => [
               <span className="font-semibold">{p.rotulo}</span>,
-              <span className="text-[12.5px] text-ink-3">{especificacao(p.tipo)?.pergunta}</span>,
+              <span className="text-meta text-ink-3">{especificacao(p.tipo)?.pergunta}</span>,
               <span className="tabular-nums">{p.confirmadas}</span>,
-              <span className="tabular-nums text-amber-700">{p.propostas || ''}</span>,
+              <span className="tabular-nums text-orange-700">{p.propostas || ''}</span>,
               <span className={p.ausentes > 0 ? 'tabular-nums text-red' : 'tabular-nums text-ink-3'}>
                 {p.ausentes}
               </span>,

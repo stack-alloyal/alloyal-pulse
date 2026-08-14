@@ -89,14 +89,14 @@ export default async function Chave({
               )
             }
           >
-            <p className="text-[13.5px] font-semibold text-ink">{v.titulo}</p>
+            <p className="text-corpo font-semibold text-ink">{v.titulo}</p>
             {/* `whitespace-pre-wrap`: o processo foi escrito com quebras de linha
                 de propósito, e um passo por linha é o que o CSM lê no meio de uma
                 ligação. Reflow apagaria a estrutura que a pessoa escreveu. */}
-            <p className="mt-2 whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink-2">
+            <p className="mt-2 whitespace-pre-wrap text-corpo leading-relaxed text-ink-2">
               {v.conteudo}
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-ink-3">
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-nota text-ink-3">
               {v.gatilhos.map((g) => (
                 <Badge key={g}>{g}</Badge>
               ))}

@@ -53,7 +53,7 @@ export function ContadorDoTopo({ valor }: { valor: number }) {
   return (
     /* `pointer-events-none`: a bolinha fica POR CIMA do controle, e sem isto o
        clique no canto superior direito do ícone não abre nada. */
-    <span className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-purple-500 px-1 text-[10px] font-bold leading-none text-white">
+    <span className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-purple-500 px-1 text-micro font-bold leading-none text-white">
       {valor > 9 ? '9+' : valor}
     </span>
   )

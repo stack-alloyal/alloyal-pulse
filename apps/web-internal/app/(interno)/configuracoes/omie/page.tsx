@@ -79,7 +79,7 @@ export default async function ConfiguracoesOmie({
         proposito="a integração financeira: o que entrou, quando, e quanto está fresco"
         icone={Wallet}
         acoes={
-          <span className="flex items-center gap-3 text-[13px]">
+          <span className="flex items-center gap-3 text-corpo">
             {estado.credencialCadastrada ? (
               <Badge tone="green">credencial cadastrada</Badge>
             ) : (
@@ -103,7 +103,7 @@ export default async function ConfiguracoesOmie({
               key={a.k}
               href={`/configuracoes/omie?aba=${a.k}`}
               aria-current={aba === a.k ? 'page' : undefined}
-              className={`-mb-px border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors ${
+              className={`-mb-px border-b-2 px-3.5 py-2 text-corpo font-medium transition-colors ${
                 aba === a.k
                   ? 'border-purple-500 text-purple-700'
                   : 'border-transparent text-ink-2 hover:text-ink'
@@ -117,8 +117,8 @@ export default async function ConfiguracoesOmie({
         {!estado.credencialCadastrada && (
           <Aviso tom="erro">
             <strong className="font-semibold">A integração está inerte.</strong> Faltam{' '}
-            <code className="font-mono text-[12px]">omie.app_key</code> e{' '}
-            <code className="font-mono text-[12px]">omie.app_secret</code> em{' '}
+            <code className="font-mono text-meta">omie.app_key</code> e{' '}
+            <code className="font-mono text-meta">omie.app_secret</code> em{' '}
             <Link href="/configuracoes/segredos" className="font-semibold text-purple-700 hover:text-purple-500">
               Configurações → Segredos
             </Link>
@@ -173,18 +173,18 @@ export default async function ConfiguracoesOmie({
                   <span className="flex items-center gap-2">
                     <span className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-2">
                       <span
-                        className={`block h-full rounded-full ${t.percentual >= 99 ? 'bg-green-500' : t.percentual >= 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        className={`block h-full rounded-full ${t.percentual >= 99 ? 'bg-green' : t.percentual >= 80 ? 'bg-amber' : 'bg-red'}`}
                         style={{ width: `${Math.max(t.percentual, 1)}%` }}
                       />
                     </span>
-                    <span className="tabular-nums text-[12.5px] font-semibold text-ink">{t.percentual}%</span>
+                    <span className="tabular-nums text-meta font-semibold text-ink">{t.percentual}%</span>
                   </span>,
-                  <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-3">
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-3">
                     {QUANDO(t.maisRecente)}
                   </span>,
                 ])}
               />
-              <p className="mt-3 max-w-[92ch] text-[12px] leading-relaxed text-ink-3">
+              <p className="mt-3 max-w-[92ch] text-meta leading-relaxed text-ink-3">
                 <strong className="font-semibold text-ink">O percentual é a pergunta que importa.</strong> &quot;Última
                 execução: ok&quot; não garante que tudo foi atualizado — uma varredura que falha na página 900 de 1.243
                 grava 900 e deixa o resto com o dado da véspera. Abaixo de 100%, alguma linha é de antes.
@@ -202,16 +202,16 @@ export default async function ConfiguracoesOmie({
               <Table
                 cols={['Início', 'Status', 'Duração', 'Lidas', 'Gravadas', 'Detalhe']}
                 rows={estado.execucoes.map((e) => [
-                  <span className="whitespace-nowrap tabular-nums text-[12.5px] text-ink">{QUANDO(e.iniciadoEm)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink">{QUANDO(e.iniciadoEm)}</span>,
                   <Badge tone={TOM_STATUS[e.status] ?? 'slate'}>{e.status}</Badge>,
-                  <span className="whitespace-nowrap tabular-nums text-[12.5px] text-ink-2">
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">
                     {DURACAO(e.duracaoSegundos)}
                   </span>,
-                  <span className="tabular-nums text-[12.5px] text-ink-2">{N(e.linhasLidas ?? 0)}</span>,
-                  <span className="tabular-nums text-[12.5px] text-ink-2">{N(e.linhasGravadas ?? 0)}</span>,
-                  <span className="text-[12px] text-ink-2">
+                  <span className="tabular-nums text-meta text-ink-2">{N(e.linhasLidas ?? 0)}</span>,
+                  <span className="tabular-nums text-meta text-ink-2">{N(e.linhasGravadas ?? 0)}</span>,
+                  <span className="text-meta text-ink-2">
                     {e.erro ? (
-                      <span className="text-red-700">{e.erro.slice(0, 140)}</span>
+                      <span className="text-red">{e.erro.slice(0, 140)}</span>
                     ) : e.detalhe ? (
                       Object.entries(e.detalhe)
                         .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
@@ -223,7 +223,7 @@ export default async function ConfiguracoesOmie({
                 ])}
               />
             )}
-            <p className="mt-3 max-w-[92ch] text-[12px] leading-relaxed text-ink-3">
+            <p className="mt-3 max-w-[92ch] text-meta leading-relaxed text-ink-3">
               <strong className="font-semibold text-ink">inerte</strong> não é sucesso: é o ciclo tendo rodado e não
               lido nada por falta de credencial. Aparece separado de <strong className="font-semibold">ok</strong> de
               propósito — como &quot;ok&quot;, a tela diria &quot;última execução bem-sucedida&quot; para uma
@@ -239,7 +239,7 @@ export default async function ConfiguracoesOmie({
             actions={
               <Link
                 href={link({ todas: q.todas === '1' ? '0' : '1' })}
-                className="text-[12.5px] font-semibold text-purple-700 hover:text-purple-500"
+                className="text-meta font-semibold text-purple-700 hover:text-purple-500"
               >
                 {q.todas === '1' ? 'só as que têm movimento' : 'mostrar todas as 225'}
               </Link>
@@ -255,8 +255,8 @@ export default async function ConfiguracoesOmie({
                 <Table
                   cols={['Código', 'Nome', 'Natureza', 'Títulos', 'Faturado']}
                   rows={categorias.map((c) => [
-                    <span className="whitespace-nowrap font-mono text-[12px] text-ink-3">{c.codigo}</span>,
-                    <span className="text-[13px] font-medium text-ink">
+                    <span className="whitespace-nowrap font-mono text-meta text-ink-3">{c.codigo}</span>,
+                    <span className="text-corpo font-medium text-ink">
                       {c.descricao}
                       {c.totalizadora && (
                         <>
@@ -271,16 +271,16 @@ export default async function ConfiguracoesOmie({
                         </>
                       )}
                     </span>,
-                    <span className="text-[12px] text-ink-2">{c.natureza ?? '—'}</span>,
-                    <span className="tabular-nums text-[12.5px] text-ink-2">
+                    <span className="text-meta text-ink-2">{c.natureza ?? '—'}</span>,
+                    <span className="tabular-nums text-meta text-ink-2">
                       {c.titulos > 0 ? N(c.titulos) : '—'}
                     </span>,
-                    <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                    <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">
                       {c.valorCentavos > 0 ? BRL(c.valorCentavos) : '—'}
                     </span>,
                   ])}
                 />
-                <p className="mt-3 max-w-[92ch] text-[12px] leading-relaxed text-ink-3">
+                <p className="mt-3 max-w-[92ch] text-meta leading-relaxed text-ink-3">
                   Ordenadas por valor, e não por código: em ordem de código,{' '}
                   <strong className="font-semibold text-ink">1.01.02 (MRR)</strong> — que responde por três quartos dos
                   títulos da base — ficaria entre duas categorias vazias. O código continua na primeira coluna para

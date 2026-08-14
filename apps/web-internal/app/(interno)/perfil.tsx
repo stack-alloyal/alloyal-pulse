@@ -72,15 +72,15 @@ export function Perfil({ id, nome }: { id: Identidade; nome: string | null }) {
       {/* `z-40`: acima do header, que é `z-30`. */}
       <div className="absolute right-0 z-40 mt-2 w-[268px] overflow-hidden rounded-lg border border-line bg-surface shadow-pop">
         <div className="border-b border-line px-4 py-3">
-          <div className="truncate text-[13.5px] font-semibold text-ink">
+          <div className="truncate text-corpo font-semibold text-ink">
             {nome ?? tratamento(nome, id.email)}
           </div>
-          <div className="mt-0.5 truncate text-[12px] text-ink-3">{id.email}</div>
+          <div className="mt-0.5 truncate text-meta text-ink-3">{id.email}</div>
           <div className="mt-2 flex flex-wrap gap-1">
             {id.papeis.map((p) => (
               <span
                 key={p}
-                className="rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700"
+                className="rounded-full bg-purple-50 px-2 py-0.5 text-nota font-medium text-purple-700"
               >
                 {p.replace(/^pulse-/, '')}
               </span>
@@ -92,14 +92,14 @@ export function Perfil({ id, nome }: { id: Identidade; nome: string | null }) {
           <div className="border-b border-line py-1">
             <Link
               href="/configuracoes/usuarios"
-              className="flex items-center gap-2.5 px-4 py-2 text-[13px] text-ink transition-colors hover:bg-surface-2"
+              className="flex items-center gap-2.5 px-4 py-2 text-corpo text-ink transition-colors hover:bg-surface-2"
             >
               <Users className="h-4 w-4 text-ink-3" />
               Gerenciar usuários
             </Link>
             <Link
               href="/configuracoes/papeis"
-              className="flex items-center gap-2.5 px-4 py-2 text-[13px] text-ink transition-colors hover:bg-surface-2"
+              className="flex items-center gap-2.5 px-4 py-2 text-corpo text-ink transition-colors hover:bg-surface-2"
             >
               <ShieldCheck className="h-4 w-4 text-ink-3" />
               Matriz de permissões
@@ -112,7 +112,7 @@ export function Perfil({ id, nome }: { id: Identidade; nome: string | null }) {
             tentaria buscar como rota da aplicação e a pessoa não sairia. */}
         <a
           href="/oauth2/sign_out?rd=/"
-          className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-red transition-colors hover:bg-red-50"
+          className="flex items-center gap-2.5 px-4 py-2.5 text-corpo text-red transition-colors hover:bg-red-50"
         >
           <LogOut className="h-4 w-4" />
           Sair

@@ -39,7 +39,7 @@ export function Casca({ children }: { children: ReactNode }) {
           </Link>
         </div>
         <Nav />
-        <div className="mt-auto px-2 pt-4 text-[11px] leading-relaxed text-ink-4">
+        <div className="mt-auto px-2 pt-4 text-nota leading-relaxed text-ink-4">
           Alloyal Pulse · ferramentas de operação
         </div>
       </aside>
@@ -93,7 +93,7 @@ export async function Topo({
           <Icone className="h-[18px] w-[18px] shrink-0 text-purple-500" />
           <span className="truncate text-title text-ink">{titulo ?? item?.rotulo}</span>
           {(proposito ?? item?.proposito) && (
-            <span className="hidden truncate text-[13px] text-ink-3 lg:inline">
+            <span className="hidden truncate text-corpo text-ink-3 lg:inline">
               · {proposito ?? item?.proposito}
             </span>
           )}

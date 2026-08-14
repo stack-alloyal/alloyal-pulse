@@ -63,7 +63,7 @@ export function Gaveta({
         <header className="flex items-center gap-2 border-b border-line px-5 py-4">
           <Icone className="h-[18px] w-[18px] shrink-0 text-purple-500" />
           <h2 className="text-title text-ink">{titulo}</h2>
-          {legenda && <span className="hidden text-[12px] text-ink-3 sm:inline">· {legenda}</span>}
+          {legenda && <span className="hidden text-meta text-ink-3 sm:inline">· {legenda}</span>}
           <div className="ml-auto flex items-center gap-1.5">
             {acoes}
             <Btn variant="ghost" onClick={aoFechar} title="Fechar" className="h-8 w-8 border-0 px-0">

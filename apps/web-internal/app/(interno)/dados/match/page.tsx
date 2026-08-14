@@ -60,7 +60,7 @@ export default async function MatchEMerge() {
         acoes={
           <Link
             href="/dados"
-            className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
           >
             <ArrowLeft className="h-[14px] w-[14px]" />
             Dados
@@ -95,7 +95,7 @@ export default async function MatchEMerge() {
           <span className="tabular-nums">37.374.538/0001-76</span> (LTDA, inativa) e{' '}
           <span className="tabular-nums">26.401.688/0001-05</span> (S.A., ativa) — e as raízes não têm nada em comum. O
           casamento por CNPJ acertou a ficha morta; a viva, com R$ 1,5 milhão vencido, ficou de fora. Nenhuma regra
-          automática liga as duas, e os <code className="font-mono text-[12px]">idHubspot</code> também diferem, porque
+          automática liga as duas, e os <code className="font-mono text-meta">idHubspot</code> também diferem, porque
           upsell cria empresa nova. Por isso o vínculo é decidido por gente, com motivo e trilha.
         </Aviso>
 
@@ -119,14 +119,14 @@ export default async function MatchEMerge() {
                   {!l.ativo && <Badge>inativa</Badge>}
                   {l.apontaParaInativa && <Badge tone="red">só ficha morta</Badge>}
                 </span>,
-                <span className="whitespace-nowrap tabular-nums text-[12px] text-ink-2">{CNPJ(l.cnpj)}</span>,
-                <span className="tabular-nums text-[12.5px] text-ink-2">
+                <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{CNPJ(l.cnpj)}</span>,
+                <span className="tabular-nums text-meta text-ink-2">
                   {l.vinculosOmie === 0 ? <Badge tone="amber">nenhuma</Badge> : `${l.vinculosOmie} ficha(s)`}
                 </span>,
-                <span className="whitespace-nowrap tabular-nums text-[12.5px] text-ink-2">
+                <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">
                   {BRL(l.vinculadoValorCentavos)}
                 </span>,
-                <span className="whitespace-nowrap tabular-nums text-[12.5px] font-semibold text-ink">
+                <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">
                   {BRL(l.candidatoValorCentavos)}
                 </span>,
                 l.melhorEvidencia ? (
@@ -138,13 +138,13 @@ export default async function MatchEMerge() {
                 ),
                 <Link
                   href={`/carteira/base/${l.accountId}#identidades`}
-                  className="whitespace-nowrap text-[12.5px] font-semibold text-purple-700 hover:text-purple-500"
+                  className="whitespace-nowrap text-meta font-semibold text-purple-700 hover:text-purple-500"
                 >
                   resolver →
                 </Link>,
               ])}
             />
-            <p className="mt-3 max-w-[90ch] text-[12px] leading-relaxed text-ink-3">
+            <p className="mt-3 max-w-[90ch] text-meta leading-relaxed text-ink-3">
               <strong className="font-semibold text-ink">Pendente</strong> é o faturamento já vencido que está em fichas
               do Omie sem dono e que se parecem com esta conta. É o tamanho do erro, não uma promessa: aceitar um
               candidato de evidência <em>nome parecido</em> sem olhar é como o número errado nasce do outro lado.

@@ -54,7 +54,7 @@ export default async function Calibracao() {
       <Topo
         href="/gatilhos"
         acoes={
-          <span className="text-[13px] text-ink-2">
+          <span className="text-corpo text-ink-2">
             {contas} contas · janela de {janelaDias} d · {promovidos} de {linhas.length} promovidos
             {prontos.length > 0 && (
               <>
@@ -78,14 +78,14 @@ export default async function Calibracao() {
                 <>
                   <span className="font-semibold">{l.gatilho}</span>
                   <span className="text-ink-3"> · {l.familia}</span>
-                  <span className="mt-0.5 block max-w-[46ch] text-[12px] text-ink-3">
+                  <span className="mt-0.5 block max-w-[46ch] text-meta text-ink-3">
                     {l.proposito}
                   </span>
                 </>,
                 <>
                   <span className="tabular-nums">{l.porCemContas ?? '—'}</span>
                   {l.itens > 0 && (
-                    <span className="mt-0.5 block text-[11.5px] text-ink-3">{l.itens} itens</span>
+                    <span className="mt-0.5 block text-nota text-ink-3">{l.itens} itens</span>
                   )}
                 </>,
                 <>
@@ -96,7 +96,7 @@ export default async function Calibracao() {
                     {v ? (
                       <Badge tone={v.tom}>{v.rotulo}</Badge>
                     ) : (
-                      <span className="text-[11.5px] text-ink-3">
+                      <span className="text-nota text-ink-3">
                         {SEM_PILULA[l.veredito] ?? '—'}
                       </span>
                     )}
@@ -119,7 +119,7 @@ export default async function Calibracao() {
                       ? `${Math.round(l.taxaFalsoPositivo * 100)}%`
                       : '—'}
                   </span>
-                  <span className="mt-0.5 block text-[11.5px] text-ink-3">
+                  <span className="mt-0.5 block text-nota text-ink-3">
                     {l.fechados} fechado(s)
                     {l.fechados < MINIMO_PARA_TAXA &&
                       l.itens > 0 &&
@@ -129,35 +129,35 @@ export default async function Calibracao() {
                 /* Três estados distintos, e confundi-los esconde problema: sem
                    fonte é pipeline faltando; sem ocorrência é base boa. */
                 l.fonteAusente ? (
-                  <span className="text-[12.5px] text-ink-3">aguardando {l.fonteAusente}</span>
+                  <span className="text-meta text-ink-3">aguardando {l.fonteAusente}</span>
                 ) : l.promovido && l.veredito === 'acima' ? (
                   /* Verde ao lado de "acima do estimado" na mesma linha é sinal
                      contraditório. Gatilho já promovido e fora da faixa é
                      exatamente o caso de recalibrar da tabela de riscos — e
                      ninguém o revisa se a tela disser que está tudo bem. */
-                  <span className="text-[12.5px] font-semibold text-red">
+                  <span className="text-meta font-semibold text-red">
                     na fila do time · volume acima do estimado, revisar o limiar
                   </span>
                 ) : l.promovido ? (
                   <Badge tone="green">na fila do time</Badge>
                 ) : l.itens === 0 ? (
-                  <span className="text-[12.5px] text-ink-2">
+                  <span className="text-meta text-ink-2">
                     implementado · nenhuma conta se enquadrou
                   </span>
                 ) : p.pronto ? (
                   <Badge tone="green">pronto para promover</Badge>
                 ) : (
-                  <span className="text-[12.5px] text-amber-700">sombra · {p.porque}</span>
+                  <span className="text-meta text-orange-700">sombra · {p.porque}</span>
                 ),
               ]
             })}
           />
         </Card>
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           A promoção é manual: ligar a flag{' '}
-          <code className="rounded bg-surface-2 px-1 py-0.5 text-[12px]">gatilho:G-xx</code> em{' '}
-          <code className="rounded bg-surface-2 px-1 py-0.5 text-[12px]">ops.feature_flag</code>.
+          <code className="rounded bg-surface-2 px-1 py-0.5 text-meta">gatilho:G-xx</code> em{' '}
+          <code className="rounded bg-surface-2 px-1 py-0.5 text-meta">ops.feature_flag</code>.
           Esta tela mede e recomenda — não promove sozinha, porque o custo de promover um gatilho
           ruidoso é o time parar de confiar na fila inteira, e disso não se volta com um ajuste de
           limiar.

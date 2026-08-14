@@ -50,7 +50,7 @@ export default async function Verificar({
     <main className="mx-auto flex min-h-screen max-w-[46ch] flex-col justify-center px-5">
       <AlloyalLogo className="mb-6 h-7" />
       <Card title="Confirme que é você">
-        <p className="text-[13.5px] leading-relaxed text-ink-2">
+        <p className="text-corpo leading-relaxed text-ink-2">
           Enviamos um código de 6 dígitos para{' '}
           <strong className="font-semibold text-ink">{id.email}</strong>. Ele vale por 10 minutos.
         </p>
@@ -102,7 +102,7 @@ export default async function Verificar({
           </div>
         </form>
 
-        <p className="mt-6 border-t border-line pt-4 text-[11.5px] leading-relaxed text-ink-3">
+        <p className="mt-6 border-t border-line pt-4 text-nota leading-relaxed text-ink-3">
           Entrar com o Google prova que você tem a conta. O código prova que você tem a caixa de
           e-mail — e é o que impede que alguém entre no seu lugar sem nunca receber nada.
         </p>

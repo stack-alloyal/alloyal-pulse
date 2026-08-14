@@ -169,46 +169,46 @@ export default async function Sincronizacao({
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-ink">{c.id}</span>
                   <Badge tone="slate">{c.fonte}</Badge>
-                  <span className="text-[11.5px] text-ink-4">{c.fase}</span>
+                  <span className="text-nota text-ink-4">{c.fase}</span>
                 </div>
-                <div className="mt-0.5 text-[12.5px] text-ink-3">
+                <div className="mt-0.5 text-meta text-ink-3">
                   {c.descricao}
                 </div>
               </>,
               <>
-                <div className="text-[13px] text-ink">
+                <div className="text-corpo text-ink">
                   {agendaEmPalavras(c.agenda)}
                 </div>
                 {/* O cron cru fica à vista: a frase é conveniência, o cron é a verdade. */}
-                <div className="mt-0.5 font-mono text-[11px] text-ink-4">
+                <div className="mt-0.5 font-mono text-nota text-ink-4">
                   {c.agenda ?? "—"}
                 </div>
-                <div className="mt-0.5 text-[11.5px] text-ink-3">
+                <div className="mt-0.5 text-nota text-ink-3">
                   {c.metodo}
                 </div>
               </>,
               <>
                 {selo(c)}
                 {c.ultimoErro && (
-                  <div className="mt-1 max-w-[280px] break-words text-[11.5px] leading-snug text-red">
+                  <div className="mt-1 max-w-[280px] break-words text-nota leading-snug text-red">
                     {c.ultimoErro.slice(0, 180)}
                   </div>
                 )}
               </>,
               <>
-                <div className="text-[13px] text-ink">
+                <div className="text-corpo text-ink">
                   {c.ultimaEm ? DATA.format(c.ultimaEm) : "—"}
                 </div>
                 {c.ultimoSucessoEm && c.ultimoStatus !== "ok" && (
-                  <div className="mt-0.5 text-[11.5px] text-ink-3">
+                  <div className="mt-0.5 text-nota text-ink-3">
                     último sucesso: {DATA.format(c.ultimoSucessoEm)}
                   </div>
                 )}
-                <div className="mt-0.5 text-[11.5px] text-ink-3">
+                <div className="mt-0.5 text-nota text-ink-3">
                   {duracao(c.duracaoSegundos)}
                 </div>
               </>,
-              <div className="text-[12.5px] text-ink-2">
+              <div className="text-meta text-ink-2">
                 {c.linhasLidas === null ? (
                   "—"
                 ) : (
@@ -223,7 +223,7 @@ export default async function Sincronizacao({
               <div className="flex items-center justify-end gap-2">
                 <Link
                   href={`/configuracoes/sincronizacao?ciclo=${c.id}`}
-                  className="text-[12.5px] font-semibold text-purple-700 hover:text-purple-500"
+                  className="text-meta font-semibold text-purple-700 hover:text-purple-500"
                 >
                   histórico
                 </Link>
@@ -242,7 +242,7 @@ export default async function Sincronizacao({
               </div>,
             ])}
           />
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             A agenda vive no código, junto do contrato do ciclo — mudá-la pela
             tela criaria duas agendas, a declarada e a efetiva, e a divergência
             apareceria meses depois como &ldquo;o número saiu na hora
@@ -260,7 +260,7 @@ export default async function Sincronizacao({
             q.ciclo ? (
               <Link
                 href="/configuracoes/sincronizacao"
-                className="text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+                className="text-corpo font-semibold text-purple-700 hover:text-purple-500"
               >
                 ver todos os ciclos
               </Link>
@@ -297,25 +297,25 @@ export default async function Sincronizacao({
                     ? "text-red"
                     : "text-ink-3";
               return [
-                <span className="whitespace-nowrap text-[12.5px] text-ink">
+                <span className="whitespace-nowrap text-meta text-ink">
                   {DATA.format(e.iniciadoEm)}
                 </span>,
                 <span className="font-semibold text-ink">{e.ciclo}</span>,
                 <span
-                  className={`flex items-center gap-1.5 text-[12.5px] ${cor}`}
+                  className={`flex items-center gap-1.5 text-meta ${cor}`}
                 >
                   <Icone className="h-[14px] w-[14px]" />
                   {e.status}
                 </span>,
-                <span className="text-[12.5px] text-ink-2">
+                <span className="text-meta text-ink-2">
                   {duracao(seg)}
                 </span>,
-                <span className="whitespace-nowrap text-[12.5px] text-ink-2">
+                <span className="whitespace-nowrap text-meta text-ink-2">
                   {e.linhasLidas === null
                     ? "—"
                     : `${e.linhasLidas.toLocaleString("pt-BR")} → ${(e.linhasGravadas ?? 0).toLocaleString("pt-BR")}`}
                 </span>,
-                <div className="max-w-[380px] text-[11.5px] leading-snug">
+                <div className="max-w-[380px] text-nota leading-snug">
                   {e.erro ? (
                     <span className="break-words text-red">
                       {e.erro.slice(0, 240)}
@@ -341,7 +341,7 @@ export default async function Sincronizacao({
         </Card>
 
         <Card title="Como ler esta tela">
-          <ul className="grid gap-2 text-[13px] leading-relaxed text-ink-2">
+          <ul className="grid gap-2 text-corpo leading-relaxed text-ink-2">
             <li className="flex gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
               <span>

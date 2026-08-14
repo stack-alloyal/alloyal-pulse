@@ -136,7 +136,7 @@ export default async function Receita() {
         </div>
 
         <Card title={`Cascata de ${atual.competencia.slice(0, 7)}`} className="max-w-[36em]">
-          <table className="w-full text-[13.5px]">
+          <table className="w-full text-corpo">
             <tbody>
               <Passo rotulo="MRR inicial" valor={atual.mrrInicialCentavos} sinal="" />
               <Passo rotulo="Novo" valor={atual.novoCentavos} sinal="+" />
@@ -163,7 +163,7 @@ export default async function Receita() {
           </table>
         </Card>
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           O MRR final é observado na base de contratos; os movimentos vêm do ledger. São duas
           fontes independentes, e o <strong className="font-semibold">não atribuído</strong> é a
           diferença entre elas — ele existe para aparecer. Empurrá-lo para churn faria a cascata
@@ -189,7 +189,7 @@ export default async function Receita() {
                         ),
                       )}
                     </span>
-                    <span className="mt-0.5 block text-[11.5px] text-ink-3">
+                    <span className="mt-0.5 block text-nota text-ink-3">
                       {c.contasPerdidas} conta(s)
                     </span>
                   </>,
@@ -206,7 +206,7 @@ export default async function Receita() {
                 ])}
               />
             </Card>
-            <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+            <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
               Competência congelada não se corrige: a correção é um ajuste na competência corrente,
               com nota. É restrição de banco, e não combinado de processo, porque a alternativa é
               alguém recalcular um mês já apresentado ao board e ninguém descobrir.

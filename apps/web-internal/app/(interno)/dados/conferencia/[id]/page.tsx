@@ -68,7 +68,7 @@ export default async function FichaDaConferencia({
         proposito={`divergência em ${item.campo}`}
         icone={Database}
         acoes={
-          <span className="flex items-center gap-3 text-[13px]">
+          <span className="flex items-center gap-3 text-corpo">
             {aberta ? (
               <Badge tone="amber">aguardando conferência</Badge>
             ) : item.estado === 'ignorada' ? (
@@ -102,23 +102,23 @@ export default async function FichaDaConferencia({
         <Card title="O que diverge">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-purple-500 bg-purple-50 p-4">
-              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-purple-700">
+              <div className="text-tabela font-semibold uppercase tracking-[0.08em] text-purple-700">
                 Lecupon · valor em uso
               </div>
-              <div className="mt-1 text-[22px] font-bold tabular-nums text-ink">
+              <div className="mt-1 text-kpi tabular-nums text-ink">
                 {item.valorLecupon ?? '—'}
               </div>
             </div>
             <div className="rounded-lg border border-line bg-surface-2 p-4">
-              <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+              <div className="text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
                 Omie
               </div>
-              <div className="mt-1 text-[22px] font-bold tabular-nums text-ink-2">
+              <div className="mt-1 text-kpi tabular-nums text-ink-2">
                 {item.valorOmie ?? '—'}
               </div>
             </div>
           </div>
-          <p className="mt-3 max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+          <p className="mt-3 max-w-[80ch] text-corpo leading-relaxed text-ink-2">
             CNPJ <strong className="font-semibold tabular-nums">{item.cnpj ?? '—'}</strong> ·
             detectado em {new Date(item.detectadoEm).toLocaleString('pt-BR')}. O valor da
             Lecupon é o que o Pulse usa hoje — conferir é decidir se ele descreve{' '}
@@ -137,13 +137,13 @@ export default async function FichaDaConferencia({
                 open={f.fonte !== 'pulse'}
                 className="overflow-hidden rounded-lg border border-line bg-surface shadow-sm"
               >
-                <summary className="flex cursor-pointer select-none items-center gap-2 border-b border-line bg-surface-2 px-[18px] py-[13px] text-[14px] font-bold text-ink">
+                <summary className="flex cursor-pointer select-none items-center gap-2 border-b border-line bg-surface-2 px-[18px] py-[13px] text-cartao font-bold text-ink">
                   <Icone className="h-[15px] w-[15px] text-purple-500" />
                   {TITULO[f.fonte]}
                   {!f.ok && <Badge tone="red">não respondeu</Badge>}
                   {f.ok && f.campos.length === 0 && <Badge tone="amber">sem cadastro</Badge>}
                   {f.ok && f.campos.length > 0 && (
-                    <span className="ml-auto text-[11.5px] font-normal text-ink-3">
+                    <span className="ml-auto text-nota font-normal text-ink-3">
                       {f.campos.length} campos
                     </span>
                   )}
@@ -161,10 +161,10 @@ export default async function FichaDaConferencia({
                           key={c.rotulo}
                           className="flex flex-wrap items-baseline gap-2 border-b border-line py-1 last:border-0"
                         >
-                          <dt className="min-w-[13em] text-[11.5px] font-semibold uppercase tracking-[0.05em] text-ink-3">
+                          <dt className="min-w-[13em] text-nota font-semibold uppercase tracking-[0.05em] text-ink-3">
                             {c.rotulo}
                           </dt>
-                          <dd className="m-0 flex-1 break-all text-[13px] tabular-nums text-ink">
+                          <dd className="m-0 flex-1 break-all text-corpo tabular-nums text-ink">
                             {c.valor}
                           </dd>
                         </div>
@@ -200,7 +200,7 @@ export default async function FichaDaConferencia({
                   Nenhuma das duas
                 </Btn>
               </div>
-              <p className="max-w-[80ch] text-[12.5px] leading-relaxed text-ink-3">
+              <p className="max-w-[80ch] text-meta leading-relaxed text-ink-3">
                 <strong className="font-semibold">Nenhuma das duas</strong> é resposta
                 válida: quando os dois cadastros estão errados, escolher um deles gravaria
                 um dado que ninguém conferiu. A conta fica sem vínculo até alguém
@@ -208,7 +208,7 @@ export default async function FichaDaConferencia({
               </p>
             </form>
 
-            <details className="mt-4 text-[12.5px]">
+            <details className="mt-4 text-meta">
               <summary className="cursor-pointer select-none text-ink-3 hover:text-ink-2">
                 não é para conferir — ignorar
               </summary>
@@ -233,13 +233,13 @@ export default async function FichaDaConferencia({
           </Card>
         ) : (
           <Card title="Conferida">
-            <p className="text-[13.5px] leading-relaxed text-ink-2">
+            <p className="text-corpo leading-relaxed text-ink-2">
               {item.estado === 'ignorada' ? 'Ignorada' : `Decidido que vale o valor da ${item.decisao}`}{' '}
               por <strong className="font-semibold">{item.decididoPor}</strong> em{' '}
               {item.decididoEm ? new Date(item.decididoEm).toLocaleString('pt-BR') : '—'}.
             </p>
             {item.nota && (
-              <p className="mt-2 rounded-md border border-line bg-surface-2 p-3 text-[13px] leading-relaxed text-ink-2">
+              <p className="mt-2 rounded-md border border-line bg-surface-2 p-3 text-corpo leading-relaxed text-ink-2">
                 {item.nota}
               </p>
             )}
@@ -249,7 +249,7 @@ export default async function FichaDaConferencia({
                 Reabrir
               </Btn>
             </form>
-            <p className="mt-2 max-w-[80ch] text-[12.5px] text-ink-3">
+            <p className="mt-2 max-w-[80ch] text-meta text-ink-3">
               Reabrir não apaga a decisão anterior — ela fica na nota. Conferência que se
               corrige sem deixar rastro não sustenta a próxima dúvida.
             </p>

@@ -51,7 +51,7 @@ export default async function Segredos({
         titulo="Segredos de integração"
         proposito="cifrados no banco, nunca exibidos"
         acoes={
-          <span className="flex items-center gap-3 text-[13px]">
+          <span className="flex items-center gap-3 text-corpo">
             <span className="text-ink-2">
               {gravados.length} de {SEGREDOS.length} cadastrados
             </span>
@@ -83,8 +83,8 @@ export default async function Segredos({
           <Aviso tom="erro" papel="alert">
             <strong className="font-semibold">PULSE_CHAVE_MESTRA não está configurada</strong> nesta
             instância. Nenhum segredo pode ser gravado nem usado até ela existir. Gere com{' '}
-            <code className="rounded bg-surface px-1 py-0.5 text-[12px]">openssl rand -base64 32</code>{' '}
-            e guarde no SOPS (<code className="text-[12px]">infra/secrets</code>) — nunca no
+            <code className="rounded bg-surface px-1 py-0.5 text-meta">openssl rand -base64 32</code>{' '}
+            e guarde no SOPS (<code className="text-meta">infra/secrets</code>) — nunca no
             repositório em texto claro.
           </Aviso>
         )}
@@ -101,7 +101,7 @@ export default async function Segredos({
           </Aviso>
         )}
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           Os valores são cifrados com AES-256-GCM antes de tocar o banco, com chave que vive fora
           dele. <strong className="font-semibold">Nenhuma tela mostra um segredo de volta</strong> —
           nem esta. Para confirmar qual valor está gravado, compare as 4 últimas letras; para trocar,
@@ -127,7 +127,7 @@ export default async function Segredos({
               )
             })}
           </div>
-          <p className="mt-3 max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+          <p className="mt-3 max-w-[80ch] text-corpo leading-relaxed text-ink-2">
             A sonda faz a menor leitura possível na API do fornecedor e diz o que ele
             respondeu. Ela distingue <strong className="font-semibold">token recusado</strong>{' '}
             de <strong className="font-semibold">fornecedor fora do ar</strong> — as duas
@@ -159,20 +159,20 @@ export default async function Segredos({
                 }
               >
                 <div className="grid gap-3">
-                  <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+                  <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
                     <strong className="font-semibold">Sem ele:</strong> {s.semEle}
                   </p>
                   {s.irrecuperavel && (
-                    <p className="max-w-[80ch] rounded-md border border-red/30 bg-red-50 px-3 py-2 text-[12.5px] leading-relaxed text-red">
+                    <p className="max-w-[80ch] rounded-md border border-red/30 bg-red-50 px-3 py-2 text-meta leading-relaxed text-red">
                       {s.irrecuperavel}
                     </p>
                   )}
-                  <p className="text-[12.5px] text-ink-3">
+                  <p className="text-meta text-ink-3">
                     <strong className="font-semibold">Onde conseguir:</strong> {s.ondeConseguir}
                   </p>
 
                   {g && (
-                    <p className="text-[12px] tabular-nums text-ink-3">
+                    <p className="text-meta tabular-nums text-ink-3">
                       Gravado por {g.por} em {new Date(g.em).toLocaleString('pt-BR')} ·{' '}
                       {/* "nunca usado" num segredo cadastrado há semanas é o sinal de que
                           o ciclo que deveria usá-lo não está rodando. */}
@@ -214,7 +214,7 @@ export default async function Segredos({
                   </form>
 
                   {g && (
-                    <details className="text-[12.5px]">
+                    <details className="text-meta">
                       <summary className="cursor-pointer select-none text-ink-3 hover:text-ink-2">
                         apagar este segredo
                       </summary>
@@ -233,7 +233,7 @@ export default async function Segredos({
                           Apagar
                         </Btn>
                       </form>
-                      <p className="mt-2 max-w-[70ch] text-[12px] text-ink-3">
+                      <p className="mt-2 max-w-[70ch] text-meta text-ink-3">
                         Apagar não desfaz o que a integração já capturou, e a trilha guarda que o
                         segredo existiu — mas o ciclo que dependia dele para de rodar na próxima
                         execução.

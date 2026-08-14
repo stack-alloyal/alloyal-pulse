@@ -40,7 +40,7 @@ export default async function Biblioteca({
       <Topo
         href="/biblioteca"
         acoes={
-          <span className="text-[13px] text-ink-2">
+          <span className="text-corpo text-ink-2">
             {chaves.filter((c) => c.temVigente).length} de {chaves.length} no ar
           </span>
         }
@@ -88,11 +88,11 @@ export default async function Biblioteca({
                   >
                     {c.titulo}
                   </Link>
-                  <span className="mt-0.5 block text-[11.5px] text-ink-3">{c.chave}</span>
+                  <span className="mt-0.5 block text-nota text-ink-3">{c.chave}</span>
                 </>,
                 <span className="flex flex-wrap gap-1">
                   {c.gatilhos.length === 0 ? (
-                    <span className="text-[12px] text-ink-3">nenhum</span>
+                    <span className="text-meta text-ink-3">nenhum</span>
                   ) : (
                     c.gatilhos.map((g) => <Badge key={g}>{g}</Badge>)
                   )}
@@ -142,7 +142,7 @@ export default async function Biblioteca({
               <Btn type="submit">Salvar rascunho</Btn>
               {/* Salvar não publica. Duas etapas de propósito: o texto de processo
                   se escreve em rascunho e se lê antes de virar o que o time segue. */}
-              <span className="text-[12.5px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 Salvar cria uma versão nova e inativa. Publicar é o passo seguinte, na
                 tela da chave.
               </span>
@@ -150,7 +150,7 @@ export default async function Biblioteca({
           </form>
         </Card>
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           Versão nunca é sobrescrita. O item de trabalho aponta para a versão que valia quando
           ele foi criado — publicar a versão 3 em agosto não muda o que o CSM tinha em mãos ao
           fechar um item em março, e é isso que faz a pergunta{' '}

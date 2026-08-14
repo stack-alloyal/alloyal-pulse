@@ -54,7 +54,7 @@ function janela(s: Saida): { texto: string; cor: string } {
   const d = s.diasParaFimDoAviso ?? 0
   if (d < 0) return { texto: `janela fechou há ${-d} d`, cor: 'text-ink-3' }
   if (d === 0) return { texto: 'fecha hoje', cor: 'text-red' }
-  return { texto: `${d} d para reverter`, cor: d <= 15 ? 'text-red' : 'text-amber-700' }
+  return { texto: `${d} d para reverter`, cor: d <= 15 ? 'text-red' : 'text-orange-700' }
 }
 
 /** A linha do tempo das quatro datas, com quem confirmou cada uma. */
@@ -112,14 +112,14 @@ function Datas({ s }: { s: Saida }) {
             p.feito ? 'border-line' : 'border-dashed border-line-strong opacity-80',
           )}
         >
-          <span className="flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+          <span className="flex items-center gap-1 text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
             {p.feito && <Check className="h-3 w-3 text-green" />}
             {p.rotulo}
           </span>
-          <strong className="mt-0.5 block tabular-nums text-[14px] font-bold text-ink">
+          <strong className="mt-0.5 block tabular-nums text-cartao font-bold text-ink">
             {p.valor}
           </strong>
-          {p.nota && <span className="mt-0.5 block text-[11.5px] text-ink-3">{p.nota}</span>}
+          {p.nota && <span className="mt-0.5 block text-nota text-ink-3">{p.nota}</span>}
         </li>
       ))}
     </ol>
@@ -142,14 +142,14 @@ function Linha({ s, podeAprovar }: { s: Saida; podeAprovar: boolean }) {
       )}
     >
       <div className="flex flex-wrap items-baseline gap-2">
-        <strong className="text-[14px] font-bold tracking-[-0.01em] text-ink">{s.conta}</strong>
+        <strong className="text-cartao font-bold tracking-[-0.01em] text-ink">{s.conta}</strong>
         <Badge tone={e.tom}>{e.rotulo}</Badge>
-        <span className="tabular-nums text-[12.5px] text-ink-3">
+        <span className="tabular-nums text-meta text-ink-3">
           {REAIS(s.mrrCentavosNaLevantada)}/mês
         </span>
         {s.origem === 'alloyal' && <Badge>encerramento pela Alloyal</Badge>}
         {s.motivo && <Badge tone="indigo">{rotuloDoMotivo(s.motivo)}</Badge>}
-        <span className={cn('ml-auto text-[12.5px] font-semibold', j.cor)}>{j.texto}</span>
+        <span className={cn('ml-auto text-meta font-semibold', j.cor)}>{j.texto}</span>
       </div>
 
       <div className="mt-3">
@@ -219,23 +219,23 @@ function Linha({ s, podeAprovar }: { s: Saida; podeAprovar: boolean }) {
                 <Btn type="submit" variant="danger">
                   Aprovar e encerrar
                 </Btn>
-                <span className="text-[12.5px] text-ink-3">
+                <span className="text-meta text-ink-3">
                   Grava o churn de receita em {MES(s.competenciaEfeitoReceita)}.
                 </span>
               </form>
             ) : (
-              <p className="text-[12.5px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 Pronta para encerrar — falta a aprovação de quem tem alçada de distrato.
               </p>
             )
           ) : (
-            <p className="text-[12.5px] text-ink-3">Para encerrar, falta: {falta.join('; ')}</p>
+            <p className="text-meta text-ink-3">Para encerrar, falta: {falta.join('; ')}</p>
           )}
         </div>
       )}
 
       {s.estado === 'retido' && s.retidoPor && (
-        <p className="mt-2 text-[12.5px] text-ink-3">
+        <p className="mt-2 text-meta text-ink-3">
           Revertida em {s.retidoEm} por {s.retidoPor} — a receita nunca saiu.
         </p>
       )}
@@ -309,7 +309,7 @@ export default async function Saidas({
                 {...(resumo.retidasNaCompetencia > 0 ? { tom: 'green' as const } : {})}
               />
             </div>
-            <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+            <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
               Contas e receita não fecham no mesmo mês, e a diferença é de propósito: um cliente
               que levanta a mão hoje entra no churn de contas hoje, mas continua faturando durante
               todo o aviso prévio. Reconhecer a perda no dia do anúncio subestima o trimestre;
@@ -338,7 +338,7 @@ export default async function Saidas({
 
         {fechadas.length > 0 && (
           <details>
-            <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2 hover:text-ink">
+            <summary className="cursor-pointer select-none text-corpo font-semibold text-ink-2 hover:text-ink">
               {fechadas.length} encerradas ou revertidas
             </summary>
             <ul className="mt-3 grid gap-3 opacity-75">

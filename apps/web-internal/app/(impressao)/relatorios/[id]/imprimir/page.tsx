@@ -67,21 +67,21 @@ export default async function Imprimir({ params }: { params: Promise<{ id: strin
       <div className="pulse-folha">
         <header className="mb-6 flex items-baseline justify-between border-b-2 border-ink pb-2">
           <AlloyalLogo className="h-6" />
-          <span className="text-[12px] text-ink-2">
+          <span className="text-meta text-ink-2">
             {c.razaoSocial} · {c.competencia.slice(0, 7)}
           </span>
         </header>
 
         <RelatorioCliente conteudo={c} frase={r.fraseFinal ?? r.fraseGerada} />
 
-        <footer className="mt-6 border-t border-line pt-2 text-[10px] leading-relaxed text-ink-3">
+        <footer className="mt-6 border-t border-line pt-2 text-micro leading-relaxed text-ink-3">
           Relatório gerado pelo Alloyal Pulse
           {r.enviadoEm && ` e enviado em ${new Date(r.enviadoEm).toLocaleDateString('pt-BR')}`}. Os
           números refletem o fechamento da competência e não são recalculados depois do envio.
         </footer>
 
         {/* Só na tela: instrução para quem abriu a página, que não deve sair no PDF. */}
-        <p className="pulse-so-tela mt-8 rounded-md border border-dashed border-line-strong bg-surface-2 p-3 text-[12.5px] text-ink-2">
+        <p className="pulse-so-tela mt-8 rounded-md border border-dashed border-line-strong bg-surface-2 p-3 text-meta text-ink-2">
           Esta é a versão de impressão. Use <strong className="font-semibold">Ctrl+P</strong> (ou
           Cmd+P) e salve como PDF para anexar ao e-mail. É o mesmo componente da tela do relatório —
           o que você vê aqui é o que o cliente recebe.

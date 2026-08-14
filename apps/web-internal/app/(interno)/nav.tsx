@@ -29,7 +29,7 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
             key={m.href}
             href={m.href}
             className={cn(
-              'whitespace-nowrap rounded-sm px-2.5 py-1.5 text-[12.5px] font-semibold',
+              'whitespace-nowrap rounded-sm px-2.5 py-1.5 text-meta font-semibold',
               m.href === ativo ? 'bg-purple-50 text-purple-700' : 'text-ink-2',
             )}
           >
@@ -51,7 +51,7 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
             href={m.href}
             aria-current={isAtivo ? 'page' : undefined}
             className={cn(
-              'flex items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-[13.5px] font-semibold transition-colors',
+              'flex items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-corpo font-semibold transition-colors',
               isAtivo ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
             )}
           >

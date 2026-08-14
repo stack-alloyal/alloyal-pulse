@@ -97,7 +97,7 @@ export function SubmenuDeConfiguracao({ atual }: { atual: string }) {
             href={i.href}
             aria-current={ativo ? 'page' : undefined}
             className={cn(
-              'flex shrink-0 items-center gap-2.5 rounded-md px-3 py-2 text-[13px] transition-colors',
+              'flex shrink-0 items-center gap-2.5 rounded-md px-3 py-2 text-corpo transition-colors',
               ativo
                 ? 'bg-purple-50 font-semibold text-purple-700'
                 : 'text-ink-2 hover:bg-surface-2 hover:text-ink',

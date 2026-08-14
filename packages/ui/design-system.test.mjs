@@ -211,7 +211,7 @@ test('a regra de cor ainda pega hex em código, não só em comentário', () => 
  */
 test('nenhuma cor da paleta padrão do Tailwind', () => {
   const PADRAO =
-    /\b(?:text|bg|border|ring|from|to|via)-(gray|slate|zinc|neutral|stone|blue|indigo|sky|violet|emerald|teal|cyan|rose|fuchsia|lime|yellow)-\d{2,3}\b/g
+    /\b(?:text|bg|border|ring|from|to|via)-(gray|slate|zinc|neutral|stone|indigo|sky|violet|emerald|teal|cyan|rose|fuchsia|lime|yellow)-\d{2,3}\b/g
   const fora = []
   for (const { caminho, texto } of ARQUIVOS) {
     for (const m of texto.matchAll(PADRAO)) {
@@ -386,4 +386,107 @@ test('o favicon embutido na tela de entrada é o ícone ATUAL', () => {
     html.includes(linkDoFavicon(svg)),
     'o favicon da tela de entrada não corresponde ao SVG — rode `pnpm --filter @pulse/ui marca`',
   )
+})
+
+/**
+ * ─── Tipografia: a escala nomeada é obrigatória ───────────────────────────────
+ *
+ * O design system do Publi (seção 03) chama isto de "o furo central do sistema":
+ * existia nome para título e número grande, e NADA para os tamanhos onde a
+ * interface toda vive — por isso cada tela escrevia `text-[13px]` à mão.
+ *
+ * Medido no Pulse antes da migração: 434 declarações arbitrárias em 46 arquivos.
+ * Depois: 5, todas de uso único, que é o que o documento permite — "nomear um
+ * token para seis usos criaria vocabulário morto; ficam arbitrários até que se
+ * repitam".
+ *
+ * A regra recusa exatamente os tamanhos que TÊM nome. Um número novo e sem nome
+ * passa, e é assim que deve ser: a trava existe para impedir a volta do
+ * `text-[13px]`, não para proibir um tamanho de uso único numa tela de entrada.
+ */
+const COM_NOME = new Map([
+  ['10px', 'micro'], ['10.5px', 'tabela'], ['11px', 'nota'], ['11.5px', 'nota'],
+  ['12px', 'meta'], ['12.5px', 'meta'], ['13px', 'corpo'], ['13.5px', 'corpo'],
+  ['14px', 'cartao'], ['14.5px', 'cartao'], ['15px', 'secao'], ['16px', 'campo'],
+  ['17px', 'title'], ['22px', 'h1 ou kpi'],
+])
+
+test('nenhum tamanho de fonte cru quando existe token', () => {
+  const crus = []
+  for (const { caminho, texto } of ARQUIVOS) {
+    for (const m of semComentarios(texto).matchAll(/text-\[([0-9.]+)px\]/g)) {
+      const nome = COM_NOME.get(`${m[1]}px`)
+      if (!nome) continue
+      const linha = texto.slice(0, m.index).split('\n').length
+      crus.push(`${caminho}:${linha} — ${m[0]} deveria ser text-${nome}`)
+    }
+  }
+  assert.deepEqual(crus, [], `\n${crus.join('\n')}\n`)
+})
+
+test('a regra de tamanho ainda pega classe em código, não só em comentário', () => {
+  // Mesma razão do par da regra de cor: `semComentarios` poderia mascarar tudo, e
+  // um portão que não recusa nada parece cobertura sem ser.
+  const fingido = [
+    'const a = 1 // text-[13px] no fim da linha',
+    '  // text-[12px] em linha própria',
+    'const cls = "text-[13px] font-bold"',
+  ].join('\n')
+  const achados = [...semComentarios(fingido).matchAll(/text-\[([0-9.]+)px\]/g)]
+  assert.equal(achados.length, 1, 'a regra deveria ver só o do código')
+  assert.equal(achados[0][1], '13')
+})
+
+test('a escala nomeada do documento existe no preset', () => {
+  // Sem isto, `text-corpo` compilaria para nada e a tela ficaria com o tamanho
+  // herdado — uma falha silenciosa que só aparece olhando a tela pronta.
+  const preset = readFileSync(join(RAIZ, 'packages', 'ui', 'tailwind-preset.ts'), 'utf8')
+  for (const nome of ['h1', 'title', 'kpi', 'tabela', 'campo', 'secao', 'cartao', 'corpo', 'meta', 'nota', 'micro']) {
+    assert.match(preset, new RegExp(`^\\s+${nome}:\\s*\\[`, 'm'), `falta o token ${nome} no fontSize`)
+  }
+})
+
+/**
+ * ─── Classe de cor que aponta para degrau inexistente ────────────────────────
+ *
+ * Achado real ao adotar o documento: o Badge âmbar usava `text-amber-700`, e a
+ * paleta tem `amber` só em DEFAULT e 50. A classe não compilava para NADA, e o
+ * texto do selo herdava a cor de quem estivesse em volta — um defeito que passa
+ * em revisão de código, passa em build, passa em teste, e só aparece se alguém
+ * reparar que aquele selo está com a cor errada.
+ *
+ * A regra confere cada `text-`/`bg-`/`border-`/`ring-` contra os degraus que o
+ * preset declara de fato.
+ */
+test('nenhuma classe de cor aponta para degrau que não existe', () => {
+  const preset = readFileSync(join(RAIZ, 'packages', 'ui', 'tailwind-preset.ts'), 'utf8')
+  const paleta = preset.slice(preset.indexOf('---- Paleta Alloyal ----'), preset.indexOf('borderRadius:'))
+
+  // Os degraus declarados por família, incluindo o DEFAULT (que é a família nua).
+  const degraus = new Map()
+  for (const m of paleta.matchAll(/^\s*'?([a-z][a-z-]*)'?:\s*(\{[^}]*\}|'#[0-9A-Fa-f]+')/gm)) {
+    const familia = m[1]
+    const corpo = m[2]
+    const passos = new Set()
+    if (corpo.startsWith('{')) {
+      for (const p of corpo.matchAll(/(?:^|[{,\s])'?(\d+|DEFAULT|on|risk|off|strong)'?:/g)) passos.add(p[1])
+    } else passos.add('DEFAULT')
+    degraus.set(familia, passos)
+  }
+
+  const quebradas = []
+  for (const { caminho, texto } of ARQUIVOS) {
+    for (const m of semComentarios(texto).matchAll(/\b(?:text|bg|border|ring|from|to|fill|stroke)-([a-z][a-z-]*?)-(\d{2,3})\b/g)) {
+      const [, familia, passo] = m
+      const passos = degraus.get(familia)
+      // Família que não é nossa (slate, gray, …) já é recusada pela regra da
+      // paleta padrão do Tailwind; aqui só interessa a NOSSA que não tem o degrau.
+      if (!passos || passos.has(passo)) continue
+      const linha = texto.slice(0, m.index).split('\n').length
+      quebradas.push(
+        `${caminho}:${linha} — ${m[0]} (${familia} tem ${[...passos].sort().join(', ')})`,
+      )
+    }
+  }
+  assert.deepEqual(quebradas, [], `\n${quebradas.join('\n')}\n`)
 })

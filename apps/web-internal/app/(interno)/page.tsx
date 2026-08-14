@@ -71,9 +71,9 @@ function Linha({ item, podeFechar }: { item: ItemDaFila; podeFechar: boolean }) 
       )}
     >
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-[14px] font-bold tracking-[-0.01em] text-ink">{item.conta}</span>
+        <span className="text-cartao font-bold tracking-[-0.01em] text-ink">{item.conta}</span>
         {item.mrrCentavos && (
-          <span className="tabular-nums text-[12.5px] text-ink-3" title="MRR do contrato vigente">
+          <span className="tabular-nums text-meta text-ink-3" title="MRR do contrato vigente">
             {REAIS.format(Number(item.mrrCentavos) / 100)}/mês
           </span>
         )}
@@ -84,7 +84,7 @@ function Linha({ item, podeFechar }: { item: ItemDaFila; podeFechar: boolean }) 
         <Badge>{FAMILIA[item.familia] ?? item.familia}</Badge>
         <span
           className={cn(
-            'ml-auto inline-flex items-center gap-1.5 tabular-nums text-[12.5px]',
+            'ml-auto inline-flex items-center gap-1.5 tabular-nums text-meta',
             p.vencido ? 'font-semibold text-red' : p.urgente ? 'font-semibold text-orange-700' : 'text-ink-3',
           )}
         >
@@ -95,12 +95,12 @@ function Linha({ item, podeFechar }: { item: ItemDaFila; podeFechar: boolean }) 
 
       {/* O motivo é a tela inteira em uma frase. Se ele não bastar para decidir,
           o gatilho é que está mal escrito — não é a tela que precisa de gráfico. */}
-      <p className="mt-2 text-[14px] text-ink">{item.motivo}</p>
+      <p className="mt-2 text-cartao text-ink">{item.motivo}</p>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-3">
         <Link
           href={`/contas/${item.accountId}`}
-          className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+          className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
         >
           Abrir conta <ChevronRight className="h-[14px] w-[14px]" />
         </Link>
@@ -109,19 +109,19 @@ function Linha({ item, podeFechar }: { item: ItemDaFila; podeFechar: boolean }) 
         {item.playbookId && (
           <Link
             href={`/biblioteca/${item.playbookId}`}
-            className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
           >
             <BookOpen className="h-[14px] w-[14px]" />
             {item.playbookTitulo}
           </Link>
         )}
-        <span className="tabular-nums text-[11.5px] text-ink-4">
+        <span className="tabular-nums text-nota text-ink-4">
           {item.gatilho}
           {/* "aberto há 0 d" é ruído: só diz algo quando o item está encalhando. */}
           {item.diasAberto > 0 && ` · aberto há ${item.diasAberto} d`}
         </span>
         {podeFechar && (
-          <details className="ml-auto text-[13px]">
+          <details className="ml-auto text-corpo">
             <summary className="cursor-pointer select-none font-semibold text-ink-2 hover:text-ink">
               Fechar
             </summary>
@@ -145,7 +145,7 @@ function Linha({ item, podeFechar }: { item: ItemDaFila; podeFechar: boolean }) 
                   </Btn>
                 ))}
               </div>
-              <p className="text-[12px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 O desfecho não é burocracia: <strong className="font-semibold">falso positivo</strong>{' '}
                 é o único sinal que calibra o gatilho e impede a fila de virar ruído.
               </p>
@@ -170,7 +170,7 @@ export default async function MinhaFila() {
         titulo={fila.visaoDaBase ? 'Fila da base' : 'Minha fila'}
         acoes={
           fila.abertos.length > 0 ? (
-            <span className="tabular-nums text-[13px] text-ink-2">
+            <span className="tabular-nums text-corpo text-ink-2">
               {fila.abertos.length} {fila.abertos.length === 1 ? 'item' : 'itens'}
               {vencidos > 0 && (
                 <>
@@ -184,7 +184,7 @@ export default async function MinhaFila() {
       />
       <Corpo>
         {fila.visaoDaBase && fila.abertos.length > 0 && (
-          <p className="mb-3 text-[13px] text-ink-3">
+          <p className="mb-3 text-corpo text-ink-3">
             Você está vendo a base inteira, não só a sua carteira.
           </p>
         )}
@@ -213,12 +213,12 @@ export default async function MinhaFila() {
 
         {fila.backlog.length > 0 && (
           <details className="mt-7">
-            <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2 hover:text-ink">
+            <summary className="cursor-pointer select-none text-corpo font-semibold text-ink-2 hover:text-ink">
               {fila.backlog.length} em backlog — acima do teto de 12 por pessoa
             </summary>
             {/* Separado, e não misturado: é a diferença entre uma fila de 12 e uma
                 lista de tudo que está errado. Entra sozinho quando abrir vaga. */}
-            <p className="mt-2 max-w-[70ch] text-[13px] text-ink-3">
+            <p className="mt-2 max-w-[70ch] text-corpo text-ink-3">
               Estes itens são reais e continuam sendo avaliados. Eles sobem para a fila por
               prioridade assim que você fechar algo — não é preciso escolher aqui.
             </p>
@@ -232,10 +232,10 @@ export default async function MinhaFila() {
 
         {vePelaSombra(id) && fila.sombra.length > 0 && (
           <details className="mt-7 border-t border-dashed border-line pt-5">
-            <summary className="cursor-pointer select-none text-[13px] font-semibold text-ink-2 hover:text-ink">
+            <summary className="cursor-pointer select-none text-corpo font-semibold text-ink-2 hover:text-ink">
               {fila.sombra.length} em modo sombra — não são trabalho do time
             </summary>
-            <p className="mt-2 max-w-[70ch] text-[13px] text-ink-3">
+            <p className="mt-2 max-w-[70ch] text-corpo text-ink-3">
               Gatilhos novos rodam 14 dias sem rotear item para ninguém. Esta lista existe para
               você julgar a precisão deles <em>antes</em> de gastar a atenção do time: se a
               maioria destes itens não pediria ação, o gatilho não deve ser promovido.

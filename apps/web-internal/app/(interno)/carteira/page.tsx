@@ -68,7 +68,7 @@ export default async function Carteira({
         href="/carteira"
         titulo={carteira.visaoDaBase ? 'Base de clientes' : 'Minha carteira'}
         acoes={
-          <span className="tabular-nums text-[13px] text-ink-2">
+          <span className="tabular-nums text-corpo text-ink-2">
             {r.total} conta(s) · {REAIS(r.mrrTotalCentavos)}/mês
           </span>
         }
@@ -99,7 +99,7 @@ export default async function Carteira({
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-[13px]">
+        <div className="flex flex-wrap items-center gap-3 text-corpo">
           <span className="text-ink-3">Filtrar:</span>
           <Link
             href="/carteira"
@@ -122,7 +122,7 @@ export default async function Carteira({
               {FAIXA[f]}
             </Link>
           ))}
-          <span className="ml-auto text-[12.5px] text-ink-3">
+          <span className="ml-auto text-meta text-ink-3">
             {r.semItem} sem item aberto
             {r.parciais > 0 && ` · ${r.parciais} com dado parcial`}
             {r.comClausulaProposta > 0 && ` · ${r.comClausulaProposta} com cláusula não conferida`}
@@ -154,17 +154,17 @@ export default async function Carteira({
                     >
                       {c.razaoSocial}
                     </Link>
-                    <span className="mt-0.5 block text-[11.5px] text-ink-3">
+                    <span className="mt-0.5 block text-nota text-ink-3">
                       {[c.setor, c.porte].filter(Boolean).join(' · ')}
                       {carteira.visaoDaBase && c.csmEmail && ` · ${c.csmEmail}`}
                       {/* Dado parcial marcado na linha: o número dela não é
                           comparável ao das outras, e não dizer isso convida à
                           comparação errada. */}
                       {c.competencia !== null && !c.completo && (
-                        <span className="text-amber-700"> · dado parcial</span>
+                        <span className="text-orange-700"> · dado parcial</span>
                       )}
                       {c.clausulasPropostas > 0 && (
-                        <span className="text-amber-700">
+                        <span className="text-orange-700">
                           {' · '}
                           {c.clausulasPropostas} cláusula(s) não conferida(s)
                         </span>
@@ -175,7 +175,7 @@ export default async function Carteira({
                   <>
                     <Badge tone={f.tom}>{f.rotulo}</Badge>
                     {c.scoreComposto !== null && (
-                      <span className="mt-0.5 block tabular-nums text-[11.5px] text-ink-3">
+                      <span className="mt-0.5 block tabular-nums text-nota text-ink-3">
                         {c.scoreComposto}
                         {c.scoreParcial && ' parcial'}
                       </span>
@@ -189,7 +189,7 @@ export default async function Carteira({
                       (c.diasAtrasoMax ?? 0) >= 90
                         ? 'font-semibold text-red'
                         : (c.diasAtrasoMax ?? 0) > 0
-                          ? 'text-amber-700'
+                          ? 'text-orange-700'
                           : 'text-ink-3',
                     )}
                   >
@@ -198,7 +198,7 @@ export default async function Carteira({
                   <span
                     className={cn(
                       'tabular-nums',
-                      (c.diasDesdeUltimoContato ?? 0) > 60 ? 'text-amber-700' : 'text-ink-3',
+                      (c.diasDesdeUltimoContato ?? 0) > 60 ? 'text-orange-700' : 'text-ink-3',
                     )}
                   >
                     {c.diasDesdeUltimoContato === null ? '—' : `${c.diasDesdeUltimoContato} d`}
@@ -216,7 +216,7 @@ export default async function Carteira({
           )}
         </Card>
 
-        <p className="max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
           A ordem é <strong className="font-semibold">risco × receita</strong>. Por faixa só, uma
           conta crítica de R$ 800 apareceria antes de uma em risco de R$ 40 mil; por MRR só, a maior
           apareceria primeiro mesmo saudável. Nenhuma das duas responde &ldquo;qual conversa eu

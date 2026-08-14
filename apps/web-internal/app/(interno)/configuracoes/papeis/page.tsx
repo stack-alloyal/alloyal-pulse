@@ -76,7 +76,7 @@ export default async function Acessos({
         acoes={
           <Link
             href="/configuracoes"
-            className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
           >
             <ArrowLeft className="h-[14px] w-[14px]" />
             Configurações
@@ -126,7 +126,7 @@ export default async function Acessos({
                 <span className="font-semibold text-ink">{p.email.split('@')[0]}</span>
                 <span className="text-ink-3">@{p.email.split('@')[1]}</span>
                 {p.email === eu.email && (
-                  <span className="ml-2 text-[11.5px] text-ink-3">(você)</span>
+                  <span className="ml-2 text-nota text-ink-3">(você)</span>
                 )}
               </>,
               <span className="flex flex-wrap gap-1">
@@ -137,16 +137,16 @@ export default async function Acessos({
                 ))}
               </span>,
               /* O resultado EFETIVO, não a soma para o leitor fazer. */
-              <span className="text-[12.5px] text-ink-2">{comoFrase(p.permissoes)}</span>,
-              <span className="text-[12.5px] tabular-nums text-ink-3">
+              <span className="text-meta text-ink-2">{comoFrase(p.permissoes)}</span>,
+              <span className="text-meta tabular-nums text-ink-3">
                 {p.concedidoEm ? new Date(p.concedidoEm).toLocaleDateString('pt-BR') : '—'}
                 {/* NULL aqui se lê como "não sabemos", que é a verdade das linhas
                     semeadas antes de existir trilha — e não como "o sistema deu". */}
                 {p.concedidoPor.every((x) => x === null) && (
-                  <span className="mt-0.5 block text-[11px] text-ink-4">origem não registrada</span>
+                  <span className="mt-0.5 block text-nota text-ink-4">origem não registrada</span>
                 )}
               </span>,
-              <details className="text-[12.5px]">
+              <details className="text-meta">
                 <summary className="cursor-pointer select-none text-ink-3 hover:text-ink-2">
                   remover papel
                 </summary>
@@ -202,9 +202,9 @@ export default async function Acessos({
             />
             <div className="flex flex-wrap items-center gap-3">
               <Btn type="submit">Conceder</Btn>
-              <span className="text-[12.5px] text-ink-3">
+              <span className="text-meta text-ink-3">
                 O papel aqui decide o que a pessoa vê DEPOIS de entrar. Quem autoriza a entrada
-                continua sendo o grupo <code className="text-[11.5px]">pulse-*</code> no Google
+                continua sendo o grupo <code className="text-nota">pulse-*</code> no Google
                 Workspace — as duas coisas são separadas de propósito, para dar ou tirar acesso a
                 uma tela sem mexer no grupo.
               </span>
@@ -221,9 +221,9 @@ export default async function Acessos({
               const perm = PERMISSOES[p as Papel]
               return [
                 <span className="font-semibold">{p.replace('ops-', '')}</span>,
-                <span className="text-[12.5px]">{ESCOPO[perm.contas]}</span>,
-                <span className="text-[12.5px]">{ESCOPO[perm.fila]}</span>,
-                <span className="text-[12.5px]">{ESCOPO[perm.receita]}</span>,
+                <span className="text-meta">{ESCOPO[perm.contas]}</span>,
+                <span className="text-meta">{ESCOPO[perm.fila]}</span>,
+                <span className="text-meta">{ESCOPO[perm.receita]}</span>,
                 perm.configurar ? <Badge tone="indigo">sim</Badge> : <span className="text-ink-4">—</span>,
                 perm.aprovaDistrato === 'nao' ? (
                   <span className="text-ink-4">—</span>
@@ -238,7 +238,7 @@ export default async function Acessos({
               ]
             })}
           />
-          <p className="mt-3 max-w-[80ch] text-[13px] leading-relaxed text-ink-2">
+          <p className="mt-3 max-w-[80ch] text-corpo leading-relaxed text-ink-2">
             Papéis se somam pelo <strong className="font-semibold">maior</strong> escopo: quem tem
             dois papéis fica com o acesso mais amplo de cada linha, não com a média. É por isso que a
             coluna “o que isso dá” da tabela de cima mostra o resultado e não os papéis.

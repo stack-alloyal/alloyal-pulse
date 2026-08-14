@@ -137,7 +137,7 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
                 {FAIXA[c.faixaFinal] ?? c.faixaFinal}
               </Badge>
               {c.scoreComposto !== null && (
-                <span className="tabular-nums text-[12.5px] text-ink-3">
+                <span className="tabular-nums text-meta text-ink-3">
                   score {c.scoreComposto}
                   {!c.scoreCalibrado && ' · não calibrado'}
                   {c.scoreParcial && ' · parcial'}
@@ -150,13 +150,13 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
         }
       />
       <Corpo className="grid gap-5">
-        <p className="text-[13px] text-ink-2">
+        <p className="text-corpo text-ink-2">
           {c.csmEmail && <>CSM {c.csmEmail}</>}
           {c.mrrCentavos && <> · {REAIS(c.mrrCentavos)}/mês</>}
           {c.overrideAtivo && (
             <>
               {' · '}
-              <span className="font-semibold text-amber-700">faixa sobrescrita à mão</span>
+              <span className="font-semibold text-orange-700">faixa sobrescrita à mão</span>
             </>
           )}
         </p>
@@ -186,7 +186,7 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
           />
           <Kpi
             rotulo="Atraso"
-            valor={<span className="text-[22px]">{FAIXA_ATRASO(c.diasAtrasoMax)}</span>}
+            valor={FAIXA_ATRASO(c.diasAtrasoMax)}
             {...(c.valorAbertoCentavos && Number(c.valorAbertoCentavos) > 0
               ? { nota: `${REAIS(c.valorAbertoCentavos)} em aberto` }
               : {})}
@@ -217,8 +217,8 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
                     i.prioridade === 'media' && 'border-l-amber',
                   )}
                 >
-                  <p className="text-[13.5px] font-semibold text-ink">{i.motivo}</p>
-                  <p className="mt-0.5 text-[12px] text-ink-3">
+                  <p className="text-corpo font-semibold text-ink">{i.motivo}</p>
+                  <p className="mt-0.5 text-meta text-ink-3">
                     {i.gatilho} · {i.familia} · prazo {i.prazo}
                     {i.estado === 'backlog' && ' · em backlog'}
                     {i.donoEmail !== id.email && ` · ${i.donoEmail}`}
@@ -236,7 +236,7 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
             actions={
               <Link
                 href={`/contratos/${accountId}`}
-                className="inline-flex items-center gap-1 text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+                className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
               >
                 <FileText className="h-[14px] w-[14px]" />
                 ficha do contrato
@@ -246,17 +246,17 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
             <ul className="grid gap-2 sm:grid-cols-2">
               {paraAConversa.map((c) => (
                 <li key={c.id} className="rounded-md border border-line bg-surface-2 px-3 py-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-3">
+                  <span className="text-nota font-semibold uppercase tracking-[0.06em] text-ink-3">
                     {c.rotulo}
                   </span>
                   <div className="mt-0.5 flex flex-wrap items-baseline gap-2">
                     {c.restrito ? (
-                      <span className="inline-flex items-center gap-1 text-[13px] text-ink-3">
+                      <span className="inline-flex items-center gap-1 text-corpo text-ink-3">
                         <Lock className="h-[13px] w-[13px]" />
                         {c.avisoRestricao}
                       </span>
                     ) : (
-                      <strong className="text-[13.5px] text-ink">
+                      <strong className="text-corpo text-ink">
                         {typeof c.valorEstruturado?.['valor'] === 'string'
                           ? String(c.valorEstruturado['valor']).replace(/_/g, ' ')
                           : Object.entries(c.valorEstruturado ?? {})
@@ -270,13 +270,13 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
                       <Badge tone="amber">não conferida</Badge>
                     )}
                   </div>
-                  <span className="mt-0.5 block text-[11.5px] text-ink-3">
+                  <span className="mt-0.5 block text-nota text-ink-3">
                     {especificacao(c.tipo)?.pergunta}
                   </span>
                 </li>
               ))}
             </ul>
-            <p className="mt-3 max-w-[80ch] text-[12.5px] text-ink-3">
+            <p className="mt-3 max-w-[80ch] text-meta text-ink-3">
               O que vale HOJE, com aditivos aplicados. Cláusula marcada como não conferida foi
               extraída e ainda não validada pelo Jurídico — ela não decide nada.
             </p>
@@ -286,7 +286,7 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
         {/* ── Visão: os drivers que formaram a faixa ── */}
         <Card title="Drivers">
           {c.drivers.length === 0 ? (
-            <p className="text-[13px] text-ink-3">
+            <p className="text-corpo text-ink-3">
               Nenhum driver calculado para {c.competencia ?? 'esta conta'}. A faixa só aparece
               depois da consolidação diária (C12).
             </p>
@@ -299,7 +299,7 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
                   <>
                     <span className="font-semibold">{d.driver}</span>
                     {spec && (
-                      <span className="mt-0.5 block max-w-[60ch] text-[12px] text-ink-3">
+                      <span className="mt-0.5 block max-w-[60ch] text-meta text-ink-3">
                         {spec.explicacao}
                       </span>
                     )}
@@ -322,7 +322,7 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
         {/* ── Contrato ── */}
         <Card title="Contrato">
           {c.mrrCentavos ? (
-            <dl className="grid grid-cols-[max-content_1fr] gap-x-5 gap-y-2 text-[13.5px]">
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-5 gap-y-2 text-corpo">
               <dt className="text-ink-3">MRR</dt>
               <dd className="tabular-nums">{REAIS(c.mrrCentavos)}/mês</dd>
               <dt className="text-ink-3">Vigência</dt>
@@ -348,14 +348,14 @@ export default async function Conta({ params }: { params: Promise<{ id: string }
               <dd>{c.renovacao ?? '—'}</dd>
             </dl>
           ) : (
-            <p className="text-[13px] text-ink-3">
+            <p className="text-corpo text-ink-3">
               Nenhum contrato vigente registrado para esta conta.
             </p>
           )}
         </Card>
 
         {/* ── O que ainda não existe, dito em voz alta ── */}
-        <details className="text-[13px] text-ink-2">
+        <details className="text-corpo text-ink-2">
           <summary className="cursor-pointer select-none font-semibold hover:text-ink">
             {ABAS_PENDENTES.length} abas ainda não construídas
           </summary>

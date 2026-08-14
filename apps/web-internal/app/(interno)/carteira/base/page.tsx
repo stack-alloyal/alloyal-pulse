@@ -55,7 +55,7 @@ function Marca({
   return (
     <span
       aria-hidden="true"
-      className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[13px] font-semibold tracking-tight"
+      className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-corpo font-semibold tracking-tight"
       style={{
         backgroundColor: `hsl(${h} 62% 92%)`,
         color: `hsl(${h} 55% 32%)`,
@@ -144,13 +144,13 @@ function linhaDaTabela(
         >
           {l.razaoSocial}
         </Link>
-        <span className="block text-[11.5px] text-ink-3">{CNPJ(l.cnpj)}</span>
+        <span className="block text-nota text-ink-3">{CNPJ(l.cnpj)}</span>
       </span>
     </div>,
-    <span key="b" className="font-mono text-[12.5px] text-ink-2">
+    <span key="b" className="font-mono text-meta text-ink-2">
       {l.brandId ?? "—"}
     </span>,
-    <span key="h" className="font-mono text-[12.5px] text-ink-2">
+    <span key="h" className="font-mono text-meta text-ink-2">
       {l.hubspotCompanyId ?? "—"}
       {v ? (
         <>
@@ -168,7 +168,7 @@ function linhaDaTabela(
     <span key="uc" className="tabular-nums text-ink">
       {N(l.usuariosCadastrados)}
       {l.subs > 0 && l.subsUsuariosCadastrados > 0 ? (
-        <span className="ml-1 text-[11.5px] text-ink-3">
+        <span className="ml-1 text-nota text-ink-3">
           +{N(l.subsUsuariosCadastrados)} nos subs
         </span>
       ) : null}
@@ -279,13 +279,13 @@ export default async function BaseDeClientes({
           </strong>{" "}
           &quot;Usaram cupom&quot; e &quot;Cupons resgatados&quot; não existem
           na API do core — as rotas{" "}
-          <code className="font-mono text-[12px]">/coupons</code>,{" "}
-          <code className="font-mono text-[12px]">/vouchers</code> e{" "}
-          <code className="font-mono text-[12px]">/redemptions</code> respondem
+          <code className="font-mono text-meta">/coupons</code>,{" "}
+          <code className="font-mono text-meta">/vouchers</code> e{" "}
+          <code className="font-mono text-meta">/redemptions</code> respondem
           404 na v3. O dado vem das transações da réplica, pelo ciclo{" "}
           <strong className="font-semibold">C1</strong>, que está declarado e
           não implementado por falta do segredo{" "}
-          <code className="font-mono text-[12px]">replica.url</code>. Mostrar
+          <code className="font-mono text-meta">replica.url</code>. Mostrar
           zero ali diria &quot;ninguém usou cupom&quot;, que é diferente de
           &quot;ainda não medimos&quot;.
         </Aviso>
@@ -312,8 +312,8 @@ export default async function BaseDeClientes({
                 href={comBusca(somenteAtivos ? {} : { ativos: "1" })}
                 className={
                   somenteAtivos
-                    ? "text-[12.5px] font-semibold text-purple-700"
-                    : "text-[12.5px] text-ink-3 hover:text-ink"
+                    ? "text-meta font-semibold text-purple-700"
+                    : "text-meta text-ink-3 hover:text-ink"
                 }
               >
                 {somenteAtivos ? "mostrando só ativos" : "só ativos"}
@@ -340,7 +340,7 @@ export default async function BaseDeClientes({
             }
           />
           {paginas > 1 && (
-            <div className="mt-4 flex items-center justify-between text-[12.5px] text-ink-3">
+            <div className="mt-4 flex items-center justify-between text-meta text-ink-3">
               <span>
                 página {pag.pagina} de {N(paginas)}
               </span>
@@ -364,7 +364,7 @@ export default async function BaseDeClientes({
               </div>
             </div>
           )}
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
             A ordem é por usuários cadastrados, somando os sub business.
             Alfabética poria na primeira página quem tem zero usuário e
             empurraria o maior contrato para a página 30.
