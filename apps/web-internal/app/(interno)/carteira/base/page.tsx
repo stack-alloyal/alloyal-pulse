@@ -6,7 +6,7 @@ import {
   subBusinesses,
   type LinhaDaBase,
 } from "@pulse/config";
-import { Aviso, Badge, Btn, Card, Field, Kpi, Table } from "@pulse/ui";
+import { Aviso, Badge, Busca, Card, Kpi, KpiGrade, Table } from "@pulse/ui";
 import { ScrollText } from "lucide-react";
 import Link from "next/link";
 
@@ -243,7 +243,7 @@ export default async function BaseDeClientes({
         proposito="o cadastro que vem do core, por main business"
       />
       <Corpo>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+        <KpiGrade colunas={6}>
           <Kpi
             rotulo="Clientes total"
             valor={N(kpis.clientesTotal)}
@@ -271,7 +271,7 @@ export default async function BaseDeClientes({
             valor="—"
             nota="depende do ciclo C1"
           />
-        </div>
+        </KpiGrade>
 
         <Aviso tom="alerta">
           <strong className="font-semibold">
@@ -292,33 +292,30 @@ export default async function BaseDeClientes({
 
         <Card
           title={`Main business · ${N(pag.total)}${busca ? " encontrados" : ""}`}
+          /* A busca é do design system: lupa, e botão de limpar quando há texto —
+             sem ele, desfazer uma busca exige apagar caractere por caractere. O
+             alternador de ativos fica ao lado, fora do form, porque é navegação e
+             não termo de busca. */
           actions={
-            <form action="/carteira/base" className="flex items-center gap-2">
-              {/* O campo oculto preserva o filtro de ativos ao buscar. `Field` também
-                  serve para ele: o portão do design system recusa `<input>` cru, e a
-                  exceção "mas este é hidden" abriria a porta para o próximo. */}
-              {somenteAtivos && (
-                <Field type="hidden" name="ativos" value="1" readOnly />
-              )}
-              <Field
-                name="q"
-                defaultValue={busca}
+            <div className="flex items-center gap-3">
+              <Busca
+                action="/carteira/base"
+                valor={busca}
                 placeholder="nome, CNPJ, Business ID ou HubSpot ID"
-                aria-label="Buscar cliente"
-                className="w-[280px]"
+                ocultos={somenteAtivos ? { ativos: "1" } : undefined}
+                hrefLimpar={comBusca({})}
               />
-              <Btn type="submit">Buscar</Btn>
               <Link
                 href={comBusca(somenteAtivos ? {} : { ativos: "1" })}
                 className={
                   somenteAtivos
-                    ? "text-meta font-semibold text-purple-700"
-                    : "text-meta text-ink-3 hover:text-ink"
+                    ? "whitespace-nowrap text-meta font-semibold text-purple-700"
+                    : "whitespace-nowrap text-meta text-ink-3 hover:text-ink"
                 }
               >
                 {somenteAtivos ? "mostrando só ativos" : "só ativos"}
               </Link>
-            </form>
+            </div>
           }
         >
           <Table

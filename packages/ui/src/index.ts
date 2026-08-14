@@ -12,6 +12,8 @@
  * uma é a correta para o seu alvo.
  */
 export * from './base'
+export * from './ds'
+export * from './ds-cliente'
 export * from './Login'
 export * from './BotaoGoogle'
 export * from './AlloyalLogo'

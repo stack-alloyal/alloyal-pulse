@@ -87,6 +87,10 @@ test('nenhuma tela usa elemento de formulário cru', () => {
 
   for (const { caminho, texto } of ARQUIVOS) {
     if (caminho === relative(RAIZ, BASE)) continue
+      // A BIBLIOTECA é onde o elemento cru mora — é dela que os componentes são
+      // feitos. A regra vale para quem CONSOME a biblioteca, que é onde a cópia à
+      // mão nasce. `ds.tsx` e `ds-cliente.tsx` entram pelo mesmo motivo do `base.tsx`.
+      if (/[/\\]ds(-cliente)?\.tsx$/.test(caminho)) continue
     // `temExcecao` continua lendo o texto ORIGINAL: o marcador vive num comentário.
     const codigo = semComentarios(texto)
     for (const [el, comp] of Object.entries(COMPONENTE)) {
@@ -489,4 +493,44 @@ test('nenhuma classe de cor aponta para degrau que não existe', () => {
     }
   }
   assert.deepEqual(quebradas, [], `\n${quebradas.join('\n')}\n`)
+})
+
+/**
+ * ─── Foco visível em todo controle das composições ───────────────────────────
+ *
+ * O documento aponta isto como a maior lacuna de acessibilidade (§11): as
+ * composições copiadas nas telas tinham só `hover:`, e quem navega por teclado
+ * não via onde estava. Os componentes de `ds.tsx` aplicam
+ * `focus-visible:ring-2 ring-ring ring-offset-1` por padrão.
+ *
+ * A regra vigia isso: todo `<Link`, `<button` e `<input` do arquivo tem de
+ * carregar a constante FOCO. É fácil escrever o próximo componente esquecendo, e
+ * o esquecimento não aparece em nenhuma tela — só some para quem usa o teclado.
+ */
+test('todo controle de ds.tsx tem foco visível', () => {
+  const semFoco = []
+  for (const arquivo of ['ds.tsx', 'ds-cliente.tsx']) {
+    const caminho = join(RAIZ, 'packages', 'ui', 'src', arquivo)
+    const texto = readFileSync(caminho, 'utf8')
+    // Cada abertura de controle até o `>` que a fecha.
+    for (const m of texto.matchAll(/<(Link|button|input)\b([\s\S]*?)\/?>/g)) {
+      const corpo = m[2]
+      // `type="hidden"` não recebe foco, e o overlay do diálogo é uma superfície
+      // clicável de fundo — dar anel a ele desenharia uma moldura na tela inteira.
+      if (/type="hidden"/.test(corpo)) continue
+      if (/aria-label="Fechar"[\s\S]*absolute inset-0/.test(corpo)) continue
+      if (corpo.includes('FOCO')) continue
+      const linha = texto.slice(0, m.index).split('\n').length
+      semFoco.push(`${arquivo}:${linha} — <${m[1]}> sem FOCO`)
+    }
+  }
+  assert.deepEqual(semFoco, [], `\n${semFoco.join('\n')}\n`)
+})
+
+test('a constante FOCO é a do documento', () => {
+  // Um anel divergente por componente seria pior que nenhum: quem navega por
+  // teclado aprenderia dois vocabulários visuais na mesma tela.
+  const ds = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'ds.tsx'), 'utf8')
+  assert.match(ds, /focus-visible:ring-2/)
+  assert.match(ds, /focus-visible:ring-offset-1/)
 })

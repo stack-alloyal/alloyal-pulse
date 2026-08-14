@@ -1,5 +1,5 @@
 import { categoriasDoOmie, estadoDaIntegracao } from '@pulse/config'
-import { Aviso, Badge, Card, Kpi, Table, Vazio } from '@pulse/ui'
+import { Abas, Aviso, Badge, Card, Kpi, KpiGrade, Table, Vazio } from '@pulse/ui'
 import { ArrowLeft, Wallet } from 'lucide-react'
 import Link from 'next/link'
 
@@ -96,23 +96,13 @@ export default async function ConfiguracoesOmie({
         }
       />
       <Corpo className="grid gap-5">
-        {/* ── Abas ── */}
-        <div className="flex gap-1 border-b border-line">
-          {ABAS.map((a) => (
-            <Link
-              key={a.k}
-              href={`/configuracoes/omie?aba=${a.k}`}
-              aria-current={aba === a.k ? 'page' : undefined}
-              className={`-mb-px border-b-2 px-3.5 py-2 text-corpo font-medium transition-colors ${
-                aba === a.k
-                  ? 'border-purple-500 text-purple-700'
-                  : 'border-transparent text-ink-2 hover:text-ink'
-              }`}
-            >
-              {a.rotulo}
-            </Link>
-          ))}
-        </div>
+        {/* A barra de abas é do design system: a regra que ela carrega é que a aba
+            vive na query string, e não em estado local. */}
+        <Abas
+          abas={ABAS.map((a) => ({ chave: a.k, rotulo: a.rotulo }))}
+          atual={aba}
+          href={(k) => `/configuracoes/omie?aba=${k}`}
+        />
 
         {!estado.credencialCadastrada && (
           <Aviso tom="erro">
@@ -138,7 +128,7 @@ export default async function ConfiguracoesOmie({
         {/* ═══ Integração ═══ */}
         {aba === 'integracao' && (
           <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <KpiGrade>
               <Kpi
                 rotulo="Última execução"
                 valor={<span className="text-[19px]">{QUANDO(u?.iniciadoEm ?? null)}</span>}
@@ -161,7 +151,7 @@ export default async function ConfiguracoesOmie({
                 valor={<span className="text-[19px]">04:10</span>}
                 nota={`diária · ${estado.agenda}`}
               />
-            </div>
+            </KpiGrade>
 
             <Card title="Quanto de cada tabela veio da última execução">
               <Table
