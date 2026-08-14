@@ -804,7 +804,10 @@ export const c20Omie = defineCycle({
     return {
       linhasLidas:
         fichas.fichas.length + mov.movimentos.length + mov.baixas.length +
-        vend.length + ctr.contratos.length + os.ordens.length,
+        vend.length + ctr.contratos.length +
+        // Os ITENS contam como lidos: sem eles, "gravadas" fica maior que "lidas"
+        // e a tela de Configurações vira uma pergunta em vez de uma resposta.
+        os.ordens.length + os.ordens.reduce((n, o) => n + o.servicos.length, 0),
       linhasGravadas:
         r.fichas + r.movimentos + extras.vendedores + extras.contratos + extras.baixas +
         gos.ordens + gos.servicos,
