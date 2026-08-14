@@ -109,7 +109,7 @@ export function Metric({ dados, explicacao, formula, unidade, rotulo, className 
       data-metrica={dados.metrica}
     >
       {rotulo ? (
-        <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
+        <div className="text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
           {rotulo}
         </div>
       ) : null}
@@ -132,7 +132,7 @@ export function Metric({ dados, explicacao, formula, unidade, rotulo, className 
       </button>
       {/* Cor não é o único portador de significado (D9): o estado é texto. */}
       {rotuloEstado ? (
-        <div data-dado={dados.estado} className="mt-1 text-[12px]">
+        <div data-dado={dados.estado} className="mt-1 text-meta">
           {rotuloEstado}
         </div>
       ) : null}

@@ -25,12 +25,12 @@ export function Vazio({ titulo, porque, acao, className }: VazioProps) {
         className,
       )}
     >
-      <p className="text-[14px] font-bold tracking-[-0.01em] text-ink">{titulo}</p>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{porque}</p>
+      <p className="text-cartao font-bold tracking-[-0.01em] text-ink">{titulo}</p>
+      <p className="mt-1.5 text-corpo leading-relaxed text-ink-2">{porque}</p>
       {acao ? (
         <Link
           href={acao.href}
-          className="mt-3 inline-block text-[13px] font-semibold text-purple-700 hover:text-purple-500"
+          className="mt-3 inline-block text-corpo font-semibold text-purple-700 hover:text-purple-500"
         >
           {acao.texto} →
         </Link>

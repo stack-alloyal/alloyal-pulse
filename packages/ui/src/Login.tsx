@@ -61,7 +61,7 @@ export function Login({
             cor que identifica a casa neste painel. */}
         <div className="relative flex items-center gap-3">
           <AlloyalLogo className="h-6" />
-          <span className="text-[17px] font-bold tracking-tight">Pulse</span>
+          <span className="text-title font-bold tracking-tight">Pulse</span>
         </div>
 
         <div className="relative">
@@ -72,14 +72,14 @@ export function Login({
               </span>
             ))}
           </h1>
-          <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/60">{descricao}</p>
+          <p className="mt-4 max-w-md text-secao leading-relaxed text-white/60">{descricao}</p>
 
           {etiquetas.length > 0 && (
             <div className="mt-6 flex flex-wrap gap-2">
               {etiquetas.map((e) => (
                 <span
                   key={e}
-                  className="rounded-full border border-white/15 px-3 py-1.5 text-[12.5px] text-white/80"
+                  className="rounded-full border border-white/15 px-3 py-1.5 text-meta text-white/80"
                 >
                   {e}
                 </span>
@@ -88,7 +88,7 @@ export function Login({
           )}
         </div>
 
-        <div className="relative text-[12px] text-white/40">
+        <div className="relative text-meta text-white/40">
           Alloyal · acesso restrito a colaboradores
         </div>
       </aside>
@@ -98,11 +98,11 @@ export function Login({
         <div className="w-full max-w-[360px]">
           <div className="mb-6 flex items-center gap-2.5 md:hidden">
             <AlloyalLogo className="h-6" />
-            <span className="text-[16px] font-bold text-ink">Pulse</span>
+            <span className="text-campo font-bold text-ink">Pulse</span>
           </div>
 
           <h2 className="text-[25px] font-bold tracking-[-0.02em] text-ink">{titulo}</h2>
-          <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">
+          <p className="mt-1.5 text-corpo leading-relaxed text-ink-2">
             Use sua conta Google corporativa{' '}
             <strong className="font-semibold text-ink">{dominio}</strong> para acessar.
           </p>
@@ -111,7 +111,7 @@ export function Login({
 
           {/* Dito de novo, e de propósito: entrar com a conta pessoal é a causa nº 1
               de recusa, e quem já clicou não volta a ler o parágrafo de cima. */}
-          <p className="mt-4 text-center text-[11.5px] text-ink-3">
+          <p className="mt-4 text-center text-nota text-ink-3">
             Acesso restrito a contas {dominio}
           </p>
 
@@ -122,7 +122,7 @@ export function Login({
               vive em `ops.user_role` e se concede em Configurações → Papéis. O texto
               velho mandava pedir a quem administra o Workspace, que não tem como
               resolver — o pedido morria lá. Mesmo defeito estava no forbidden.tsx. */}
-          <p className="mt-6 border-t border-line pt-4 text-[11.5px] leading-relaxed text-ink-3">
+          <p className="mt-6 border-t border-line pt-4 text-nota leading-relaxed text-ink-3">
             Entrar com o Google não basta: o acesso a cada área vem do papel cadastrado no Pulse.
             Sem papel, a tela seguinte explica a quem pedir.
           </p>

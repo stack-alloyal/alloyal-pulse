@@ -1,5 +1,5 @@
 import { filaDeMatch, resumoDoMatch } from '@pulse/config'
-import { Aviso, Badge, Card, Kpi, Table, Vazio } from '@pulse/ui'
+import { Aviso, Badge, Card, Kpi, Table, Vazio , KpiGrade} from '@pulse/ui'
 import { ArrowLeft, GitMerge } from 'lucide-react'
 import Link from 'next/link'
 
@@ -68,7 +68,7 @@ export default async function MatchEMerge() {
         }
       />
       <Corpo className="grid gap-5">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiGrade>
           <Kpi
             rotulo="Faturamento não atribuído"
             valor={BRL(resumo.valorPendenteCentavos)}
@@ -87,7 +87,7 @@ export default async function MatchEMerge() {
             tom={resumo.apontandoParaInativa > 0 ? 'red' : undefined}
             nota="existe ficha ativa sobrando"
           />
-        </div>
+        </KpiGrade>
 
         <Aviso tom="alerta">
           <strong className="font-semibold">O caso que criou esta tela.</strong> A Swile mostrava R$ 215 mil de

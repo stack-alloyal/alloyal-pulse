@@ -7,7 +7,7 @@ import {
   iniciaisDoCliente,
   vinculosDaConta,
 } from '@pulse/config'
-import { Aviso, Badge, Btn, Card, Field, Kpi, Table, TextArea, Vazio } from '@pulse/ui'
+import { Aviso, Badge, Btn, Card, Chip, Chips, Field, Kpi, KpiGrade, Table, TextArea, Vazio } from '@pulse/ui'
 import { ArrowLeft, Building2, GitMerge } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -243,7 +243,7 @@ export default async function FichaDeCliente({
           </Aviso>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <KpiGrade>
               {/* FATURADO é tudo que foi EMITIDO — recebido, cancelado, a vencer e
                   atrasado. Previsão fica fora e tem espaço próprio abaixo: são 66 mil
                   títulos na base que nunca foram faturados, e somá-los aqui
@@ -279,7 +279,7 @@ export default async function FichaDeCliente({
                 tom={resumo.canceladoCentavos > 0 ? 'amber' : undefined}
                 nota={`${N(resumo.canceladoTitulos)} títulos faturados e cancelados`}
               />
-            </div>
+            </KpiGrade>
 
             {resumo.previsaoCentavos > 0 && (
               <p className="text-meta leading-relaxed text-ink-3">
@@ -657,46 +657,41 @@ export default async function FichaDeCliente({
             /* Filtro por LINK e não por JavaScript: o estado mora na URL, sobrevive a
                recarregar, e pode ser mandado por mensagem para outra pessoa olhar
                exatamente o mesmo recorte. É o mesmo padrão do `?abrir=` da Base. */
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta">
-              <span className="text-ink-3">situação:</span>
-              {SITUACOES.map((sit) => {
-                const ativa = (q.sit ?? 'todas') === sit
-                return (
-                  <Link
-                    key={sit}
-                    scroll={false}
-                    href={comFiltro(conta.id, { ...q, sit })}
-                    className={ativa ? 'font-semibold text-purple-700' : 'text-ink-3 hover:text-ink'}
-                  >
-                    {sit === 'todas' ? 'todas' : (ROTULO_SITUACAO[sit] ?? sit)}
-                  </Link>
-                )
-              })}
-            </div>
+            <Chips rotulo="situação:">
+              {SITUACOES.map((sit) => (
+                <Chip
+                  key={sit}
+                  rotulo={sit === 'todas' ? 'todas' : (ROTULO_SITUACAO[sit] ?? sit)}
+                  href={comFiltro(conta.id, { ...q, sit })}
+                  ativo={(q.sit ?? 'todas') === sit}
+                  /* `fixo`: a situação é estado ESTRUTURAL. Sumir com "cancelado"
+                     porque este cliente não tem nenhum faria parecer que cancelar
+                     não existe — a regra do Chip no design system. */
+                  fixo
+                />
+              ))}
+            </Chips>
           }
         >
           {resumo.categorias.length > 1 && (
-            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-3 text-meta">
-              <span className="text-ink-3">categoria:</span>
-              <Link
-                scroll={false}
-                href={comFiltro(conta.id, { ...q, cat: 'todas' })}
-                className={
-                  (q.cat ?? 'todas') === 'todas' ? 'font-semibold text-purple-700' : 'text-ink-3 hover:text-ink'
-                }
-              >
-                todas
-              </Link>
-              {resumo.categorias.map((c) => (
-                <Link
-                  key={c.categoria}
-                  scroll={false}
-                  href={comFiltro(conta.id, { ...q, cat: c.categoria })}
-                  className={q.cat === c.categoria ? 'font-semibold text-purple-700' : 'text-ink-3 hover:text-ink'}
-                >
-                  {c.nome}
-                </Link>
-              ))}
+            <div className="mb-3 border-b border-line pb-3">
+              <Chips rotulo="categoria:">
+                <Chip
+                  rotulo="todas"
+                  href={comFiltro(conta.id, { ...q, cat: 'todas' })}
+                  ativo={(q.cat ?? 'todas') === 'todas'}
+                  fixo
+                />
+                {resumo.categorias.map((c) => (
+                  <Chip
+                    key={c.categoria}
+                    rotulo={c.nome}
+                    href={comFiltro(conta.id, { ...q, cat: c.categoria })}
+                    ativo={q.cat === c.categoria}
+                    conta={c.titulos}
+                  />
+                ))}
+              </Chips>
             </div>
           )}
           {faturamento.length === 0 ? (
