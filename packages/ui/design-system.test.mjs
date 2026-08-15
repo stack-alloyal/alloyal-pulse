@@ -534,3 +534,57 @@ test('a constante FOCO é a do documento', () => {
   assert.match(ds, /focus-visible:ring-2/)
   assert.match(ds, /focus-visible:ring-offset-1/)
 })
+
+/**
+ * ─── Dinheiro sempre com centavos (§08) ──────────────────────────────────────
+ *
+ * A regra do documento não é estética, é um dado: "arredondar escondeu
+ * informação real; 86% dos pedidos tinham centavos". No Pulse havia 12 arquivos
+ * formatando moeda com `maximumFractionDigits: 0` — um valor de R$ 1.284,50
+ * aparecia como R$ 1.285, e a conferência contra o Omie não fechava.
+ */
+test('nenhuma tela arredonda dinheiro', () => {
+  const achados = []
+  for (const { caminho, texto } of ARQUIVOS) {
+    const codigo = semComentarios(texto)
+    for (const m of codigo.matchAll(/currency:\s*'BRL'[^}]*maximumFractionDigits:\s*0/g)) {
+      const linha = texto.slice(0, m.index).split('\n').length
+      achados.push(`${caminho}:${linha} — moeda arredondada; o documento exige centavos`)
+    }
+  }
+  assert.deepEqual(achados, [], `\n${achados.join('\n')}\n`)
+})
+
+/**
+ * ─── O tema escuro existe e é completo (§02) ─────────────────────────────────
+ *
+ * O Pulse declarava `darkMode: ['class']` e não tinha um único token escuro: a
+ * chave existia e não abria porta nenhuma. E as cores viviam em hex no preset ao
+ * mesmo tempo que em variável no CSS, sem os dois se falarem — mudar `--surface`
+ * não mexia em `bg-surface`.
+ */
+test('o tema escuro define todos os tokens que o claro define', () => {
+  const css = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
+  const bloco = (re) => {
+    const m = css.match(re)
+    return m ? new Set([...m[1].matchAll(/(--[a-z0-9-]+):/g)].map((x) => x[1])) : new Set()
+  }
+  const escuro = bloco(/:root\[data-theme='dark'\]\s*\{([\s\S]*?)\n\s*\}/)
+  assert.ok(escuro.size > 15, `o tema escuro define só ${escuro.size} tokens`)
+  for (const t of ['--bg', '--surface', '--ink', '--ink-3', '--purple-500', '--purple-700', '--green', '--amber', '--red']) {
+    assert.ok(escuro.has(t), `falta ${t} no tema escuro`)
+  }
+})
+
+test('as cores do preset apontam para variável, não para hex', () => {
+  // Sem isto o tema escuro compila e não pinta nada: a classe já saiu com o hex
+  // do tema claro embutido.
+  const preset = readFileSync(join(RAIZ, 'packages', 'ui', 'tailwind-preset.ts'), 'utf8')
+  // Pelo VALOR e não pela linha: `ink` é objeto multilinha, e olhar só a primeira
+  // linha faria o portão acusar um arquivo correto — falso positivo é o jeito mais
+  // rápido de um portão ser desligado.
+  for (const v of ['var(--bg)', 'var(--surface)', 'var(--line)', 'var(--ink)', 'var(--ink-3)',
+                   'var(--purple-500)', 'var(--purple-700)', 'var(--green)', 'var(--amber)', 'var(--red)']) {
+    assert.ok(preset.includes(v), `${v} não aparece no preset — o tema escuro não alcança essa cor`)
+  }
+})

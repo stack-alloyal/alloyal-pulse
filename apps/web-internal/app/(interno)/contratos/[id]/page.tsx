@@ -29,7 +29,6 @@ const REAIS = (c: string | null) =>
     : (Number(c) / 100).toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
-        maximumFractionDigits: 0,
       })
 
 function valorLegivel(v: Record<string, unknown> | null): string {

@@ -26,7 +26,6 @@ export const dynamic = 'force-dynamic'
 const REAIS = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
-  maximumFractionDigits: 0,
 })
 
 /** O prazo em linguagem de gente: é o que decide a ordem de leitura. */

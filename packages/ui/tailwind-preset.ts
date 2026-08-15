@@ -42,23 +42,40 @@ export const alloyalPreset: Partial<Config> = {
         card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
         popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
 
-        // ---- Paleta Alloyal ----
-        bg: '#F6F6F8',
-        surface: { DEFAULT: '#FFFFFF', 2: '#FBFBFC' },
-        line: { DEFAULT: '#ECECEF', strong: '#E0E0E6' },
-        ink: { DEFAULT: '#16161A', 2: '#5B5B66', 3: '#9A9AA6', 4: '#BFBFC8' },
+        // ┌─────────────────────────────────────────────────────────────┐
+        // │ PALETA ALLOYAL, por VARIÁVEL e não por hex literal.           │
+        // │                                                               │
+        // │ Era hex aqui e variável no CSS ao mesmo tempo — e os dois não  │
+        // │ se falavam: mudar `--surface` não mexia em `bg-surface`, que   │
+        // │ já vinha compilado com `#FFFFFF`. O tema escuro do §02 não     │
+        // │ tinha como funcionar.                                          │
+        // │                                                               │
+        // │ Agora a classe aponta para a variável, e o tema troca os       │
+        // │ VALORES sem que nenhuma tela saiba em qual tema está — que é   │
+        // │ exatamente a promessa de "o mesmo nome nos dois temas".        │
+        // │                                                               │
+        // │ Os degraus que o tema escuro NÃO redefine (purple 200/300/400/ │
+        // │ 800/900, orange 100/300) seguem em hex: são decorativos e não  │
+        // │ carregam texto, então não têm par escuro no documento.         │
+        // └─────────────────────────────────────────────────────────────┘
+        bg: 'var(--bg)',
+        surface: { DEFAULT: 'var(--surface)', 2: 'var(--surface-2)' },
+        line: { DEFAULT: 'var(--line)', strong: 'var(--line-strong)' },
+        ink: {
+          DEFAULT: 'var(--ink)', 2: 'var(--ink-2)', 3: 'var(--ink-3)', 4: 'var(--ink-4)',
+        },
         purple: {
-          50: '#F3ECFE', 100: '#E3D2FB', 200: '#C9A8F6', 300: '#A66FEF',
-          400: '#8A3FEA', 500: '#6A18E5', 700: '#5512B8', 800: '#410D8C',
-          900: '#2E0962', DEFAULT: '#6A18E5',
+          50: 'var(--purple-50)', 100: 'var(--purple-100)', 200: '#C9A8F6', 300: '#A66FEF',
+          400: '#8A3FEA', 500: 'var(--purple-500)', 700: 'var(--purple-700)', 800: '#410D8C',
+          900: '#2E0962', DEFAULT: 'var(--purple-500)',
         },
         orange: {
-          50: '#FFF3E8', 100: '#FFD9B3', 300: '#FFB870', 500: '#FF7A00',
-          700: '#B45309', DEFAULT: '#FF7A00',
+          50: 'var(--orange-50)', 100: '#FFD9B3', 300: '#FFB870', 500: 'var(--orange-500)',
+          700: 'var(--orange-700)', DEFAULT: 'var(--orange-500)',
         },
-        green: { DEFAULT: '#16A34A', 50: '#E9F7EF' },
-        amber: { DEFAULT: '#F59E0B', 50: '#FEF4E2' },
-        red: { DEFAULT: '#DC2626', 50: '#FCEBEB' },
+        green: { DEFAULT: 'var(--green)', 50: 'var(--green-50)' },
+        amber: { DEFAULT: 'var(--amber)', 50: 'var(--amber-50)' },
+        red: { DEFAULT: 'var(--red)', 50: 'var(--red-50)' },
         health: { on: '#16A34A', risk: '#F59E0B', off: '#DC2626' },
         // Azul e rosa eram hex literal dentro do Badge. Viram token porque, nas
         // palavras do documento, "a terceira tela que precisasse de azul

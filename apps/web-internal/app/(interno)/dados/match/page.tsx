@@ -29,7 +29,7 @@ export const dynamic = 'force-dynamic'
 
 const N = (v: number) => v.toLocaleString('pt-BR')
 const BRL = (c: number | string) =>
-  (Number(c) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+  (Number(c) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 const CNPJ = (c: string | null) => {
   const d = (c ?? '').replace(/\D/g, '')

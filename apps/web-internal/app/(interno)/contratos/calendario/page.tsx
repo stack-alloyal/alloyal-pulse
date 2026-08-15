@@ -28,7 +28,6 @@ const REAIS = (c: string | null) =>
     : (Number(c) / 100).toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
-        maximumFractionDigits: 0,
       })
 
 const TIPO: Record<TipoData, { rotulo: string; tom: 'red' | 'amber' | 'blue' | 'orange' | 'slate' }> = {

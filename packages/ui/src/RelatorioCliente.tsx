@@ -71,7 +71,6 @@ const REAIS = (v: number | null) =>
     : (v / 100).toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
-        maximumFractionDigits: 0,
       })
 
 const POSICAO: Record<string, string> = {

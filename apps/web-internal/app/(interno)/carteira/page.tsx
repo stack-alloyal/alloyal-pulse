@@ -26,7 +26,6 @@ const REAIS = (c: string | null) =>
     : (Number(c) / 100).toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
-        maximumFractionDigits: 0,
       })
 
 const PCT = (v: number | null) =>

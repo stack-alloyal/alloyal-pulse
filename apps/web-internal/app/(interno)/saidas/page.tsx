@@ -33,7 +33,6 @@ const REAIS = (c: string | null) =>
     : (Number(c) / 100).toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
-        maximumFractionDigits: 0,
       })
 
 const ESTADO: Record<string, { rotulo: string; tom: 'red' | 'amber' | 'green' | 'slate' }> = {

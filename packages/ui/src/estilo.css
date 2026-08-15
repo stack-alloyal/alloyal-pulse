@@ -78,6 +78,76 @@
     --ring: 263 81% 50%;
     --radius: 0.625rem;
   }
+
+  /* ┌─────────────────────────────────────────────────────────────────────┐
+     │ TEMA ESCURO — §02 do design system, "O mesmo nome nos dois temas".    │
+     │                                                                       │
+     │ No escuro NADA é invertido, e é isso que separa um tema escuro de um   │
+     │ filtro de inversão: três coisas mudam de natureza. O fundo deixa de    │
+     │ ser quase branco e vira quase preto; a tinta troca de ponta; e o roxo  │
+     │ CLAREIA — #6A18E5 sobre #0F0E13 não tem contraste, então a ação passa  │
+     │ a ser #8A3FEA e o roxo-700, que no claro é o mais escuro, vira o mais  │
+     │ claro (#B98BFF).                                                       │
+     │                                                                       │
+     │ Os NOMES são os mesmos nos dois temas. É o que permite `text-purple-700│
+     │ significar "ação, legível" sem que a tela precise saber em qual tema   │
+     │ está.                                                                  │
+     │                                                                       │
+     │ Três estados, não dois: `data-theme` explícito vence dos dois lados, e │
+     │ o padrão do sistema (sem atributo) segue `prefers-color-scheme`.        │
+     └─────────────────────────────────────────────────────────────────────┘ */
+  :root:not([data-theme='light']) {
+    @media (prefers-color-scheme: dark) {
+      --bg: #0f0e13;
+      --surface: #17161d;
+      --surface-2: #1d1c25;
+      --line: #2a2833;
+      --line-strong: #383544;
+      --ink: #edecf2;
+      --ink-2: #a9a6b6;
+      --ink-3: #7c7889;
+      --ink-4: #5a5768;
+      --purple-50: #241a3a;
+      --purple-100: #2e2350;
+      --purple-500: #8a3fea;
+      --purple-700: #b98bff;
+      --green: #4ade80;
+      --green-50: #10291b;
+      --amber: #fbbf24;
+      --amber-50: #2e2410;
+      --red: #f87171;
+      --red-50: #2e1618;
+      --orange-50: #2a1b0c;
+      --orange-500: #ff8c28;
+      --orange-700: #ffb870;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    --bg: #0f0e13;
+    --surface: #17161d;
+    --surface-2: #1d1c25;
+    --line: #2a2833;
+    --line-strong: #383544;
+    --ink: #edecf2;
+    --ink-2: #a9a6b6;
+    --ink-3: #7c7889;
+    --ink-4: #5a5768;
+    --purple-50: #241a3a;
+    --purple-100: #2e2350;
+    --purple-500: #8a3fea;
+    --purple-700: #b98bff;
+    --green: #4ade80;
+    --green-50: #10291b;
+    --amber: #fbbf24;
+    --amber-50: #2e2410;
+    --red: #f87171;
+    --red-50: #2e1618;
+    --orange-50: #2a1b0c;
+    --orange-500: #ff8c28;
+    --orange-700: #ffb870;
+  }
+
 }
 
 @layer base {
