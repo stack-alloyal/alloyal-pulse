@@ -249,27 +249,89 @@ export const TOM_POR_FAIXA: Record<string, Tom> = {
 }
 
 /** KPI — o número grande do topo da tela. */
+/**
+ * O KPI do design system (§06 "KPI com barra lateral").
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ESTAVA ERRADO AQUI, e de um jeito que muda o significado: o semáforo vivia  │
+ * │ na COR DO VALOR. Um número vermelho lê-se como "este número está errado";   │
+ * │ o que se quer dizer é "este indicador está ruim". São coisas diferentes, e  │
+ * │ a segunda é a que a barra lateral diz sem tocar no número.                  │
+ * │                                                                            │
+ * │ O documento é específico: barra lateral de 4px carrega o semáforo, ROXO É   │
+ * │ NEUTRO, e verde/vermelho só entram quando há regra objetiva de bom/ruim.    │
+ * │ Sem regra objetiva, colorir é opinião disfarçada de dado.                   │
+ * │                                                                            │
+ * │ E o rótulo é 11px maiúsculo, não 10,5px: 10,5 é a medida do cabeçalho de    │
+ * │ TABELA, que é outro papel.                                                 │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
 export function Kpi({
   rotulo,
   valor,
   nota,
   tom,
+  delta,
 }: {
   rotulo: React.ReactNode
   valor: React.ReactNode
   nota?: React.ReactNode
-  /** `undefined` = neutro. Cor aqui significa saúde, nunca frescor de dado. */
+  /**
+   * O semáforo da barra lateral. `undefined` = roxo, que é o neutro.
+   *
+   * Só use verde ou vermelho quando existir regra objetiva de bom/ruim — um
+   * número que subiu não é bom por ter subido.
+   */
   tom?: 'green' | 'amber' | 'red'
+  /**
+   * Variação contra o período anterior, em fração (0,12 = 12%).
+   *
+   * `null` é NOVO, que não é zero: significa que não há período anterior para
+   * comparar. Zero é `0` e aparece como "estável".
+   */
+  delta?: number | null
 }) {
-  const cor = tom ? { green: 'text-green', amber: 'text-amber', red: 'text-red' }[tom] : 'text-ink'
+  const barra = tom
+    ? { green: 'bg-green', amber: 'bg-amber', red: 'bg-red' }[tom]
+    : 'bg-purple-500'
   return (
-    <div className="rounded-lg border border-line bg-surface p-[18px] shadow-sm">
-      <div className="text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
-        {rotulo}
-      </div>
-      <div className={cn('mt-1.5 text-kpi tabular-nums', cor)}>{valor}</div>
-      {nota && <div className="mt-1 text-meta text-ink-2">{nota}</div>}
+    <div className="relative overflow-hidden rounded-lg border border-line bg-surface p-[18px] pl-[22px] shadow-sm">
+      {/* A barra de 4px. `aria-hidden` porque o significado dela já está no
+          texto do pé — cor sozinha não informa quem não a enxerga. */}
+      <span aria-hidden="true" className={cn('absolute inset-y-0 left-0 w-1', barra)} />
+      <div className="text-nota font-semibold uppercase tracking-[0.08em] text-ink-3">{rotulo}</div>
+      <div className="mt-1.5 text-kpi tabular-nums text-ink">{valor}</div>
+      {(delta !== undefined || nota) && (
+        <div className="mt-1 flex flex-wrap items-baseline gap-1.5 text-meta text-ink-2">
+          {delta !== undefined && <DeltaDoKpi valor={delta} />}
+          {nota}
+        </div>
+      )}
     </div>
+  )
+}
+
+/**
+ * Os quatro estados do delta: ▲ subiu, ▼ caiu, ■ estável, e "novo".
+ *
+ * "novo" é o que separa ausência de estabilidade. Sem ele, quem não tinha período
+ * anterior aparece como 0% — afirmando que nada mudou onde nada havia.
+ */
+function DeltaDoKpi({ valor }: { valor: number | null }) {
+  if (valor === null) return <span className="font-medium text-purple-700">novo</span>
+  if (valor === 0) {
+    return (
+      <span className="text-ink-3">
+        <span aria-hidden="true">■</span> estável
+      </span>
+    )
+  }
+  const sobe = valor > 0
+  return (
+    <span className={cn('font-medium tabular-nums', sobe ? 'text-green' : 'text-red')}>
+      <span aria-hidden="true">{sobe ? '▲' : '▼'}</span>{' '}
+      {Math.abs(valor * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+    </span>
   )
 }
 

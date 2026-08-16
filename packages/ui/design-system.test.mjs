@@ -588,3 +588,36 @@ test('as cores do preset apontam para variável, não para hex', () => {
     assert.ok(preset.includes(v), `${v} não aparece no preset — o tema escuro não alcança essa cor`)
   }
 })
+
+/**
+ * ─── O KPI é o do documento (§06) ────────────────────────────────────────────
+ *
+ * Estava errado de um jeito que mudava o significado: o semáforo vivia na COR DO
+ * VALOR. Número vermelho lê-se como "este número está errado"; o que se quer
+ * dizer é "este indicador está ruim". A barra lateral diz a segunda coisa sem
+ * tocar no número.
+ */
+test('o Kpi tem barra lateral de semáforo e rótulo de 11px', () => {
+  const base = readFileSync(BASE, 'utf8')
+  const kpi = base.slice(base.indexOf('export function Kpi('), base.indexOf('function DeltaDoKpi'))
+  assert.match(kpi, /w-1/, 'falta a barra lateral de 4px')
+  assert.match(kpi, /bg-purple-500/, 'o neutro da barra tem de ser roxo')
+  assert.match(kpi, /text-nota font-semibold uppercase/, 'o rótulo é 11px maiúsculo, não o 10,5px da tabela')
+  assert.doesNotMatch(
+    kpi.slice(kpi.indexOf('text-kpi')),
+    /text-kpi[^\n]*text-(green|amber|red)/,
+    'o valor não recebe cor — o semáforo é a barra',
+  )
+})
+
+test('o delta do Kpi tem os quatro estados do documento', () => {
+  const base = readFileSync(BASE, 'utf8')
+  const d = base.slice(base.indexOf('function DeltaDoKpi'))
+  for (const [marca, papel] of [['▲', 'subiu'], ['▼', 'caiu'], ['■', 'estável'], ['novo', 'sem período anterior']]) {
+    assert.ok(d.includes(marca), `falta o estado "${papel}" (${marca})`)
+  }
+  // `null` é novo e `0` é estável: confundir os dois afirma estabilidade onde não
+  // havia com o que comparar.
+  assert.match(d, /valor === null/)
+  assert.match(d, /valor === 0/)
+})
