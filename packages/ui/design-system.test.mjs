@@ -704,3 +704,23 @@ test('nenhuma animação infinita sem motion-safe', () => {
   }
   assert.deepEqual(soltas, [], `\n${soltas.join('\n')}\n`)
 })
+
+/**
+ * ─── §11 · A rede de segurança do foco ───────────────────────────────────────
+ *
+ * Os componentes declaram o próprio anel; esta regra existe para o que vier
+ * DEPOIS. Qualquer focável escrito daqui em diante mostra onde o teclado está,
+ * inclusive quem esquecer um `outline-none` ligado — que é justamente o
+ * esquecimento que ninguém revisa.
+ */
+test('existe rede global de :focus-visible no CSS', () => {
+  const css = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
+  assert.match(css, /:focus-visible\s*\{/, 'falta a rede global de foco (§11)')
+  assert.match(css, /outline:\s*2px/, 'a rede tem de desenhar contorno visível')
+})
+
+test('o esqueleto de carregamento existe e respeita reduzir movimento', () => {
+  const esq = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'Esqueleto.tsx'), 'utf8')
+  assert.match(esq, /motion-safe:animate-pulse/, 'pulso infinito tem de ficar atrás de motion-safe')
+  assert.match(esq, /EsqueletoTabela/, 'o §11 lista Esqueleto E EsqueletoTabela')
+})

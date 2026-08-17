@@ -247,4 +247,20 @@
   .g-vermelho {
     fill: #ea4335;
   }
+
+  /* ┌─────────────────────────────────────────────────────────────────────┐
+     │ REDE DE SEGURANÇA DO FOCO — §11.                                      │
+     │                                                                        │
+     │ Os componentes declaram o próprio anel. Esta regra existe para o que    │
+     │ vier DEPOIS: qualquer focável que alguém escreva daqui em diante mostra │
+     │ onde o teclado está, inclusive quem esquecer um `outline-none` ligado.  │
+     │                                                                        │
+     │ É rede, não padrão: quem declara o próprio anel vence, porque a         │
+     │ especificidade da classe do componente é maior. O que ela pega é o      │
+     │ esquecimento, que é justamente o que ninguém revisa.                    │
+     └─────────────────────────────────────────────────────────────────────┘ */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
+  }
 }

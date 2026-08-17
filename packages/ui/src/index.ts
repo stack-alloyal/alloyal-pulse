@@ -13,6 +13,7 @@
  */
 export * from './base'
 export * from './formato'
+export * from './Esqueleto'
 export * from './ds'
 export * from './ds-cliente'
 export * from './Login'
