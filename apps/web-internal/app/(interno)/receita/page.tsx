@@ -1,5 +1,5 @@
 import { listarCascatas, type Cascata } from '@pulse/success'
-import { Badge, Card, Kpi, Table, Vazio, cn } from '@pulse/ui'
+import { Badge, Card, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
 
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
@@ -109,7 +109,7 @@ export default async function Receita() {
         }
       />
       <Corpo className="grid gap-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiGrade>
           <Kpi
             rotulo="MRR final"
             valor={REAIS(atual.mrrFinalCentavos)}
@@ -132,7 +132,7 @@ export default async function Receita() {
             }
             {...(residuoPreocupa(atual) ? { tom: 'red' as const } : {})}
           />
-        </div>
+        </KpiGrade>
 
         <Card title={`Cascata de ${atual.competencia.slice(0, 7)}`} className="max-w-[36em]">
           <table className="w-full text-corpo">

@@ -62,6 +62,14 @@ const MES = (m: string) => {
   return `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(mm) - 1]}/${a?.slice(2)}`
 }
 
+/** `aaaa-mm-01` de N meses atrás. O dia 1 porque a série é mensal. */
+function mesesAtras(n: number): string {
+  const d = new Date()
+  d.setUTCDate(1)
+  d.setUTCMonth(d.getUTCMonth() - (n - 1))
+  return d.toISOString().slice(0, 10)
+}
+
 /** O link do filtro, preservando o que já estava selecionado. */
 const comFiltro = (id: string, q: Record<string, string | undefined>) => {
   const p = new URLSearchParams()
@@ -104,6 +112,21 @@ const ROTULO_SITUACAO: Record<string, string> = {
   cancelado: 'cancelado',
   previsao: 'previsão',
 }
+/** Os três eixos de data. Cada um responde outra pergunta sobre a mesma base. */
+const EIXOS = [
+  { chave: 'vencimento' as const, rotulo: 'vencimento' },
+  { chave: 'emissao' as const, rotulo: 'emissão' },
+  { chave: 'pagamento' as const, rotulo: 'pagamento' },
+]
+
+/** A cor de cada situação na barra empilhada — a mesma dos selos da tabela. */
+const COR_SITUACAO: Record<string, string> = {
+  recebido: 'bg-green',
+  a_vencer: 'bg-amber',
+  atrasado: 'bg-red',
+  cancelado: 'bg-ink-4',
+}
+
 const SITUACOES = ['todas', 'recebido', 'a_vencer', 'atrasado', 'cancelado', 'previsao'] as const
 
 export default async function FichaDeCliente({
@@ -111,7 +134,10 @@ export default async function FichaDeCliente({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ ok?: string; erro?: string; sit?: string; cat?: string }>
+  searchParams: Promise<{
+    ok?: string; erro?: string; sit?: string; cat?: string
+    eixo?: string; meses?: string; de?: string; ate?: string; vis?: string
+  }>
 }) {
   const identidade = await exigir((p) => temEscopo(p.contas), 'ficha do cliente')
   const { id } = await params
@@ -122,7 +148,18 @@ export default async function FichaDeCliente({
     ...(q.cat && q.cat !== 'todas' ? { categoria: q.cat } : {}),
     incluirPrevisao: q.sit === 'previsao',
   }
-  const f = await fichaDoCliente(pool(), conta_id, filtro)
+  /* A janela do gráfico: 24 meses é o padrão, e o "tudo" existe porque a série
+     completa é a pergunta de quem confere contra o Omie. Datas soltas vencem dos
+     presets — quem digitou uma data quis aquela. */
+  const eixo = (['vencimento', 'emissao', 'pagamento'] as const).find((e) => e === q.eixo) ?? 'vencimento'
+  const meses = q.de || q.ate ? null : Number(q.meses ?? 24)
+  const desde =
+    q.de ?? (meses && Number.isFinite(meses) ? mesesAtras(meses) : null)
+  const f = await fichaDoCliente(pool(), conta_id, filtro, {
+    eixo,
+    desde,
+    ate: q.ate ?? null,
+  })
   if (!f) notFound()
 
   const [identidades, candidatos, diagnostico, historico] = await Promise.all([
@@ -395,29 +432,133 @@ export default async function FichaDeCliente({
         </div>
 
         {/* ── O histórico por mês ── */}
-        {ultimosMeses.length > 0 && (
+        {passado.length > 0 && (
           <Card
-            title={`Faturamento por mês de vencimento · ${N(ultimosMeses.length)} de ${N(passado.length)} meses`}
+            title={`Faturamento por mês · ${N(ultimosMeses.length)} ${ultimosMeses.length === 1 ? 'mês' : 'meses'}`}
+            actions={
+              <Chips rotulo="eixo:">
+                {EIXOS.map((e) => (
+                  <Chip
+                    key={e.chave}
+                    rotulo={e.rotulo}
+                    href={comFiltro(conta.id, { ...q, eixo: e.chave })}
+                    ativo={eixo === e.chave}
+                    fixo
+                  />
+                ))}
+              </Chips>
+            }
           >
+            {/* ┌───────────────────────────────────────────────────────────────┐
+                │ TRÊS EIXOS, e cada um responde outra pergunta sobre a MESMA     │
+                │ base: por VENCIMENTO é "quando era para entrar"; por EMISSÃO é  │
+                │ "quando cobramos"; por PAGAMENTO é "quando entrou de fato".     │
+                │ Chamar qualquer um deles de "faturamento por mês" sem dizer     │
+                │ qual é o que faz duas pessoas discordarem olhando a mesma tela. │
+                └───────────────────────────────────────────────────────────────┘ */}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+              <Chips rotulo="período:">
+                {[6, 12, 24].map((m) => (
+                  <Chip
+                    key={m}
+                    rotulo={`${m} meses`}
+                    href={comFiltro(conta.id, { ...q, meses: String(m), de: '', ate: '' })}
+                    ativo={!q.de && !q.ate && Number(q.meses ?? 24) === m}
+                    fixo
+                  />
+                ))}
+                <Chip
+                  rotulo="tudo"
+                  href={comFiltro(conta.id, { ...q, meses: '999', de: '', ate: '' })}
+                  ativo={!q.de && !q.ate && Number(q.meses ?? 24) === 999}
+                  fixo
+                />
+              </Chips>
+              {/* Datas soltas: quem digitou uma data quis aquela, e ela vence do
+                  preset. O `form` é GET, então o recorte fica na URL como os chips. */}
+              <form action={`/carteira/base/${conta.id}`} className="flex items-center gap-1.5">
+                {q.sit && <input type="hidden" name="sit" value={q.sit} />}
+                {q.cat && <input type="hidden" name="cat" value={q.cat} />}
+                <input type="hidden" name="eixo" value={eixo} />
+                <label className="text-meta text-ink-3" htmlFor="de">de</label>
+                <input
+                  id="de" type="date" name="de" defaultValue={q.de ?? ''}
+                  className="h-control-xs rounded-sm border border-line-strong bg-surface px-2 text-meta text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <label className="text-meta text-ink-3" htmlFor="ate">até</label>
+                <input
+                  id="ate" type="date" name="ate" defaultValue={q.ate ?? ''}
+                  className="h-control-xs rounded-sm border border-line-strong bg-surface px-2 text-meta text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <Btn type="submit" variant="ghost">
+                  aplicar
+                </Btn>
+                {(q.de || q.ate) && (
+                  <Link
+                    href={comFiltro(conta.id, { ...q, de: '', ate: '' })}
+                    className="px-1 text-meta text-ink-3 hover:text-ink"
+                  >
+                    limpar
+                  </Link>
+                )}
+              </form>
+            </div>
+
+            <div className="mb-2 flex flex-wrap items-center gap-3">
+              <Chips rotulo="visão:">
+                <Chip rotulo="valor" href={comFiltro(conta.id, { ...q, vis: 'valor' })} ativo={q.vis !== 'situacao'} fixo />
+                <Chip rotulo="situação" href={comFiltro(conta.id, { ...q, vis: 'situacao' })} ativo={q.vis === 'situacao'} fixo />
+              </Chips>
+            </div>
+
             <div className="overflow-x-auto">
-              <div className="flex min-w-[560px] items-end gap-1" style={{ height: 132 }}>
+              <div className="flex min-w-[560px] items-end gap-1" style={{ height: 150 }}>
                 {ultimosMeses.map((m) => {
                   const alt = Math.max(Math.round((m.totalCentavos / maiorMes) * 112), 2)
                   const recebido = m.totalCentavos > 0 ? Math.min(m.pagoCentavos / m.totalCentavos, 1) : 0
+                  const titulo = `${MES(m.mes)} · faturado ${BRL(m.totalCentavos)} · recebido ${BRL(m.pagoCentavos)} · ${m.titulos} títulos`
                   return (
                     <div key={m.mes} className="flex flex-1 flex-col items-center justify-end gap-1">
-                      {/* A parte cheia é o recebido; o restante, o que não entrou.
-                          Duas barras lado a lado ocupariam o dobro para dizer o mesmo. */}
-                      <span
-                        title={`${MES(m.mes)} · faturado ${BRL(m.totalCentavos)} · recebido ${BRL(m.pagoCentavos)} · ${m.titulos} títulos`}
-                        className="relative w-full rounded-t bg-purple-100"
-                        style={{ height: alt }}
-                      >
-                        <span
-                          className="absolute inset-x-0 bottom-0 rounded-t bg-purple-500"
-                          style={{ height: `${Math.round(recebido * 100)}%` }}
-                        />
+                      {/* A VARIAÇÃO CONTRA O MÊS ANTERIOR fica sobre a barra. É o
+                          upsell/downsell lido de uma vez: quatro meses iguais e um
+                          com −49% contam a história que a altura sozinha esconde
+                          quando a escala é grande. */}
+                      <span className="text-micro tabular-nums">
+                        {m.deltaPct === null ? (
+                          <span className="text-ink-4">—</span>
+                        ) : m.deltaPct === 0 ? (
+                          <span className="text-ink-3">0%</span>
+                        ) : (
+                          <span className={m.deltaPct > 0 ? 'font-semibold text-green' : 'font-semibold text-red'}>
+                            {m.deltaPct > 0 ? '+' : ''}
+                            {(m.deltaPct * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%
+                          </span>
+                        )}
                       </span>
+                      {q.vis === 'situacao' ? (
+                        /* Empilhado por situação: a mesma barra, repartida pelo que
+                           aconteceu com os títulos daquele mês. */
+                        <span title={titulo} className="flex w-full flex-col-reverse overflow-hidden rounded-t" style={{ height: alt }}>
+                          {(['recebido', 'a_vencer', 'atrasado', 'cancelado'] as const).map((sit) => {
+                            const n = m.porSituacao[sit] ?? 0
+                            if (!n) return null
+                            return (
+                              <span
+                                key={sit}
+                                className={COR_SITUACAO[sit]}
+                                style={{ height: `${(n / m.titulos) * 100}%` }}
+                              />
+                            )
+                          })}
+                        </span>
+                      ) : (
+                        <span title={titulo} className="relative w-full rounded-t bg-purple-100" style={{ height: alt }}>
+                          <span
+                            className="absolute inset-x-0 bottom-0 rounded-t bg-purple-500"
+                            style={{ height: `${Math.round(recebido * 100)}%` }}
+                          />
+                        </span>
+                      )}
                       <span className="whitespace-nowrap text-micro text-ink-3">{MES(m.mes)}</span>
                     </div>
                   )
@@ -425,8 +566,18 @@ export default async function FichaDeCliente({
               </div>
             </div>
             <p className="mt-3 text-meta leading-relaxed text-ink-3">
-              A barra inteira é o faturado; a parte cheia, o recebido. Últimos{' '}
-              {ultimosMeses.length} meses de {N(passado.length)} — o histórico completo está na tabela abaixo.
+              {q.vis === 'situacao' ? (
+                <>
+                  Cada barra é repartida pela <strong className="font-semibold text-ink">situação</strong> dos
+                  títulos do mês: <span className="text-green">recebido</span>,{' '}
+                  <span className="text-orange-700">a vencer</span>, <span className="text-red">atrasado</span> e{' '}
+                  <span className="text-ink-2">cancelado</span>.
+                </>
+              ) : (
+                'A barra inteira é o faturado; a parte cheia, o recebido.'
+              )}{' '}
+              O número acima de cada barra é a variação contra o mês anterior da série — é o upsell ou o
+              downsell, lido de uma vez.
             </p>
           </Card>
         )}
@@ -456,6 +607,112 @@ export default async function FichaDeCliente({
             </p>
           </Card>
         )}
+
+        {/* ── Todo o histórico ── */}
+        <div id="faturamento" className="scroll-mt-24" />
+        <Card
+          title={`Histórico de faturamento · ${N(faturamento.length)} títulos`}
+          actions={
+            /* Filtro por LINK e não por JavaScript: o estado mora na URL, sobrevive a
+               recarregar, e pode ser mandado por mensagem para outra pessoa olhar
+               exatamente o mesmo recorte. É o mesmo padrão do `?abrir=` da Base. */
+            <Chips rotulo="situação:">
+              {SITUACOES.map((sit) => (
+                <Chip
+                  key={sit}
+                  rotulo={sit === 'todas' ? 'todas' : (ROTULO_SITUACAO[sit] ?? sit)}
+                  href={comFiltro(conta.id, { ...q, sit })}
+                  ativo={(q.sit ?? 'todas') === sit}
+                  /* `fixo`: a situação é estado ESTRUTURAL. Sumir com "cancelado"
+                     porque este cliente não tem nenhum faria parecer que cancelar
+                     não existe — a regra do Chip no design system. */
+                  fixo
+                />
+              ))}
+            </Chips>
+          }
+        >
+          {resumo.categorias.length > 1 && (
+            <div className="mb-3 border-b border-line pb-3">
+              <Chips rotulo="categoria:">
+                <Chip
+                  rotulo="todas"
+                  href={comFiltro(conta.id, { ...q, cat: 'todas' })}
+                  ativo={(q.cat ?? 'todas') === 'todas'}
+                  fixo
+                />
+                {resumo.categorias.map((c) => (
+                  <Chip
+                    key={c.categoria}
+                    rotulo={c.nome}
+                    href={comFiltro(conta.id, { ...q, cat: c.categoria })}
+                    ativo={q.cat === c.categoria}
+                    conta={c.titulos}
+                  />
+                ))}
+              </Chips>
+            </div>
+          )}
+          {faturamento.length === 0 ? (
+            <Vazio
+              titulo="Nenhum título."
+              porque="Ou o cliente não tem faturamento no Omie, ou é faturado sob outro documento."
+            />
+          ) : (
+            <>
+              <Table
+                cols={['Título', 'Categoria', 'Emissão', 'Vencimento', 'Pagamento', 'Valor', 'Recebido', 'Aberto', 'Situação']}
+                rows={faturamento.map((t) => [
+                  <span className="font-mono text-nota text-ink-3">{t.codigoTitulo}</span>,
+                  <span className="text-nota text-ink-2">
+                    {t.categoriaNome ?? t.categoria ?? '—'}
+                  </span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{DATA(t.emissao)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink">{DATA(t.vencimento)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{DATA(t.pagamento)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">{BRL(t.valorCentavos)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{BRL(t.pagoCentavos)}</span>,
+                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">
+                    {Number(t.abertoCentavos) > 0 ? BRL(t.abertoCentavos) : '—'}
+                  </span>,
+                  <Badge tone={TOM_SITUACAO[t.situacao] ?? 'slate'}>{ROTULO_SITUACAO[t.situacao] ?? t.status?.toLowerCase() ?? '—'}</Badge>,
+                ])}
+              />
+              <p className="mt-3 text-meta leading-relaxed text-ink-3">
+                {q.sit || q.cat ? (
+                  <>
+                    Filtrado. <Link href={comFiltro(conta.id, {})} className="font-semibold text-purple-700">
+                      limpar filtros
+                    </Link>{' '}
+                    para ver os {N(resumo.titulos)} títulos emitidos.
+                  </>
+                ) : (
+                  'Todos os títulos emitidos, do mais recente ao mais antigo, sem corte — uma lista truncada faria a soma da tela discordar dos totais acima.'
+                )}
+                {resumo.previsaoTitulos > 0 && q.sit !== 'previsao' && (
+                  <>
+                    {' '}
+                    <strong className="font-semibold text-ink">
+                      {N(resumo.previsaoTitulos)} títulos de previsão não entram aqui
+                    </strong>{' '}
+                    ({BRL(resumo.previsaoCentavos)}) — recorrência projetada e não emitida.{' '}
+                    <Link href={comFiltro(conta.id, { ...q, sit: 'previsao' })} className="font-semibold text-purple-700">
+                      ver a previsão
+                    </Link>
+                    .
+                  </>
+                )}
+                {documentos.length > 1 && (
+                  <>
+                    {' '}
+                    Somando {documentos.length} CNPJs de mesma raiz:{' '}
+                    <span className="tabular-nums">{documentos.map(DOC).join(', ')}</span>.
+                  </>
+                )}
+              </p>
+            </>
+          )}
+        </Card>
 
         {/* ── Identidades: match, merge e a história ── */}
         <Card
@@ -646,112 +903,6 @@ export default async function FichaDeCliente({
                 </p>
               </div>
             </details>
-          )}
-        </Card>
-
-        {/* ── Todo o histórico ── */}
-        <div id="faturamento" className="scroll-mt-24" />
-        <Card
-          title={`Histórico de faturamento · ${N(faturamento.length)} títulos`}
-          actions={
-            /* Filtro por LINK e não por JavaScript: o estado mora na URL, sobrevive a
-               recarregar, e pode ser mandado por mensagem para outra pessoa olhar
-               exatamente o mesmo recorte. É o mesmo padrão do `?abrir=` da Base. */
-            <Chips rotulo="situação:">
-              {SITUACOES.map((sit) => (
-                <Chip
-                  key={sit}
-                  rotulo={sit === 'todas' ? 'todas' : (ROTULO_SITUACAO[sit] ?? sit)}
-                  href={comFiltro(conta.id, { ...q, sit })}
-                  ativo={(q.sit ?? 'todas') === sit}
-                  /* `fixo`: a situação é estado ESTRUTURAL. Sumir com "cancelado"
-                     porque este cliente não tem nenhum faria parecer que cancelar
-                     não existe — a regra do Chip no design system. */
-                  fixo
-                />
-              ))}
-            </Chips>
-          }
-        >
-          {resumo.categorias.length > 1 && (
-            <div className="mb-3 border-b border-line pb-3">
-              <Chips rotulo="categoria:">
-                <Chip
-                  rotulo="todas"
-                  href={comFiltro(conta.id, { ...q, cat: 'todas' })}
-                  ativo={(q.cat ?? 'todas') === 'todas'}
-                  fixo
-                />
-                {resumo.categorias.map((c) => (
-                  <Chip
-                    key={c.categoria}
-                    rotulo={c.nome}
-                    href={comFiltro(conta.id, { ...q, cat: c.categoria })}
-                    ativo={q.cat === c.categoria}
-                    conta={c.titulos}
-                  />
-                ))}
-              </Chips>
-            </div>
-          )}
-          {faturamento.length === 0 ? (
-            <Vazio
-              titulo="Nenhum título."
-              porque="Ou o cliente não tem faturamento no Omie, ou é faturado sob outro documento."
-            />
-          ) : (
-            <>
-              <Table
-                cols={['Título', 'Categoria', 'Emissão', 'Vencimento', 'Pagamento', 'Valor', 'Recebido', 'Aberto', 'Situação']}
-                rows={faturamento.map((t) => [
-                  <span className="font-mono text-nota text-ink-3">{t.codigoTitulo}</span>,
-                  <span className="text-nota text-ink-2">
-                    {t.categoriaNome ?? t.categoria ?? '—'}
-                  </span>,
-                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{DATA(t.emissao)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-meta text-ink">{DATA(t.vencimento)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{DATA(t.pagamento)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-meta font-semibold text-ink">{BRL(t.valorCentavos)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">{BRL(t.pagoCentavos)}</span>,
-                  <span className="whitespace-nowrap tabular-nums text-meta text-ink-2">
-                    {Number(t.abertoCentavos) > 0 ? BRL(t.abertoCentavos) : '—'}
-                  </span>,
-                  <Badge tone={TOM_SITUACAO[t.situacao] ?? 'slate'}>{ROTULO_SITUACAO[t.situacao] ?? t.status?.toLowerCase() ?? '—'}</Badge>,
-                ])}
-              />
-              <p className="mt-3 text-meta leading-relaxed text-ink-3">
-                {q.sit || q.cat ? (
-                  <>
-                    Filtrado. <Link href={comFiltro(conta.id, {})} className="font-semibold text-purple-700">
-                      limpar filtros
-                    </Link>{' '}
-                    para ver os {N(resumo.titulos)} títulos emitidos.
-                  </>
-                ) : (
-                  'Todos os títulos emitidos, do mais recente ao mais antigo, sem corte — uma lista truncada faria a soma da tela discordar dos totais acima.'
-                )}
-                {resumo.previsaoTitulos > 0 && q.sit !== 'previsao' && (
-                  <>
-                    {' '}
-                    <strong className="font-semibold text-ink">
-                      {N(resumo.previsaoTitulos)} títulos de previsão não entram aqui
-                    </strong>{' '}
-                    ({BRL(resumo.previsaoCentavos)}) — recorrência projetada e não emitida.{' '}
-                    <Link href={comFiltro(conta.id, { ...q, sit: 'previsao' })} className="font-semibold text-purple-700">
-                      ver a previsão
-                    </Link>
-                    .
-                  </>
-                )}
-                {documentos.length > 1 && (
-                  <>
-                    {' '}
-                    Somando {documentos.length} CNPJs de mesma raiz:{' '}
-                    <span className="tabular-nums">{documentos.map(DOC).join(', ')}</span>.
-                  </>
-                )}
-              </p>
-            </>
           )}
         </Card>
       </Corpo>

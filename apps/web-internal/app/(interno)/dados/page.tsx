@@ -1,5 +1,5 @@
 import { decidirAlarme, type PoliticaFalha } from '@pulse/metrics'
-import { Aviso, Badge, Card, Kpi, Table, cn } from '@pulse/ui'
+import { Aviso, Badge, Card, Kpi, KpiGrade, Table, cn } from '@pulse/ui'
 import { GitMerge, ScanSearch } from 'lucide-react'
 import Link from 'next/link'
 
@@ -194,7 +194,7 @@ export default async function Painel() {
       />
       <Corpo className="grid gap-5">
         {estado.competencia ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiGrade>
             <Kpi
               rotulo="Snapshot"
               valor={estado.competencia}
@@ -221,7 +221,7 @@ export default async function Painel() {
               nota="reconciliação sem resolver"
               {...(estado.divergencias > 0 ? { tom: 'red' as const } : {})}
             />
-          </div>
+          </KpiGrade>
         ) : (
           // Estado vazio que ensina: diz o que falta, não só que não há nada.
           <Aviso tom="alerta">

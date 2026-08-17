@@ -126,11 +126,20 @@ export interface ResumoFinanceiro {
     titulos: number
     totalCentavos: number
   }[]
+  /**
+   * A série mensal, no EIXO escolhido.
+   *
+   * `deltaPct` é a variação contra o mês ANTERIOR DA SÉRIE, e `null` no primeiro —
+   * que é diferente de 0%. O primeiro mês não cresceu nem caiu: não havia com o
+   * que comparar, e 0% ali afirmaria estabilidade inexistente.
+   */
   readonly porMes: {
     mes: string
     titulos: number
     totalCentavos: number
     pagoCentavos: number
+    deltaPct: number | null
+    porSituacao: Record<string, number>
   }[]
 }
 
@@ -280,9 +289,55 @@ export async function lerFaturamento(
   return rows
 }
 
+/**
+ * Junta as linhas (mês × situação) numa série por mês, com a variação.
+ *
+ * A variação é contra o mês ANTERIOR DA SÉRIE, e não contra o mês calendário
+ * anterior: num cliente que não faturou em março, abril compara com fevereiro —
+ * que é a pergunta real ("cresceu ou caiu desde a última vez?"), e não um salto
+ * artificial contra zero.
+ *
+ * O primeiro mês fica com `null`, que a tela mostra como "—" e não como 0%.
+ */
+function montarSerie(
+  linhas: readonly { mes: string; titulos: number; total: string; pago: string; situacao: string; n: string }[],
+): ResumoFinanceiro['porMes'] {
+  const porMes = new Map<string, { titulos: number; total: number; pago: number; sit: Record<string, number> }>()
+  for (const l of linhas) {
+    const m = porMes.get(l.mes) ?? { titulos: 0, total: 0, pago: 0, sit: {} }
+    m.titulos += l.titulos
+    m.total += Number(l.total)
+    m.pago += Number(l.pago)
+    m.sit[l.situacao] = (m.sit[l.situacao] ?? 0) + Number(l.n)
+    porMes.set(l.mes, m)
+  }
+  const ordenados = [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  return ordenados.map(([mes, m], i) => {
+    const anterior = i > 0 ? ordenados[i - 1]![1].total : null
+    return {
+      mes,
+      titulos: m.titulos,
+      totalCentavos: m.total,
+      pagoCentavos: m.pago,
+      // Divisão por zero vira `null`, não Infinity: crescer a partir de zero não
+      // tem percentual, e "+∞%" na tela é ruído onde deveria haver "novo".
+      deltaPct: anterior === null || anterior === 0 ? null : (m.total - anterior) / anterior,
+      porSituacao: m.sit,
+    }
+  })
+}
+
+export interface JanelaDaSerie {
+  /** Qual data agrupa o mês. */
+  readonly eixo?: 'vencimento' | 'emissao' | 'pagamento'
+  readonly desde?: string | null
+  readonly ate?: string | null
+}
+
 export async function resumoFinanceiro(
   db: pg.Pool,
   documentos: readonly string[],
+  { eixo = 'vencimento', desde = null, ate = null }: JanelaDaSerie = {},
 ): Promise<ResumoFinanceiro> {
   const vazio: ResumoFinanceiro = {
     titulos: 0, totalCentavos: 0, recebidoCentavos: 0, recebidoTitulos: 0,
@@ -325,15 +380,33 @@ export async function resumoFinanceiro(
         GROUP BY 1, 2 ORDER BY sum(t.valor_centavos) DESC`,
       [documentos],
     ),
-    db.query<{ mes: string; titulos: number; total: string; pago: string }>(
-      `SELECT to_char(date_trunc('month', vencimento),'YYYY-MM') mes, count(*)::int titulos,
+    // O EIXO é escolhido por quem olha, e muda a pergunta: por VENCIMENTO é
+    // "quando era para entrar"; por EMISSÃO é "quando cobramos"; por PAGAMENTO é
+    // "quando entrou de fato". A mesma base conta três histórias, e chamar
+    // qualquer uma delas de "faturamento por mês" sem dizer qual engana.
+    db.query<{ mes: string; titulos: number; total: string; pago: string; situacao: string; n: string }>(
+      `SELECT to_char(date_trunc('month',
+                CASE $2::text WHEN 'emissao' THEN emissao
+                              WHEN 'pagamento' THEN pagamento
+                              ELSE vencimento END),'YYYY-MM') mes,
+              count(*)::int titulos,
               coalesce(sum(valor_centavos),0)::text total,
-              coalesce(sum(pago_centavos),0)::text pago
+              coalesce(sum(pago_centavos),0)::text pago,
+              situacao, count(*)::text n
          FROM core.omie_titulo
-        WHERE documento = ANY($1::text[]) AND vencimento IS NOT NULL
+        WHERE documento = ANY($1::text[])
           AND situacao <> 'previsao'
-        GROUP BY 1 ORDER BY 1`,
-      [documentos],
+          AND (CASE $2::text WHEN 'emissao' THEN emissao
+                             WHEN 'pagamento' THEN pagamento
+                             ELSE vencimento END) IS NOT NULL
+          AND ($3::date IS NULL OR (CASE $2::text WHEN 'emissao' THEN emissao
+                             WHEN 'pagamento' THEN pagamento
+                             ELSE vencimento END) >= $3)
+          AND ($4::date IS NULL OR (CASE $2::text WHEN 'emissao' THEN emissao
+                             WHEN 'pagamento' THEN pagamento
+                             ELSE vencimento END) <= $4)
+        GROUP BY 1, situacao ORDER BY 1`,
+      [documentos, eixo, desde ?? null, ate ?? null],
     ),
   ])
 
@@ -354,9 +427,7 @@ export async function resumoFinanceiro(
     categorias: cat.rows.map((c) => ({
       categoria: c.categoria, nome: c.nome, titulos: c.titulos, totalCentavos: Number(c.total),
     })),
-    porMes: mes.rows.map((m) => ({
-      mes: m.mes, titulos: m.titulos, totalCentavos: Number(m.total), pagoCentavos: Number(m.pago),
-    })),
+    porMes: montarSerie(mes.rows),
   }
 }
 
@@ -365,6 +436,7 @@ export async function fichaDoCliente(
   db: pg.Pool,
   id: string,
   filtro: FiltroDoFaturamento = {},
+  janela: JanelaDaSerie = {},
 ): Promise<FichaDoCliente | null> {
   const conta = await lerContaDoAdmin(db, id)
   if (!conta) return null
@@ -372,7 +444,7 @@ export async function fichaDoCliente(
   const { documentos, vinculo } = await documentosDoOmie(db, id, conta.cnpj)
   const [omie, resumo, faturamento] = await Promise.all([
     documentos[0] ? lerFichaOmie(db, documentos[0]) : Promise.resolve(null),
-    resumoFinanceiro(db, documentos),
+    resumoFinanceiro(db, documentos, janela),
     lerFaturamento(db, documentos, filtro),
   ])
   return { conta, omie, vinculo, documentos, resumo, faturamento }

@@ -5,7 +5,7 @@ import {
   rotuloDoMotivo,
   type Saida,
 } from '@pulse/success'
-import { Aviso, Badge, Btn, Card, Field, Kpi, Vazio, cn } from '@pulse/ui'
+import { Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Vazio, cn } from '@pulse/ui'
 import { Check } from 'lucide-react'
 
 import { acaoConfirmarAviso, acaoConfirmarCobranca, acaoEncerrar, acaoReter } from './acoes'
@@ -277,7 +277,7 @@ export default async function Saidas({
           <>
             {/* Os dois churns lado a lado. Ver juntos é o ponto: o mês em que as
                 contas saem quase nunca é o mês em que a receita sai. */}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiGrade>
               <Kpi
                 rotulo={`Churn de contas · ${resumo.competencia}`}
                 valor={resumo.contasQueLevantaram}
@@ -307,7 +307,7 @@ export default async function Saidas({
                 nota={`${resumo.retidasNaCompetencia} saída(s) revertida(s)`}
                 {...(resumo.retidasNaCompetencia > 0 ? { tom: 'green' as const } : {})}
               />
-            </div>
+            </KpiGrade>
             <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
               Contas e receita não fecham no mesmo mês, e a diferença é de propósito: um cliente
               que levanta a mão hoje entra no churn de contas hoje, mas continua faturando durante

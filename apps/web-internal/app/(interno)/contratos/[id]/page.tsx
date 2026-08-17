@@ -1,5 +1,5 @@
 import { especificacao, historicoDoTipo, valeHoje, type TipoClausula } from '@pulse/contratos'
-import { Aviso, Badge, Card, Kpi, cn } from '@pulse/ui'
+import { Aviso, Badge, Card, Kpi, KpiGrade, cn } from '@pulse/ui'
 import { FileText, Lock } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -110,7 +110,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
         }
       />
       <Corpo className="grid gap-5">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiGrade>
           <Kpi rotulo="MRR" valor={REAIS(c.mrr_centavos)} nota={c.tipo_receita ?? undefined} />
           <Kpi
             rotulo="Vigência"
@@ -132,7 +132,7 @@ export default async function FichaContrato({ params }: { params: Promise<{ id: 
               .join(' · ')}
             {...(propostas > 0 ? { tom: 'amber' as const } : {})}
           />
-        </div>
+        </KpiGrade>
 
         {propostas > 0 && (
           <Aviso tom="alerta">

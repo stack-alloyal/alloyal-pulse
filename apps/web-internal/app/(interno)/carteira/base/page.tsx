@@ -6,7 +6,7 @@ import {
   subBusinesses,
   type LinhaDaBase,
 } from "@pulse/config";
-import { Aviso, Badge, Busca, Card, Kpi, KpiGrade, Table } from "@pulse/ui";
+import { Aviso, Badge, Busca, Card, Chip, Chips, Kpi, KpiGrade, Table } from "@pulse/ui";
 import { ScrollText } from "lucide-react";
 import Link from "next/link";
 
@@ -88,6 +88,42 @@ const VINCULO: Record<
   encerrado: { texto: "encerrado", tom: "slate" },
   pendente: { texto: "a decidir", tom: "amber" },
 };
+
+/**
+ * Os 12 meses de faturamento, numa célula.
+ *
+ * Barra e não número: a pergunta que esta coluna responde é de RITMO — "ainda
+ * fatura? todo mês? parou quando?" — e doze números lado a lado não se leem de
+ * relance. A altura é relativa ao maior mês DA PRÓPRIA linha, porque comparar
+ * clientes entre si é trabalho da coluna de valor, não desta.
+ */
+function Faturamento12m({ serie }: { serie: readonly number[] }) {
+  const maior = Math.max(...serie, 1)
+  const meses = serie.filter((v) => v > 0).length
+  const total = serie.reduce((a, b) => a + b, 0)
+  return (
+    <span
+      className="inline-flex h-6 items-end gap-[2px]"
+      title={
+        meses === 0
+          ? "sem faturamento nos últimos 12 meses"
+          : `${meses} de 12 meses faturados · ${(total / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`
+      }
+    >
+      {serie.map((v, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className={v > 0 ? "w-[3px] rounded-sm bg-purple-500" : "w-[3px] rounded-sm bg-line-strong"}
+          style={{ height: v > 0 ? `${Math.max((v / maior) * 100, 18)}%` : "12%" }}
+        />
+      ))}
+      <span className="sr-only">
+        {meses === 0 ? "sem faturamento" : `${meses} de 12 meses faturados`}
+      </span>
+    </span>
+  )
+}
 
 function linhaDaTabela(
   l: LinhaDaBase,
@@ -173,6 +209,7 @@ function linhaDaTabela(
         </span>
       ) : null}
     </span>,
+    <Faturamento12m key="f" serie={l.faturamento12m} />,
     <Badge key="a" tone={l.ativo ? "green" : "slate"}>
       {l.ativo ? "ativo" : "inativo"}
     </Badge>,
@@ -200,6 +237,8 @@ export default async function BaseDeClientes({
     abrir?: string;
     p?: string;
     ativos?: string;
+    /** "1" = só quem faturou nos 12 meses; "0" = só quem não faturou. */
+    fat?: string;
   }>;
 }) {
   await exigir((p) => temEscopo(p.contas), "base de clientes");
@@ -227,8 +266,18 @@ export default async function BaseDeClientes({
       ...extra,
     }).toString()}`;
 
+  /* O recorte por faturamento é aplicado AQUI e não no SQL, e a tela diz isso:
+     ele filtra a página carregada, não a base inteira. Levar para a consulta
+     exigiria juntar títulos antes de paginar — caro e, pior, mudaria a contagem
+     total do título do card sem que a pessoa tenha pedido. */
+  const visiveis = pag.linhas.filter((l) => {
+    if (!q.fat) return true;
+    const faturou = l.faturamento12m.some((v) => v > 0);
+    return q.fat === "1" ? faturou : !faturou;
+  });
+
   const linhas: React.ReactNode[][] = [];
-  for (const l of pag.linhas) {
+  for (const l of visiveis) {
     const aberta = l.id === abertaId;
     linhas.push(linhaDaTabela(l, aberta, false, busca));
     if (aberta)
@@ -297,24 +346,43 @@ export default async function BaseDeClientes({
              alternador de ativos fica ao lado, fora do form, porque é navegação e
              não termo de busca. */
           actions={
-            <div className="flex items-center gap-3">
+            /* Os recortes viraram CHIP e ficam no título junto da busca: são a mesma
+               decisão — "qual pedaço da base eu quero ver" — e estavam em dois
+               lugares e dois formatos. `fixo` porque são estado estrutural: sumir
+               com "sem faturamento" porque hoje não há nenhum faria parecer que a
+               base não tem essa dimensão. */
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <Chips>
+                <Chip rotulo="todos" href={comBusca({})} ativo={!somenteAtivos && !q.fat} fixo />
+                <Chip
+                  rotulo="só ativos"
+                  href={comBusca({ ativos: "1" })}
+                  ativo={somenteAtivos && !q.fat}
+                  fixo
+                />
+                <Chip
+                  rotulo="com faturamento"
+                  href={comBusca({ ...(somenteAtivos ? { ativos: "1" } : {}), fat: "1" })}
+                  ativo={q.fat === "1"}
+                  fixo
+                />
+                <Chip
+                  rotulo="sem faturamento"
+                  href={comBusca({ ...(somenteAtivos ? { ativos: "1" } : {}), fat: "0" })}
+                  ativo={q.fat === "0"}
+                  fixo
+                />
+              </Chips>
               <Busca
                 action="/carteira/base"
                 valor={busca}
                 placeholder="nome, CNPJ, Business ID ou HubSpot ID"
-                ocultos={somenteAtivos ? { ativos: "1" } : undefined}
-                hrefLimpar={comBusca({})}
+                ocultos={{
+                  ...(somenteAtivos ? { ativos: "1" } : {}),
+                  ...(q.fat ? { fat: q.fat } : {}),
+                }}
+                hrefLimpar={comBusca(somenteAtivos ? { ativos: "1" } : {})}
               />
-              <Link
-                href={comBusca(somenteAtivos ? {} : { ativos: "1" })}
-                className={
-                  somenteAtivos
-                    ? "whitespace-nowrap text-meta font-semibold text-purple-700"
-                    : "whitespace-nowrap text-meta text-ink-3 hover:text-ink"
-                }
-              >
-                {somenteAtivos ? "mostrando só ativos" : "só ativos"}
-              </Link>
             </div>
           }
         >
@@ -326,6 +394,7 @@ export default async function BaseDeClientes({
               "Subs",
               "Autorizados",
               "Cadastrados",
+              "12 meses",
               "",
               "",
             ]}

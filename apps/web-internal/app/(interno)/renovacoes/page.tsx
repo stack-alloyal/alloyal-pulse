@@ -8,7 +8,7 @@ import {
   previsao,
   type Renovacao,
 } from '@pulse/success'
-import { Aviso, Badge, Btn, Card, Field, Kpi, Select, Table, Vazio, cn } from '@pulse/ui'
+import { Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Select, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
 import { acaoCenario, acaoDesfecho } from './acoes'
@@ -171,7 +171,7 @@ export default async function Renovacoes({
 
         {prev && (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiGrade>
               <Kpi
                 rotulo={`Em risco · ${JANELA_DIAS} dias`}
                 valor={REAIS(prev.mrrTotalCentavos)}
@@ -203,7 +203,7 @@ export default async function Renovacoes({
                     : {})}
                 />
               )}
-            </div>
+            </KpiGrade>
             <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
               A previsão é uma <strong className="font-semibold">faixa</strong>: no otimista tudo
               renova, no base renova o que ninguém marcou como perda provável, no pessimista só o

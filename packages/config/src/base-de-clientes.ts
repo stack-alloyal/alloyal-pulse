@@ -88,6 +88,17 @@ export interface LinhaDaBase {
   readonly logoOrigem: string | null;
   readonly usuariosAutorizados: number;
   readonly usuariosCadastrados: number;
+  /**
+   * Os últimos 12 meses de faturamento, do mais antigo para o mais recente.
+   *
+   * Cada posição é o valor faturado naquele mês, em centavos — zero quando não
+   * houve. Vem junto da linha porque a pergunta "este cliente ainda fatura?" é a
+   * primeira que se faz olhando a base, e hoje ela exigia abrir a ficha.
+   *
+   * Doze e não vinte e quatro: numa célula de tabela, vinte e quatro barras viram
+   * ruído cinza. Doze cabe e ainda deixa ver o ritmo — mensal, trimestral, parado.
+   */
+  readonly faturamento12m: readonly number[];
   /** Quantos sub business pendem deste. Zero significa "não há o que abrir". */
   readonly subs: number;
   /** Soma dos filhos, para o main mostrar o tamanho do grupo sem abrir. */
@@ -110,6 +121,12 @@ const CAMPOS = `
 function paraLinha(r: Record<string, unknown>): LinhaDaBase {
   return {
     id: String(r["id"]),
+    // `null` vira doze zeros: a célula desenha sempre a mesma grade, e "sem
+    // faturamento" fica visível como doze barras vazias em vez de espaço branco,
+    // que se lê como coluna que não carregou.
+    faturamento12m: Array.isArray(r["faturamento12m"])
+      ? (r["faturamento12m"] as unknown[]).map((v) => Number(v ?? 0))
+      : Array.from({ length: 12 }, () => 0),
     brandId: (r["brand_id"] as string | null) ?? null,
     hubspotCompanyId: (r["hubspot_company_id"] as string | null) ?? null,
     hubspotVinculo: (r["hubspot_vinculo"] as string | null) ?? null,
@@ -199,12 +216,72 @@ export async function mainBusinesses(
     [busca, somenteAtivos, porPagina, (pagina - 1) * porPagina],
   );
 
+  const linhas = await preencherFaturamento(
+    db,
+    rows.map((r) => paraLinha(r as Record<string, unknown>)),
+  );
+
   return {
-    linhas: rows.map((r) => paraLinha(r as Record<string, unknown>)),
+    linhas,
     total: Number(cont[0]?.n ?? 0),
     pagina,
     porPagina,
   };
+}
+
+/**
+ * Preenche os 12 meses de faturamento das linhas da página, numa consulta só.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ERA UM `LATERAL` DENTRO DA CONSULTA PRINCIPAL, e custava 1.126 ms: ele roda │
+ * │ uma vez POR LINHA, e cada execução varre doze meses de títulos. Numa página │
+ * │ de 50, são 600 subconsultas para desenhar 600 barrinhas.                    │
+ * │                                                                            │
+ * │ Aqui é uma passada só, com os ids da página: agrupa por conta e por mês de  │
+ * │ uma vez. O custo deixa de crescer com o tamanho da página.                  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+async function preencherFaturamento(
+  db: pg.Pool,
+  linhas: LinhaDaBase[],
+): Promise<LinhaDaBase[]> {
+  if (linhas.length === 0) return linhas;
+  const ids = linhas.map((l) => l.id);
+  const { rows } = await db.query<{ account_id: string; mes: string; total: string }>(
+    `SELECT v.account_id::text,
+            to_char(date_trunc('month', t.vencimento), 'YYYY-MM') mes,
+            sum(t.valor_centavos)::text total
+       FROM core.vinculo_cliente v
+       JOIN core.omie_titulo t ON t.documento = v.chave
+      WHERE v.account_id = ANY($1::uuid[]) AND v.fonte = 'omie'
+        AND t.situacao <> 'previsao'
+        AND t.vencimento >= date_trunc('month', current_date) - interval '11 months'
+        AND t.vencimento < date_trunc('month', current_date) + interval '1 month'
+      GROUP BY 1, 2`,
+    [ids],
+  );
+
+  // Os doze rótulos de mês, do mais antigo ao atual. Montados aqui e não no SQL
+  // porque a linha precisa das doze posições mesmo quando a conta não tem nenhuma.
+  const hoje = new Date();
+  const meses: string[] = [];
+  for (let k = 11; k >= 0; k--) {
+    const d = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - k, 1));
+    meses.push(d.toISOString().slice(0, 7));
+  }
+
+  const porConta = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const m = porConta.get(r.account_id) ?? new Map<string, number>();
+    m.set(r.mes, Number(r.total));
+    porConta.set(r.account_id, m);
+  }
+  // Devolve linhas NOVAS em vez de mutar: `LinhaDaBase` é `readonly`, e o molde
+  // existe para que ninguém escreva nela por engano mais adiante.
+  return linhas.map((l) => {
+    const m = porConta.get(l.id);
+    return { ...l, faturamento12m: meses.map((x) => m?.get(x) ?? 0) };
+  });
 }
 
 /** Os sub business de UM main. Usado quando a linha é aberta. */

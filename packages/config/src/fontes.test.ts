@@ -88,6 +88,23 @@ test('o campo oculto continua aparecendo na lista', () => {
  * fica de fora.
  */
 test('nenhum comentário SQL usa crase', () => {
+  // ┌───────────────────────────────────────────────────────────────────────┐
+  // │ O QUE ESTA REGRA PEGA, E O QUE ELA NÃO TEM COMO PEGAR.                  │
+  // │                                                                          │
+  // │ Cometi este erro quatro vezes: crase num comentário DENTRO de um template │
+  // │ literal de SQL. A string fecha ali, e o TypeScript quebra com             │
+  // │ "',' expected" numa linha que parece um comentário inofensivo.            │
+  // │                                                                          │
+  // │ A regra olha linhas que começam com `--`, que é comentário SQL, e foi     │
+  // │ assim que pegou três das quatro. A quarta estava num comentário de bloco  │
+  // │ `/* */`, e essa NÃO é detectável por varredura: no instante em que a      │
+  // │ crase aparece, o template já terminou e o resto virou código — não existe │
+  // │ mais um "dentro da string" para procurar. Quem pega essa é o build.       │
+  // │                                                                          │
+  // │ Tentei acompanhar o estado das crases linha a linha e o resultado foi     │
+  // │ pior: acusou JSDoc legítimo, onde crase é a marcação normal de código.    │
+  // │ Portão que acusa o certo é desligado no primeiro dia.                     │
+  // └───────────────────────────────────────────────────────────────────────┘
   const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
   const arquivos = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
   const achados: string[] = []
