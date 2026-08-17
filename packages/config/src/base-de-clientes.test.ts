@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   corDoCliente,
   iniciaisDoCliente,
+  statusDoOmie,
   ultimoMesComMovimento,
 } from "./base-de-clientes.js";
 
@@ -102,4 +103,27 @@ test("valor negativo é movimento: estorno não pode ser lido como mês sem nada
     centavos: -12000,
     rotulo: "2026-08",
   });
+});
+
+// ═══ Os três estados do status do Omie ════════════════════════════════════════
+
+test("sem vínculo com o Omie é nulo, e NUNCA 'ativo'", () => {
+  // O erro que este teste existe para pegar: `=== true`, que colapsa `null` em
+  // `false` e pinta de verde as 739 contas que não têm vínculo nenhum.
+  assert.equal(statusDoOmie(null), null);
+  assert.equal(statusDoOmie(undefined), null);
+});
+
+test("inativo no Omie é true; ativo é false", () => {
+  assert.equal(statusDoOmie(true), true);
+  assert.equal(statusDoOmie(false), false);
+});
+
+test("o que o driver devolver fora de booleano não vira 'inativo' por acidente", () => {
+  // `bool_and` do Postgres chega como booleano pelo pg, mas a coluna passou por
+  // três formatos nesta base. Qualquer coisa que não seja `true` é "ativo", e
+  // ausência continua sendo ausência — nunca "inativo", que acusaria o cliente.
+  assert.equal(statusDoOmie("f"), false);
+  assert.equal(statusDoOmie(0), false);
+  assert.equal(statusDoOmie(""), false);
 });

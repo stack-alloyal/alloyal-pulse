@@ -308,9 +308,29 @@ function linhaDaTabela(
         <span className="text-ink-4">—</span>
       )}
     </span>,
-    <Badge key="a" tone={l.ativo ? "green" : "slate"}>
-      {l.ativo ? "ativo" : "inativo"}
-    </Badge>,
+    /* ┌──────────────────────────────────────────────────────────────────────┐
+       │ O STATUS AQUI É O DO OMIE, e o cabeçalho da coluna diz isso.           │
+       │                                                                        │
+       │ Era o do Admin. Trocado a pedido, com a ressalva medida em 17/08/2026:  │
+       │ os dois discordam em 626 das 1.959 contas, porque o `inativo` do Omie   │
+       │ está marcado em apenas 183 dos 9.499 clientes — ninguém desativa        │
+       │ cliente no ERP. Então "ativo" aqui não quer dizer que o cliente esteja  │
+       │ vivo; quem responde isso é a coluna MRR mês, que diz se houve           │
+       │ faturamento e quando.                                                  │
+       │                                                                        │
+       │ Sem vínculo com o Omie é TRAVESSÃO, não "ativo": são 739 contas, e      │
+       │ pintá-las de verde afirmaria um status que não existe. */
+    <span key="a" className="whitespace-nowrap">
+      {l.omieInativo === null ? (
+        <span className="text-ink-4" title="Esta conta não tem vínculo com o Omie">
+          —
+        </span>
+      ) : (
+        <Badge tone={l.omieInativo ? "slate" : "green"}>
+          {l.omieInativo ? "inativo" : "ativo"}
+        </Badge>
+      )}
+    </span>,
     /* O ícone existe além do nome clicável porque a linha tem DOIS destinos: o
        nome navega, a seta expande. Quem já foi mordido por clicar no nome e ver a
        linha abrir procura um alvo inequívoco — e este é ele, sempre na mesma
@@ -568,7 +588,10 @@ export default async function BaseDeClientes({
               <Ordenavel key="r" por="mrr" atual={ordem} busca={comBusca}>
                 MRR mês
               </Ordenavel>,
-              "",
+              // A coluna ganha nome porque o status passou a ser o do Omie, e o
+              // filtro "só ativos" continua sendo o do Admin. Sem o rótulo, a
+              // tela mostraria dois status contraditórios sem dizer de quem é qual.
+              "Omie",
               "",
             ]}
             rows={linhas}
@@ -666,6 +689,22 @@ export default async function BaseDeClientes({
             sem ele, &quot;agosto ainda não venceu&quot; e &quot;não fatura desde
             março&quot; apareceriam iguais. Valores em reais inteiros — os
             centavos estão na ficha de cada cliente.
+            <br />
+            {/* Esta frase existe porque a tela passou a mostrar DOIS status de
+                origens diferentes: o badge é do Omie, o filtro é do Admin. Sem
+                dizer isso, a linha "ativo" fora do filtro "só ativos" pareceria
+                defeito. */}
+            <strong className="font-semibold text-ink">Omie</strong> é o status no
+            ERP, e não é o mesmo do Admin: os dois discordam em{" "}
+            <strong className="font-semibold text-ink">626</strong> das{" "}
+            {N(1959)} contas, porque o campo &quot;inativo&quot; do Omie está
+            marcado em só 183 dos 9.499 clientes — ninguém desativa cliente no
+            ERP. Por isso o chip{" "}
+            <strong className="font-semibold text-ink">só ativos</strong> continua
+            usando o Admin, e{" "}
+            <strong className="font-semibold text-ink">MRR mês</strong> é o que
+            responde de verdade se o cliente ainda está vivo. Travessão na coluna
+            Omie é conta sem vínculo com o ERP — são 739.
           </p>
         </Card>
       </Corpo>
