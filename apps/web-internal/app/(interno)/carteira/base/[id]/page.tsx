@@ -110,7 +110,31 @@ function mesesAtras(n: number): string {
 }
 
 /** O link do filtro, preservando o que já estava selecionado. */
-const comFiltro = (id: string, q: Record<string, string | undefined>) => {
+/**
+ * Para onde um controle desta ficha navega — e ONDE a página para depois.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A ÂNCORA É PARÂMETRO OBRIGATÓRIO porque a ficha tem DUAS seções com        │
+ * │ controles próprios, e antes havia um `#faturamento` fixo aqui para as duas.│
+ * │                                                                            │
+ * │ O efeito medido: com o gráfico no topo da tela (scrollY 3622), clicar no    │
+ * │ eixo "emissão" levava a página para 4201 — o topo do card do HISTÓRICO. A   │
+ * │ pessoa trocava o eixo do gráfico e tinha de rolar de volta para cima para   │
+ * │ ver o gráfico que acabou de mudar. Valia para os seis controles do gráfico: │
+ * │ eixo, período, "tudo", limpar datas e as duas visões.                       │
+ * │                                                                            │
+ * │ Obrigatória e não com valor padrão: um padrão é justamente o que fez o      │
+ * │ defeito passar despercebido em seis lugares. Controle novo agora não        │
+ * │ compila sem dizer a que seção pertence.                                    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+type Secao = 'grafico' | 'faturamento' | 'identidades'
+
+const comFiltro = (
+  id: string,
+  q: Record<string, string | undefined>,
+  secao: Secao,
+) => {
   const p = new URLSearchParams()
   for (const [k, v] of Object.entries(q)) {
     // `ok` e `erro` são mensagens de uma ação que já aconteceu: carregá-las no
@@ -119,7 +143,7 @@ const comFiltro = (id: string, q: Record<string, string | undefined>) => {
     if (v && v !== 'todas' && k !== 'ok' && k !== 'erro') p.set(k, v)
   }
   const s = p.toString()
-  return `/carteira/base/${id}${s ? `?${s}` : ''}#faturamento`
+  return `/carteira/base/${id}${s ? `?${s}` : ''}#${secao}`
 }
 
 /** Pares rótulo/valor. É a forma que uma ficha pede — não é tabela, é cadastro. */
@@ -481,6 +505,10 @@ export default async function FichaDeCliente({
         </div>
 
         {/* ── O histórico por mês ── */}
+        {/* A âncora do gráfico, que faltava: os controles dele apontavam para a do
+            histórico. `scroll-mt-24` porque o cabeçalho é `sticky` de 62px — sem a
+            margem, o navegador para com o título do card debaixo da barra. */}
+        <div id="grafico" className="scroll-mt-24" />
         {passado.length > 0 && (
           <Card
             title={`Faturamento por mês · ${N(ultimosMeses.length)} ${ultimosMeses.length === 1 ? 'mês' : 'meses'}`}
@@ -490,7 +518,7 @@ export default async function FichaDeCliente({
                   <Chip
                     key={e.chave}
                     rotulo={e.rotulo}
-                    href={comFiltro(conta.id, { ...q, eixo: e.chave })}
+                    href={comFiltro(conta.id, { ...q, eixo: e.chave }, 'grafico')}
                     ativo={eixo === e.chave}
                     fixo
                   />
@@ -511,21 +539,27 @@ export default async function FichaDeCliente({
                   <Chip
                     key={m}
                     rotulo={`${m} meses`}
-                    href={comFiltro(conta.id, { ...q, meses: String(m), de: '', ate: '' })}
+                    href={comFiltro(conta.id, { ...q, meses: String(m), de: '', ate: '' }, 'grafico')}
                     ativo={!q.de && !q.ate && Number(q.meses ?? 24) === m}
                     fixo
                   />
                 ))}
                 <Chip
                   rotulo="tudo"
-                  href={comFiltro(conta.id, { ...q, meses: '999', de: '', ate: '' })}
+                  href={comFiltro(conta.id, { ...q, meses: '999', de: '', ate: '' }, 'grafico')}
                   ativo={!q.de && !q.ate && Number(q.meses ?? 24) === 999}
                   fixo
                 />
               </Chips>
               {/* Datas soltas: quem digitou uma data quis aquela, e ela vence do
                   preset. O `form` é GET, então o recorte fica na URL como os chips. */}
-              <form action={`/carteira/base/${conta.id}`} className="flex items-center gap-1.5">
+              {/* O `#grafico` no `action` é o que faz "aplicar" parar no gráfico: submissão
+                      GET reescreve a QUERY do action e preserva o fragmento. Sem ele o
+                      formulário era o único controle do card que voltava ao topo da página. */}
+                  <form
+                    action={`/carteira/base/${conta.id}#grafico`}
+                    className="flex items-center gap-1.5"
+                  >
                 {q.sit && <input type="hidden" name="sit" value={q.sit} />}
                 {q.cat && <input type="hidden" name="cat" value={q.cat} />}
                 <input type="hidden" name="eixo" value={eixo} />
@@ -548,7 +582,7 @@ export default async function FichaDeCliente({
                 </Btn>
                 {(q.de || q.ate) && (
                   <Link
-                    href={comFiltro(conta.id, { ...q, de: '', ate: '' })}
+                    href={comFiltro(conta.id, { ...q, de: '', ate: '' }, 'grafico')}
                     className="px-1 text-meta text-ink-3 hover:text-ink"
                   >
                     limpar
@@ -559,8 +593,8 @@ export default async function FichaDeCliente({
 
             <div className="mb-2 flex flex-wrap items-center gap-3">
               <Chips rotulo="visão:">
-                <Chip rotulo="valor" href={comFiltro(conta.id, { ...q, vis: 'valor' })} ativo={q.vis !== 'situacao'} fixo />
-                <Chip rotulo="situação" href={comFiltro(conta.id, { ...q, vis: 'situacao' })} ativo={q.vis === 'situacao'} fixo />
+                <Chip rotulo="valor" href={comFiltro(conta.id, { ...q, vis: 'valor' }, 'grafico')} ativo={q.vis !== 'situacao'} fixo />
+                <Chip rotulo="situação" href={comFiltro(conta.id, { ...q, vis: 'situacao' }, 'grafico')} ativo={q.vis === 'situacao'} fixo />
               </Chips>
             </div>
 
@@ -674,7 +708,7 @@ export default async function FichaDeCliente({
                 <Chip
                   key={sit}
                   rotulo={sit === 'todas' ? 'todas' : (ROTULO_SITUACAO[sit] ?? sit)}
-                  href={comFiltro(conta.id, { ...q, sit })}
+                  href={comFiltro(conta.id, { ...q, sit }, 'faturamento')}
                   ativo={(q.sit ?? 'todas') === sit}
                   /* `fixo`: a situação é estado ESTRUTURAL. Sumir com "cancelado"
                      porque este cliente não tem nenhum faria parecer que cancelar
@@ -690,7 +724,7 @@ export default async function FichaDeCliente({
               <Chips rotulo="categoria:">
                 <Chip
                   rotulo="todas"
-                  href={comFiltro(conta.id, { ...q, cat: 'todas' })}
+                  href={comFiltro(conta.id, { ...q, cat: 'todas' }, 'faturamento')}
                   ativo={(q.cat ?? 'todas') === 'todas'}
                   fixo
                 />
@@ -698,7 +732,7 @@ export default async function FichaDeCliente({
                   <Chip
                     key={c.categoria}
                     rotulo={c.nome}
-                    href={comFiltro(conta.id, { ...q, cat: c.categoria })}
+                    href={comFiltro(conta.id, { ...q, cat: c.categoria }, 'faturamento')}
                     ativo={q.cat === c.categoria}
                     conta={c.titulos}
                   />
@@ -734,7 +768,7 @@ export default async function FichaDeCliente({
               <p className="mt-3 text-meta leading-relaxed text-ink-3">
                 {q.sit || q.cat ? (
                   <>
-                    Filtrado. <Link href={comFiltro(conta.id, {})} className="font-semibold text-purple-700">
+                    Filtrado. <Link href={comFiltro(conta.id, {}, 'faturamento')} className="font-semibold text-purple-700">
                       limpar filtros
                     </Link>{' '}
                     para ver os {N(resumo.titulos)} títulos emitidos.
@@ -749,7 +783,7 @@ export default async function FichaDeCliente({
                       {N(resumo.previsaoTitulos)} títulos de previsão não entram aqui
                     </strong>{' '}
                     ({BRL(resumo.previsaoCentavos)}) — recorrência projetada e não emitida.{' '}
-                    <Link href={comFiltro(conta.id, { ...q, sit: 'previsao' })} className="font-semibold text-purple-700">
+                    <Link href={comFiltro(conta.id, { ...q, sit: 'previsao' }, 'faturamento')} className="font-semibold text-purple-700">
                       ver a previsão
                     </Link>
                     .

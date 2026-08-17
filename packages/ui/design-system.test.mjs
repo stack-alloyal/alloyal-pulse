@@ -846,3 +846,37 @@ test('o cn conhece todos os nomes da escala de tipo', () => {
     'nome da escala fora da lista do cn: ele será APAGADO quando usado junto de uma cor',
   )
 })
+
+/**
+ * Toda seção que um filtro pode apontar tem de existir como âncora.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A ficha do cliente tem duas seções com controles próprios — o gráfico e o   │
+ * │ histórico — e um `#faturamento` fixo servia às duas. Medido: com o gráfico  │
+ * │ no alto da tela, trocar o eixo levava a página para o topo do HISTÓRICO, e  │
+ * │ era preciso rolar de volta para ver o gráfico que acabou de mudar. Seis     │
+ * │ controles tinham o defeito.                                                │
+ * │                                                                            │
+ * │ A âncora virou parâmetro obrigatório, o que resolve a escolha errada por    │
+ * │ omissão. Sobra a escolha errada por DIGITAÇÃO: `#grafico` apontando para um │
+ * │ id que ninguém declarou é uma navegação que simplesmente não rola, sem      │
+ * │ erro no console e sem nada quebrado — o pior tipo de defeito de navegação.  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+test('cada seção da ficha do cliente tem a âncora que os filtros apontam', () => {
+  const ficha = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'carteira', 'base', '[id]', 'page.tsx'),
+    'utf8',
+  )
+  const uniao = ficha.slice(ficha.indexOf('type Secao ='), ficha.indexOf('const comFiltro'))
+  const secoes = [...uniao.matchAll(/'([a-z]+)'/g)].map((m) => m[1])
+  const ancoras = [...ficha.matchAll(/id="([a-z]+)"\s+className="scroll-mt/g)].map((m) => m[1])
+
+  assert.ok(secoes.length >= 2, `a união Secao tem de ser lida; achei ${secoes.length}`)
+  assert.deepEqual(
+    secoes.filter((s) => !ancoras.includes(s)),
+    [],
+    `seção sem âncora na página: o link existe e a rolagem não acontece.\n` +
+      `Secao: ${secoes.join(', ')}\nâncoras: ${ancoras.join(', ')}`,
+  )
+})
