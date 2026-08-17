@@ -82,31 +82,6 @@ export interface LinhaDaBase {
   readonly razaoSocial: string;
   readonly cnpj: string | null;
   readonly ativo: boolean;
-  /**
-   * O status do cliente NO OMIE. `null` quando a conta não tem vínculo com o Omie.
-   *
-   * ┌─────────────────────────────────────────────────────────────────────────┐
-   * │ NÃO É O MESMO QUE `ativo`, E DISCORDA DELE EM 626 CONTAS. Medido em       │
-   * │ 17/08/2026: das 1.959 main business, 739 não têm vínculo, 497 estão       │
-   * │ ativas nos dois, 97 inativas nos dois, 18 ativas só no Admin e 608        │
-   * │ ativas só no Omie.                                                       │
-   * │                                                                          │
-   * │ A razão do desequilíbrio: o `inativo` do Omie está marcado em 183 dos     │
-   * │ 9.499 clientes — 1,9%. Ninguém desativa cliente no ERP; para o financeiro │
-   * │ um cliente que parou de pagar simplesmente deixa de ter título. Então     │
-   * │ este campo NÃO responde "o cliente está vivo" — quem responde isso é      │
-   * │ `mrrMesCentavos`, que diz se ainda houve faturamento e quando.            │
-   * │                                                                          │
-   * │ Fica na linha porque foi pedido explicitamente, com essa ressalva posta:  │
-   * │ é o status do ERP, e o filtro "só ativos" continua sendo o do Admin.      │
-   * │                                                                          │
-   * │ Quando a conta tem MAIS DE UMA identidade no Omie — 42 têm, por upsell e  │
-   * │ downsell — basta uma ativa para a conta contar como ativa. O contrário    │
-   * │ marcaria como inativa uma conta cuja identidade antiga foi encerrada e a  │
-   * │ nova está faturando.                                                     │
-   * └─────────────────────────────────────────────────────────────────────────┘
-   */
-  readonly omieInativo: boolean | null;
   /** URL do logo em `assets.alloyal.com.br`, de "Customização do App" no core. */
   readonly logoUrl: string | null;
   /** De qual campo veio — a resposta para "por que este logo está deitado?". */
@@ -196,7 +171,6 @@ function paraLinha(r: Record<string, unknown>): LinhaDaBase {
     razaoSocial: String(r["razao_social"] ?? ""),
     cnpj: (r["cnpj"] as string | null) ?? null,
     ativo: r["ativo"] === true,
-    omieInativo: statusDoOmie(r["omie_inativo"]),
     logoUrl: (r["logo_url"] as string | null) ?? null,
     logoOrigem: (r["logo_origem"] as string | null) ?? null,
     usuariosAutorizados: Number(r["usuarios_autorizados"] ?? 0),
@@ -328,18 +302,8 @@ export async function mainBusinesses(
      mrr AS (
        SELECT DISTINCT ON (account_id) account_id, total
          FROM mes ORDER BY account_id, m DESC
-     ),
-     -- O status do ERP por conta. bool_and sobre "está inativo": basta UMA
-     -- identidade ativa para a conta contar como ativa — ver o comentário do
-     -- campo omieInativo. 42 contas têm mais de uma.
-     status_omie AS (
-       SELECT v.account_id, bool_and(oc.inativo) inativo
-         FROM core.vinculo_cliente v
-         JOIN core.omie_cliente oc ON oc.documento = v.chave
-        WHERE v.fonte = 'omie'
-        GROUP BY 1
      )
-     SELECT ${CAMPOS}, so.inativo AS omie_inativo,
+     SELECT ${CAMPOS},
             coalesce(f.n, 0)::text   AS subs,
             coalesce(f.cad, 0)::text AS subs_cadastrados
        FROM core.account a
@@ -350,7 +314,6 @@ export async function mainBusinesses(
        ) f ON true
        LEFT JOIN ltv l ON l.account_id = a.id
        LEFT JOIN mrr r ON r.account_id = a.id
-       LEFT JOIN status_omie so ON so.account_id = a.id
       WHERE ${filtro}
       ORDER BY ${ORDENS[ordem] ?? ORDENS["usuarios"]}
       -- LIMIT NULL é "sem limite" no Postgres, e é assim que "todas" chega aqui:
@@ -373,25 +336,6 @@ export async function mainBusinesses(
     // páginas existem chega a 1, que é a verdade da tela.
     porPagina: todas ? Math.max(total, 1) : porPagina,
   };
-}
-
-/**
- * Os TRÊS estados do status do Omie, e por que o terceiro não pode virar `false`.
- *
- * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ `null` é "não há vínculo com o Omie" — 739 das 1.959 contas. `false` é "o   │
- * │ Omie diz que está ativo". Colapsar os dois é a linha de código mais fácil   │
- * │ de escrever aqui (`=== true`) e pinta 739 contas de VERDE afirmando um      │
- * │ status que não existe em lugar nenhum.                                     │
- * │                                                                            │
- * │ Existe como função exportada só para ter teste: o erro não quebra nada,     │
- * │ não aparece no build e não aparece no tipo — aparece como 739 badges        │
- * │ verdes que ninguém questiona.                                              │
- * └───────────────────────────────────────────────────────────────────────────┘
- */
-export function statusDoOmie(valor: unknown): boolean | null {
-  if (valor === null || valor === undefined) return null;
-  return valor === true;
 }
 
 /**
@@ -503,11 +447,7 @@ export async function subBusinesses(
      um `ORDENS` completo e uma CTE de LTV — os dois mortos, nunca referenciados
      pela consulta, e crescendo junto a cada ordem nova que eu acrescentava. */
   const { rows } = await db.query(
-    `SELECT ${CAMPOS}, 0 AS subs, 0 AS subs_cadastrados,
-            (SELECT bool_and(oc.inativo)
-               FROM core.vinculo_cliente v
-               JOIN core.omie_cliente oc ON oc.documento = v.chave
-              WHERE v.account_id = a.id AND v.fonte = 'omie') AS omie_inativo
+    `SELECT ${CAMPOS}, 0 AS subs, 0 AS subs_cadastrados
        FROM core.account a
        LEFT JOIN core.account_hubspot h ON h.account_id = a.id
       WHERE a.parent_account_id = $1::uuid

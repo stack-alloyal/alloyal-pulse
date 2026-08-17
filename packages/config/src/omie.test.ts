@@ -151,3 +151,75 @@ describe('documento do Omie', () => {
     assert.equal(documentoUtil('112223330001812'), false)
   })
 })
+
+// ═══ Portão: a integração com o Omie é SÓ DE LEITURA ══════════════════════════
+
+/**
+ * A API do Omie escreve, e a nossa chave tem permissão para isso.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ SONDADO EM 17/08/2026, com métodos que não criam nada e uma chave de        │
+ * │ integração inexistente. `AlterarCliente`, `AlterarContaReceber`,            │
+ * │ `AlterarContaPagar`, `AlterarProduto`, `AlterarOS`, `AlterarContrato` e     │
+ * │ `AlterarVendedor` responderam todos com erro de NEGÓCIO ("não cadastrado    │
+ * │ para o Código de Integração") — isto é, o método foi aceito e executado.    │
+ * │ Nenhum devolveu erro de permissão. O contraste que prova o negativo: um     │
+ * │ endpoint inexistente devolve 404, que é o que uma chamada recusada parece.  │
+ * │                                                                            │
+ * │ Ou seja: o segredo `omie.app_key` que guardamos pode alterar e excluir      │
+ * │ registro no ERP de produção. Hoje o Pulse chama só `Listar*`, e é isso que  │
+ * │ nos protege — um hábito, não um limite técnico.                            │
+ * │                                                                            │
+ * │ Este portão transforma o hábito em regra: qualquer método que não seja de   │
+ * │ leitura precisa ser escrito de propósito E derrubar este teste, o que       │
+ * │ obriga quem for escrever a justificar por que passou a escrever no ERP.     │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+test('nenhuma chamada ao Omie usa método de escrita', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const { join, dirname } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+
+  const LEITURA = /^(Listar|Consultar|Obter|Pesquisar|Verificar)/
+  // `..`/`src` e NÃO o diretório do próprio módulo: em tempo de teste este
+  // arquivo roda de `dist`, onde os únicos `.ts` são declarações `.d.ts` — sem
+  // corpo de função e portanto sem nenhuma chamada para achar. O portão passava
+  // vazio, e a mutação de conferência provou isso antes de ele valer alguma coisa.
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
+  const arquivos = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+  const escritas: string[] = []
+
+  for (const nome of arquivos) {
+    const texto = readFileSync(join(dir, nome), 'utf8')
+    // O segundo argumento nomeado de `chamarOmie` é o método. Pega a chamada em
+    // uma linha e a quebrada em várias, que é como o arquivo a escreve.
+    for (const m of texto.matchAll(/chamarOmie\(\s*[^,]+,\s*[^,]+,\s*'([A-Za-z]+)'/g)) {
+      const metodo = m[1]!
+      if (!LEITURA.test(metodo)) {
+        const linha = texto.slice(0, m.index).split('\n').length
+        escritas.push(`${nome}:${linha} — ${metodo}`)
+      }
+    }
+  }
+
+  assert.deepEqual(
+    escritas,
+    [],
+    `\nMétodo de ESCRITA no Omie:\n${escritas.join('\n')}\n\n` +
+      'A app_key tem permissão de escrita no ERP de produção (sondado em 17/08/2026).\n' +
+      'Se escrever é mesmo a intenção, mude este portão junto — e diga no commit o que passa a ser alterado lá.',
+  )
+})
+
+test('o portão de escrita ainda pega método novo, e não passa vazio', () => {
+  // O par de toda regra por varredura: sem isto, um erro no padrão apagaria a
+  // busca inteira e o portão passaria sem olhar nada.
+  const LEITURA = /^(Listar|Consultar|Obter|Pesquisar|Verificar)/
+  const fingido = `
+    await chamarOmie(cred, 'geral/clientes/', 'ListarClientes', { pagina: 1 })
+    await chamarOmie(cred, 'geral/clientes/', 'IncluirCliente', { razao_social: 'x' })
+  `
+  const achados = [...fingido.matchAll(/chamarOmie\(\s*[^,]+,\s*[^,]+,\s*'([A-Za-z]+)'/g)].map((m) => m[1]!)
+  assert.deepEqual(achados, ['ListarClientes', 'IncluirCliente'], 'o padrão tem de achar os dois')
+  assert.deepEqual(achados.filter((x) => !LEITURA.test(x)), ['IncluirCliente'])
+})
