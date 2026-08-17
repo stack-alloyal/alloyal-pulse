@@ -63,7 +63,7 @@ suite: ## Roda TODA a suíte do CI num Postgres descartável (o `pnpm test` cobr
 	@for i in $$(seq 1 45); do docker exec pulse-pg-suite pg_isready -U postgres -d pulse >/dev/null 2>&1 && sleep 2 && break || sleep 1; done
 	@pnpm build >/dev/null
 	@set -e; \
-	 lista=$$(grep -oP '(packages|apps)/[a-z-]+/dist/\S*\.test\.js' .github/workflows/ci.yml | sort -u); \
+	 lista=$$(grep -oP '(packages|apps)/[a-z-]+/(dist/\S*\.test\.js|\S*\.test\.mjs)' .github/workflows/ci.yml | sort -u); \
 	 echo "$$(echo "$$lista" | wc -l) arquivos de teste nomeados no ci.yml"; \
 	 for f in $$lista; do test -f "$$f" || { echo "não compilado: $$f"; exit 1; }; done; \
 	 DATABASE_URL_ADMIN=postgres://postgres:teste@127.0.0.1:$(PORTA_SUITE)/pulse \

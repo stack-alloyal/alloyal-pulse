@@ -1,0 +1,69 @@
+/*
+ * A lateral minimizada de 64px, e o flyout que devolve o rótulo — §07 do design
+ * system do Publi ("Sidebar minimizada 64px · só ícones; o submenu vira flyout
+ * que abre também por Tab").
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ CSS DE VERDADE, E NÃO CLASSES CONDICIONAIS NO JSX.                         │
+ * │                                                                            │
+ * │ Toda a diferença entre expandida e minimizada mora aqui, sob um único       │
+ * │ seletor de raiz. O JSX é o MESMO nos dois estados — é o que permite marcar  │
+ * │ o atributo antes da primeira pintura sem nenhum risco de o servidor e o     │
+ * │ cliente discordarem, e o que impede as duas versões da lateral de           │
+ * │ divergirem com o tempo: não existem duas versões.                          │
+ * │                                                                            │
+ * │ O FLYOUT ABRE POR :hover E POR :focus-within. O segundo não é enfeite de    │
+ * │ acessibilidade: com a lateral minimizada, o rótulo só existe no flyout, e   │
+ * │ sem `:focus-within` quem navega por Tab percorreria dez ícones sem nome —   │
+ * │ e os sete filhos de Configurações ficariam inalcançáveis pelo teclado.      │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+
+/* O flyout não existe enquanto a lateral está aberta: lá o rótulo está na linha
+   e o submenu abre embaixo. Ele é peça da minimizada, não um tooltip geral. */
+.lateral-flyout {
+  display: none;
+}
+
+:root[data-menu='min'] .lateral {
+  width: 64px;
+}
+
+/* Rótulo, chevron, submenu embutido e o rodapé saem: no lugar deles, o ícone
+   centralizado. `justify-content` e não margem, para o ícone ficar no meio dos
+   64px sem depender do tamanho do texto que sumiu. */
+:root[data-menu='min'] .lateral-rotulo,
+:root[data-menu='min'] .lateral-chevron,
+:root[data-menu='min'] .lateral-filhos,
+:root[data-menu='min'] .lateral-rodape,
+:root[data-menu='min'] .lateral-marca-completa {
+  display: none;
+}
+
+:root[data-menu='min'] .lateral-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* A marca vira o ícone quadrado. São dois elementos e um deles está sempre
+   escondido — trocar `src` por estado exigiria que o React soubesse o estado. */
+.lateral-marca-icone {
+  display: none;
+}
+:root[data-menu='min'] .lateral-marca-icone {
+  display: block;
+}
+
+/* O flyout: aparece ao passar o mouse OU ao receber foco em qualquer coisa
+   dentro do alvo — o próprio ícone, o chevron, ou um link do submenu. */
+:root[data-menu='min'] .lateral-alvo:hover > .lateral-flyout,
+:root[data-menu='min'] .lateral-alvo:focus-within > .lateral-flyout {
+  display: block;
+}
+
+/* O botão de recolher/ampliar gira a seta em vez de trocar de ícone: mesmo alvo,
+   mesmo lugar, e a direção diz para onde a lateral vai. */
+:root[data-menu='min'] .lateral-alavanca-seta {
+  transform: rotate(180deg);
+}

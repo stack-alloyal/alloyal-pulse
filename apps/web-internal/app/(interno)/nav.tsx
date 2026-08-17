@@ -53,6 +53,42 @@ function usarGrupos() {
 }
 
 /**
+ * Um filho do grupo, no submenu embutido E no flyout.
+ *
+ * Existe como componente porque os dois lugares renderizam a mesma lista: em
+ * cópia, o `aria-current` do flyout ficaria desatualizado na primeira vez que
+ * alguém mexesse só no de cima — e "onde eu estou" é exatamente o que o menu
+ * minimizado tem menos condição de comunicar.
+ */
+function Filho({
+  f,
+  pai,
+  pathname,
+}: {
+  f: { href: string; rotulo: string; proposito: string }
+  pai: string
+  pathname: string
+}) {
+  /* Ativo é o de href mais LONGO que casa: sem isso, "/configuracoes" ficaria
+     aceso nas sete telas ao mesmo tempo. */
+  const ativo = pathname === f.href || (f.href !== pai && pathname.startsWith(f.href + '/'))
+  return (
+    <Link
+      href={f.href}
+      title={f.proposito}
+      aria-current={ativo ? 'page' : undefined}
+      className={cn(
+        'truncate rounded-sm px-2 py-1.5 text-meta transition-colors',
+        FOCO,
+        ativo ? 'font-semibold text-purple-700' : 'text-ink-3 hover:bg-surface-2 hover:text-ink-2',
+      )}
+    >
+      {f.rotulo}
+    </Link>
+  )
+}
+
+/**
  * A navegação da sidebar — o único componente de cliente da casca.
  *
  * É cliente porque precisa do `pathname` para destacar o item ativo, e o
@@ -105,25 +141,35 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
         const escolha = grupos[m.href]
         const aberto = Boolean(m.filhos) && (escolha ?? dentro)
         return (
-          <div key={m.href}>
+          /* `lateral-alvo` + `relative` é o que ancora o flyout da lateral
+             minimizada. O flyout está SEMPRE no HTML e o CSS decide se existe —
+             ver lateral.css. Renderizá-lo condicionalmente exigiria que este
+             componente soubesse a largura da lateral, que é justamente o que o
+             desenho por atributo no <html> evita. */
+          <div key={m.href} className="lateral-alvo relative">
             <div className="flex items-center">
               <Link
                 href={m.href}
                 aria-current={isAtivo ? 'page' : undefined}
                 className={cn(
-                  'flex min-w-0 flex-1 items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-corpo font-semibold transition-colors',
+                  'lateral-item flex min-w-0 flex-1 items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-corpo font-semibold transition-colors',
+                  FOCO,
                   isAtivo ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
                 )}
               >
                 <Icone
                   className={cn('h-[17px] w-[17px] shrink-0', isAtivo ? 'text-purple-500' : 'text-ink-3')}
                 />
-                <span className="truncate">{m.rotulo}</span>
+                <span className="lateral-rotulo truncate">{m.rotulo}</span>
               </Link>
               {/* BOTÃO SEPARADO do link, e não o link inteiro virando gatilho:
                   Configurações É uma tela (o Catálogo), e transformar o item em
                   interruptor tiraria o acesso a ela. Um navega, o outro recolhe. */}
               {m.filhos && (
+                /* ds-excecao: alvo de ÍCONE colado ao link do menu, com 24px de
+                   lado. Precisa da mesma altura da linha e de nenhum fundo — um
+                   <Btn> traria altura de controle (36px) e quebraria a linha do
+                   item ao meio. */
                 <button
                   type="button"
                   onClick={() => alternar(m.href, !aberto)}
@@ -131,7 +177,7 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
                   aria-label={`${aberto ? 'Recolher' : 'Ampliar'} ${m.rotulo}`}
                   title={`${aberto ? 'Recolher' : 'Ampliar'} ${m.rotulo}`}
                   className={cn(
-                    'ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink',
+                    'lateral-chevron ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink',
                     FOCO,
                   )}
                 >
@@ -145,32 +191,39 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
               )}
             </div>
             {aberto && m.filhos && (
-              <div className="ml-[26px] mt-0.5 flex flex-col gap-0.5 border-l border-line pl-2">
-                {m.filhos.map((f) => {
-                  /* Ativo é o de href mais LONGO que casa: sem isso, "/configuracoes"
-                     ficaria aceso nas sete telas ao mesmo tempo. */
-                  const filhoAtivo =
-                    pathname === f.href || (f.href !== m.href && pathname.startsWith(f.href + '/'))
-                  return (
-                    <Link
-                      key={f.href}
-                      href={f.href}
-                      title={f.proposito}
-                      aria-current={filhoAtivo ? 'page' : undefined}
-                      className={cn(
-                        'truncate rounded-sm px-2 py-1.5 text-meta transition-colors',
-                        FOCO,
-                        filhoAtivo
-                          ? 'font-semibold text-purple-700'
-                          : 'text-ink-3 hover:bg-surface-2 hover:text-ink-2',
-                      )}
-                    >
-                      {f.rotulo}
-                    </Link>
-                  )
-                })}
+              <div className="lateral-filhos ml-[26px] mt-0.5 flex flex-col gap-0.5 border-l border-line pl-2">
+                {m.filhos.map((f) => (
+                  <Filho key={f.href} f={f} pai={m.href} pathname={pathname} />
+                ))}
               </div>
             )}
+
+            {/* ─── O flyout da lateral minimizada ─────────────────────────────
+                Devolve o rótulo que os 64px tiraram, e os filhos junto. Abre por
+                :hover E por :focus-within (lateral.css): sem o segundo, quem
+                navega por Tab percorreria dez ícones sem nome e os sete filhos
+                de Configurações seriam inalcançáveis pelo teclado. */}
+            <div className="lateral-flyout absolute left-full top-0 z-40 pl-2">
+              <div className="min-w-[196px] rounded-md border border-line bg-surface p-1.5 shadow-pop">
+                <Link
+                  href={m.href}
+                  className={cn(
+                    'block truncate rounded-sm px-2 py-1.5 text-corpo font-semibold transition-colors',
+                    FOCO,
+                    isAtivo ? 'text-purple-700' : 'text-ink hover:bg-surface-2',
+                  )}
+                >
+                  {m.rotulo}
+                </Link>
+                {m.filhos && (
+                  <div className="mt-0.5 flex flex-col gap-0.5 border-t border-line pt-1">
+                    {m.filhos.map((f) => (
+                      <Filho key={f.href} f={f} pai={m.href} pathname={pathname} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )
       })}

@@ -724,3 +724,49 @@ test('o esqueleto de carregamento existe e respeita reduzir movimento', () => {
   assert.match(esq, /motion-safe:animate-pulse/, 'pulso infinito tem de ficar atrás de motion-safe')
   assert.match(esq, /EsqueletoTabela/, 'o §11 lista Esqueleto E EsqueletoTabela')
 })
+
+/**
+ * ─── §07 · A lateral minimizada e o flyout ───────────────────────────────────
+ *
+ * O modo de quebrar isto é silencioso e passa em qualquer revisão visual: alguém
+ * tira o `:focus-within` do CSS — ou nunca o escreve — e o flyout continua
+ * perfeito no mouse. Com a lateral em 64px o rótulo SÓ existe no flyout, então o
+ * que se perde é o nome de todos os itens e o acesso aos sete filhos de
+ * Configurações para quem navega por teclado. O documento é explícito: "o
+ * submenu vira flyout que abre TAMBÉM POR TAB".
+ */
+test('o flyout da lateral minimizada abre por foco, e não só por mouse', () => {
+  const css = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'lateral.css'),
+    'utf8',
+  )
+  assert.match(css, /:hover\s*>\s*\.lateral-flyout/, 'o flyout tem de abrir no mouse')
+  assert.match(
+    css,
+    /:focus-within\s*>\s*\.lateral-flyout/,
+    'o flyout TEM de abrir por foco — sem isso o teclado não alcança o submenu (§07)',
+  )
+  assert.match(css, /width:\s*64px/, 'a minimizada é de 64px, medida do §07')
+})
+
+/**
+ * A largura da lateral não pode nascer do React.
+ *
+ * Ela empurra a página inteira: aplicada depois de hidratar, a tela salta para a
+ * esquerda a cada navegação de quem escolheu minimizada. O script inline no
+ * `<head>` é o que impede isso, e é fácil alguém "simplificar" trocando-o por um
+ * `useEffect` — que compila, roda, e devolve o salto.
+ */
+test('a escolha da lateral é aplicada antes da primeira pintura', () => {
+  const layout = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'layout.tsx'),
+    'utf8',
+  )
+  assert.match(layout, /SCRIPT_DA_LATERAL/, 'o script da lateral tem de estar no <head>')
+  const fonte = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'lateral.ts'),
+    'utf8',
+  )
+  assert.match(fonte, /localStorage\.getItem/, 'o script lê a escolha guardada')
+  assert.match(fonte, /setAttribute\('data-menu'/, 'e a aplica como atributo do <html>')
+})

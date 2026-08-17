@@ -109,6 +109,10 @@ export function SeletorDeTema({ className }: { className?: string }) {
       {OPCOES.map((o) => {
         const ativo = tema === o.chave
         return (
+          /* ds-excecao: controle SEGMENTADO — as três opções dividem uma borda e
+             um fundo, e são um `role="group"` com `aria-pressed`. Um <Btn> traz a
+             própria altura, o próprio arredondamento e a própria sombra, e o
+             grupo viraria três botões soltos encostados. */
           <button
             key={o.chave}
             type="button"

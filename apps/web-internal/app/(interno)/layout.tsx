@@ -1,9 +1,11 @@
 import { SCRIPT_DO_TEMA } from '@pulse/ui'
 import '@pulse/ui/estilo.css'
+import './lateral.css'
 
 import type { ReactNode } from 'react'
 
 import { Casca } from './casca'
+import { SCRIPT_DA_LATERAL } from './lateral'
 import { autenticado } from '../../lib/guarda'
 
 /**
@@ -78,6 +80,10 @@ export default async function LayoutInterno({ children }: { children: ReactNode 
             escuro por incomodar-se com luz. `suppressHydrationWarning` no <html>
             porque o script muda um atributo dele antes de o React chegar. */}
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_DO_TEMA }} />
+          {/* Mesma razão do tema, e mais forte: a largura da lateral empurra a
+              página inteira, e aplicá-la depois de hidratar faria a tela pular
+              para a esquerda a cada navegação de quem escolheu minimizada. */}
+          <script dangerouslySetInnerHTML={{ __html: SCRIPT_DA_LATERAL }} />
       </head>
       <body>{temAlguem ? <Casca>{children}</Casca> : children}</body>
     </html>

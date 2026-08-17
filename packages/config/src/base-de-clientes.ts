@@ -204,7 +204,7 @@ export async function mainBusinesses(
     porPagina?: number;
     somenteAtivos?: boolean;
     /** Como organizar. `usuarios` é o padrão — ver o comentário do ORDER BY. */
-    ordem?: "usuarios" | "autorizados" | "ltv" | "nome";
+    ordem?: "usuarios" | "autorizados" | "ltv" | "meses" | "mrr" | "nome";
   } = {},
 ): Promise<PaginaDaBase> {
   const todas = opcoes.porPagina === 0;
@@ -257,16 +257,51 @@ export async function mainBusinesses(
     // "cliente que aderiu" — pela ordem de cadastrados as duas se confundem.
     autorizados: "coalesce(a.usuarios_autorizados, 0) DESC, a.razao_social ASC",
     ltv: "coalesce(l.pago, 0) DESC, a.razao_social ASC",
+    // Meses é IDADE. É a única ordem que responde "quem está com a gente há mais
+    // tempo" — o total responde "quem é grande", que costuma dar outra lista.
+    meses: "coalesce(l.meses, 0) DESC, a.razao_social ASC",
+    // MRR do mês é o PRESENTE: quem fatura mais hoje, não quem já faturou muito.
+    // A diferença aparece no cliente antigo que encolheu — alto no total, baixo aqui.
+    mrr: "coalesce(r.total, 0) DESC, a.razao_social ASC",
     nome: "a.razao_social ASC",
   };
 
   const { rows } = await db.query(
     `WITH ltv AS (
-       SELECT v.account_id, sum(t.pago_centavos) pago
+       SELECT v.account_id,
+              sum(t.pago_centavos) pago,
+              count(DISTINCT date_trunc('month', t.vencimento)) meses
          FROM core.vinculo_cliente v
          JOIN core.omie_titulo t ON t.documento = v.chave
         WHERE v.fonte = 'omie' AND t.situacao <> 'previsao'
         GROUP BY 1
+     ),
+     -- ┌────────────────────────────────────────────────────────────────────┐
+     -- │ O ÚLTIMO MÊS COM MOVIMENTO, em SQL, para poder ORDENAR por ele.     │
+     -- │                                                                     │
+     -- │ É a MESMA regra que ultimoMesComMovimento aplica sobre a página já  │
+     -- │ montada, e é a mesma de propósito: se a ordem usasse o mês corrente │
+     -- │ e a coluna mostrasse o último com movimento, a lista viria          │
+     -- │ ordenada por um número que não está escrito em lugar nenhum.        │
+     -- │                                                                     │
+     -- │ O HAVING é o que faz "com movimento" significar algo: sem ele um    │
+     -- │ mês cujos títulos se anulam (cobrança + estorno) seria o último e   │
+     -- │ devolveria zero, jogando o cliente para o fim da lista.             │
+     -- └────────────────────────────────────────────────────────────────────┘
+     mes AS (
+       SELECT v.account_id, date_trunc('month', t.vencimento) m,
+              sum(t.valor_centavos) total
+         FROM core.vinculo_cliente v
+         JOIN core.omie_titulo t ON t.documento = v.chave
+        WHERE v.fonte = 'omie' AND t.situacao <> 'previsao'
+          AND t.vencimento >= date_trunc('month', current_date) - interval '11 months'
+          AND t.vencimento <  date_trunc('month', current_date) + interval '1 month'
+        GROUP BY 1, 2
+       HAVING sum(t.valor_centavos) <> 0
+     ),
+     mrr AS (
+       SELECT DISTINCT ON (account_id) account_id, total
+         FROM mes ORDER BY account_id, m DESC
      )
      SELECT ${CAMPOS},
             coalesce(f.n, 0)::text   AS subs,
@@ -278,6 +313,7 @@ export async function mainBusinesses(
            FROM core.account s WHERE s.parent_account_id = a.id
        ) f ON true
        LEFT JOIN ltv l ON l.account_id = a.id
+       LEFT JOIN mrr r ON r.account_id = a.id
       WHERE ${filtro}
       ORDER BY ${ORDENS[ordem] ?? ORDENS["usuarios"]}
       -- LIMIT NULL é "sem limite" no Postgres, e é assim que "todas" chega aqui:
@@ -406,27 +442,12 @@ export async function subBusinesses(
   db: pg.Pool,
   mainId: string,
 ): Promise<LinhaDaBase[]> {
-  const ORDENS: Record<string, string> = {
-    // Maior primeiro: numa lista de 1.959 clientes, ordem alfabética põe na primeira
-    // página quem tem 0 usuário e empurra o maior contrato para a página 30.
-    usuarios: "(coalesce(a.usuarios_cadastrados, 0) + coalesce(f.cad, 0)) DESC, a.razao_social ASC",
-    // Autorizados é o TETO do contrato; cadastrados é a adesão. Ordenar pelos dois
-    // separadamente é o que deixa ver a diferença entre "cliente grande" e
-    // "cliente que aderiu" — pela ordem de cadastrados as duas se confundem.
-    autorizados: "coalesce(a.usuarios_autorizados, 0) DESC, a.razao_social ASC",
-    ltv: "coalesce(l.pago, 0) DESC, a.razao_social ASC",
-    nome: "a.razao_social ASC",
-  };
-
+  /* Sem mapa de ordem e sem CTE: a lista de filhos de UM main tem dezenas de
+     linhas, não milhares, e a ordem por cadastrados responde sozinha. Havia aqui
+     um `ORDENS` completo e uma CTE de LTV — os dois mortos, nunca referenciados
+     pela consulta, e crescendo junto a cada ordem nova que eu acrescentava. */
   const { rows } = await db.query(
-    `WITH ltv AS (
-       SELECT v.account_id, sum(t.pago_centavos) pago
-         FROM core.vinculo_cliente v
-         JOIN core.omie_titulo t ON t.documento = v.chave
-        WHERE v.fonte = 'omie' AND t.situacao <> 'previsao'
-        GROUP BY 1
-     )
-     SELECT ${CAMPOS}, 0 AS subs, 0 AS subs_cadastrados
+    `SELECT ${CAMPOS}, 0 AS subs, 0 AS subs_cadastrados
        FROM core.account a
        LEFT JOIN core.account_hubspot h ON h.account_id = a.id
       WHERE a.parent_account_id = $1::uuid

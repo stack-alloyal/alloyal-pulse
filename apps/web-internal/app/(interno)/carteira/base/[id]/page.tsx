@@ -480,11 +480,15 @@ export default async function FichaDeCliente({
                 {q.sit && <input type="hidden" name="sit" value={q.sit} />}
                 {q.cat && <input type="hidden" name="cat" value={q.cat} />}
                 <input type="hidden" name="eixo" value={eixo} />
+                {/* ds-excecao: par de datas EM LINHA, com o rótulo ao lado e não acima.
+                    O <Field> monta rótulo em bloco e ocupa a largura toda — aqui os dois
+                    campos e o botão "aplicar" precisam caber numa linha do cabeçalho. */}
                 <label className="text-meta text-ink-3" htmlFor="de">de</label>
                 <input
                   id="de" type="date" name="de" defaultValue={q.de ?? ''}
                   className="h-control-xs rounded-sm border border-line-strong bg-surface px-2 text-meta text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
+                {/* ds-excecao: o par do campo acima — mesma linha, mesmo motivo. */}
                 <label className="text-meta text-ink-3" htmlFor="ate">até</label>
                 <input
                   id="ate" type="date" name="ate" defaultValue={q.ate ?? ''}

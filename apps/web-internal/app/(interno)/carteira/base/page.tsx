@@ -128,7 +128,7 @@ function Ordenavel({
   busca,
   children,
 }: {
-  por: "usuarios" | "autorizados" | "ltv" | "nome";
+  por: "usuarios" | "autorizados" | "ltv" | "meses" | "mrr" | "nome";
   atual: string;
   busca: (extra: Record<string, string>) => string;
   children: React.ReactNode;
@@ -347,7 +347,18 @@ export default async function BaseDeClientes({
   const q = await searchParams;
   const busca = (q.q ?? "").trim();
   const pagina = Math.max(Number(q.p ?? "1") || 1, 1);
-  const somenteAtivos = q.ativos === "1";
+  /* ┌────────────────────────────────────────────────────────────────────────┐
+     │ SÓ ATIVOS É O PADRÃO, e o parâmetro passa a marcar o CONTRÁRIO.          │
+     │                                                                          │
+     │ Dos 1.959 main business, 937 estão inativos — quase metade. A lista      │
+     │ abria com eles dentro, e a primeira coisa a fazer em toda sessão era     │
+     │ filtrar. O padrão passa a ser a lista útil (1.022); ver a base inteira   │
+     │ continua a um clique, e o chip diz qual dos dois está valendo.           │
+     │                                                                          │
+     │ `!== "0"` e não `=== "1"`: uma URL antiga com `?ativos=1` continua        │
+     │ significando o mesmo, e uma sem parâmetro nenhum agora filtra.           │
+     └────────────────────────────────────────────────────────────────────────┘ */
+  const somenteAtivos = q.ativos !== "0";
   // Valor desconhecido em `?pp=` cai no padrão em vez de virar erro: parâmetro de
   // URL é digitado e colado por gente, e 50 é uma resposta melhor que uma tela 500.
   const tamanho = TAMANHOS.find((t) => t.chave === q.pp)?.chave ?? "50";
@@ -362,7 +373,7 @@ export default async function BaseDeClientes({
       porPagina,
       somenteAtivos,
       ordem:
-        (["usuarios", "autorizados", "ltv", "nome"] as const).find((o) => o === q.ordem) ??
+        (["usuarios", "autorizados", "ltv", "meses", "mrr", "nome"] as const).find((o) => o === q.ordem) ??
         "usuarios",
     }),
   ]);
@@ -373,10 +384,10 @@ export default async function BaseDeClientes({
   const filhos = abertaId ? await subBusinesses(db, abertaId) : [];
 
   const paginas = Math.max(Math.ceil(pag.total / pag.porPagina), 1);
-  const comBusca = (extra: Record<string, string>) =>
-    `/carteira/base?${new URLSearchParams({
+  const comBusca = (extra: Record<string, string>) => {
+    const p: Record<string, string> = {
       ...(busca ? { q: busca } : {}),
-      ...(somenteAtivos ? { ativos: "1" } : {}),
+      ...(somenteAtivos ? {} : { ativos: "0" }),
       ...(q.fat ? { fat: q.fat } : {}),
       // A organização escolhida sobrevive à busca e aos chips: trocar de filtro e
       // perder a ordem obriga a refazer duas escolhas quando só uma mudou.
@@ -385,7 +396,13 @@ export default async function BaseDeClientes({
       // para voltar a 50.
       ...(tamanho !== "50" ? { pp: tamanho } : {}),
       ...extra,
-    }).toString()}`;
+    };
+    // String vazia REMOVE o parâmetro. É como o chip "qualquer" desliga o recorte
+    // de faturamento sem precisar de um valor sentinela na URL — `?fat=` seria
+    // igual a não ter, mas apareceria na barra de endereço e no link copiado.
+    for (const [k, v] of Object.entries(p)) if (v === "") delete p[k];
+    return `/carteira/base?${new URLSearchParams(p).toString()}`;
+  };
 
   /* O recorte por faturamento é aplicado AQUI e não no SQL, e a tela diz isso:
      ele filtra a página carregada, não a base inteira. Levar para a consulta
@@ -398,7 +415,7 @@ export default async function BaseDeClientes({
   });
 
   const ordem =
-    (["usuarios", "autorizados", "ltv", "nome"] as const).find((o) => o === q.ordem) ??
+    (["usuarios", "autorizados", "ltv", "meses", "mrr", "nome"] as const).find((o) => o === q.ordem) ??
     "usuarios";
 
   const linhas: React.ReactNode[][] = [];
@@ -477,36 +494,49 @@ export default async function BaseDeClientes({
                com "sem faturamento" porque hoje não há nenhum faria parecer que a
                base não tem essa dimensão. */
             <div className="flex flex-wrap items-center justify-end gap-3">
-              <Chips>
-                <Chip rotulo="todos" href={comBusca({})} ativo={!somenteAtivos && !q.fat} fixo />
-                <Chip
-                  rotulo="só ativos"
-                  href={comBusca({ ativos: "1" })}
-                  ativo={somenteAtivos && !q.fat}
-                  fixo
-                />
-                <Chip
-                  rotulo="com faturamento"
-                  href={comBusca({ ...(somenteAtivos ? { ativos: "1" } : {}), fat: "1" })}
-                  ativo={q.fat === "1"}
-                  fixo
-                />
-                <Chip
-                  rotulo="sem faturamento"
-                  href={comBusca({ ...(somenteAtivos ? { ativos: "1" } : {}), fat: "0" })}
-                  ativo={q.fat === "0"}
-                  fixo
-                />
-              </Chips>
+                {/* DUAS DIMENSÕES, DOIS GRUPOS. Estavam num grupo só, e o
+                    `ativo` de "todos"/"só ativos" ainda dependia de `q.fat` —
+                    escolher "com faturamento" apagava os dois, e a tela deixava
+                    de dizer se estava mostrando a base inteira ou só os ativos.
+                    São perguntas independentes e agora se combinam. */}
+                <Chips>
+                  <Chip
+                    rotulo="só ativos"
+                    href={comBusca({ ativos: "1" })}
+                    ativo={somenteAtivos}
+                    fixo
+                  />
+                  <Chip
+                    rotulo="todos"
+                    href={comBusca({ ativos: "0" })}
+                    ativo={!somenteAtivos}
+                    fixo
+                  />
+                </Chips>
+                <Chips>
+                  <Chip rotulo="qualquer" href={comBusca({ fat: "" })} ativo={!q.fat} fixo />
+                  <Chip
+                    rotulo="com faturamento"
+                    href={comBusca({ fat: "1" })}
+                    ativo={q.fat === "1"}
+                    fixo
+                  />
+                  <Chip
+                    rotulo="sem faturamento"
+                    href={comBusca({ fat: "0" })}
+                    ativo={q.fat === "0"}
+                    fixo
+                  />
+                </Chips>
               <Busca
                 action="/carteira/base"
                 valor={busca}
                 placeholder="nome, CNPJ, Business ID ou HubSpot ID"
                 ocultos={{
-                  ...(somenteAtivos ? { ativos: "1" } : {}),
+                  ...(somenteAtivos ? {} : { ativos: "0" }),
                   ...(q.fat ? { fat: q.fat } : {}),
                 }}
-                hrefLimpar={comBusca(somenteAtivos ? { ativos: "1" } : {})}
+                hrefLimpar={comBusca(somenteAtivos ? {} : { ativos: "0" })}
               />
             </div>
           }
@@ -532,8 +562,12 @@ export default async function BaseDeClientes({
               <Ordenavel key="l" por="ltv" atual={ordem} busca={comBusca}>
                 MRR Total
               </Ordenavel>,
-              "Meses",
-              "MRR mês",
+              <Ordenavel key="m" por="meses" atual={ordem} busca={comBusca}>
+                Meses
+              </Ordenavel>,
+              <Ordenavel key="r" por="mrr" atual={ordem} busca={comBusca}>
+                MRR mês
+              </Ordenavel>,
               "",
               "",
             ]}

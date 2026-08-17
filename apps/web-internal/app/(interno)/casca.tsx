@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 
 import { nomeDaPessoa } from '@pulse/config'
 
+import { AlavancaDaLateral } from './lateral-alavanca'
 import { itemAtivo } from './menu'
 import { Nav } from './nav'
 import { Perfil } from './perfil'
@@ -18,11 +19,10 @@ import { identidadeDaSessao } from '../../lib/guarda'
  *
  * Duas diferenças deliberadas em relação ao alloyal-publi:
  *
- *  1. Não há sidebar minimizada de 64px nem drawer mobile — as duas outras peças
- *     do §07. O grupo recolhe e amplia (`nav.tsx`), que é o que o menu do Pulse
- *     precisa: um único item com filhos. A minimizada exige o flyout que devolve
- *     o rótulo do ícone, e meia minimizada é pior que nenhuma. No lugar do
- *     drawer, o menu horizontal do `Nav variante="topo"`.
+ *  1. Não há drawer mobile — a última peça do §07 que falta. No lugar dele, o
+ *     menu horizontal do `Nav variante="topo"`, que já cobre o telefone sem
+ *     backdrop nem estado. A expandida (252px), a minimizada (64px com flyout) e
+ *     o grupo que recolhe estão todos aqui.
  *
  *  2. A nav é o único componente de cliente (`nav.tsx`), porque precisa do
  *     pathname para destacar o item ativo e do `localStorage` para lembrar o que
@@ -35,14 +35,23 @@ import { identidadeDaSessao } from '../../lib/guarda'
 export function Casca({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-[252px] shrink-0 flex-col border-r border-line bg-surface px-[14px] py-[18px] md:flex">
+      {/* `lateral` é o gancho do CSS que troca 252px por 64px; ver lateral.css.
+          A largura muda por atributo no <html>, e não por estado do React — a
+          lateral empurra a página inteira, e encolher depois de hidratar faria
+          a tela toda pular a cada navegação. */}
+      <aside className="lateral hidden w-[252px] shrink-0 flex-col border-r border-line bg-surface px-[14px] py-[18px] transition-[width] duration-200 motion-reduce:transition-none md:flex">
         <div className="px-2 pb-[18px] pt-1.5">
-          <Link href="/" aria-label="Início">
-            <AlloyalLogo className="h-6" />
+          <Link href="/" aria-label="Início" className="block">
+            <AlloyalLogo className="lateral-marca-completa h-6" />
+            {/* O ícone quadrado da marca, para os 64px. Os dois existem sempre e
+                o CSS escolhe: trocar o `src` por estado exigiria que o React
+                soubesse em qual estado está. */}
+            <img src="/icon.svg" alt="" className="lateral-marca-icone mx-auto h-6 w-6" />
           </Link>
         </div>
         <Nav />
-        <div className="mt-auto px-2 pt-4 text-nota leading-relaxed text-ink-4">
+        <AlavancaDaLateral />
+        <div className="lateral-rodape mt-auto px-2 pt-4 text-nota leading-relaxed text-ink-4">
           Alloyal Pulse · ferramentas de operação
         </div>
       </aside>
