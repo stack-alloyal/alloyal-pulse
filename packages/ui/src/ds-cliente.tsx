@@ -95,7 +95,10 @@ export function Confirmar({
         onClick={onCancelar}
         className="absolute inset-0 bg-[rgba(22,22,26,0.55)] backdrop-blur-[2px]"
       />
-      <div className="relative w-full max-w-lg rounded-lg bg-surface p-5 shadow-pop">
+      {/* §08: diálogo entra com fade + zoom-95 → 100 em 200ms. É a única animação
+          do produto além do hover — interface de operação é lida às pressas, e
+          animação que atrasa a leitura custa mais do que agrada. */}
+      <div className="relative w-full max-w-lg rounded-lg bg-surface p-5 shadow-pop motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:duration-200">
         <h2 id="confirmar-titulo" className="text-title text-ink">
           {pedido.titulo}
         </h2>
@@ -208,7 +211,14 @@ export function Gaveta({
         onClick={onFechar}
         className="absolute inset-0 bg-[rgba(22,22,26,0.55)] backdrop-blur-[2px]"
       />
-      <aside className={cn('relative flex h-full w-full flex-col bg-surface shadow-pop', w)}>
+      {/* §08: gaveta entra por `translate-x` em 200ms. */}
+      <aside
+        className={cn(
+          'relative flex h-full w-full flex-col bg-surface shadow-pop',
+          'motion-safe:animate-in motion-safe:slide-in-from-right motion-safe:duration-200',
+          w,
+        )}
+      >
         <header className="flex items-center justify-between border-b border-line px-5 py-3">
           <h2 className="text-title text-ink">{titulo}</h2>
           <button

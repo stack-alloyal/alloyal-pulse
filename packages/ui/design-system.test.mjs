@@ -686,3 +686,21 @@ test('o pedido de confirmação aceita os quatro elementos', () => {
     assert.match(iface, new RegExp(`readonly ${campo}`), `falta o elemento ${campo} do padrão`)
   }
 })
+
+/**
+ * ─── §08 · Animação infinita fica atrás de `motion-safe:` ────────────────────
+ *
+ * A regra do documento é literal: "tudo que se repete indefinidamente fica atrás
+ * de `motion-safe:` — pulso infinito é exatamente o que incomoda quem pediu para
+ * reduzir movimento". Havia um `animate-spin` solto no painel do radar.
+ */
+test('nenhuma animação infinita sem motion-safe', () => {
+  const soltas = []
+  for (const { caminho, texto } of ARQUIVOS) {
+    for (const m of semComentarios(texto).matchAll(/(?<!motion-safe:)\banimate-(pulse|spin|bounce|ping)\b/g)) {
+      const linha = texto.slice(0, m.index).split('\n').length
+      soltas.push(`${caminho}:${linha} — ${m[0]} sem motion-safe:`)
+    }
+  }
+  assert.deepEqual(soltas, [], `\n${soltas.join('\n')}\n`)
+})

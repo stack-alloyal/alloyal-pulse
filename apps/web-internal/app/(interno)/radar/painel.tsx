@@ -365,7 +365,7 @@ export function PainelDoRadar() {
               title="Atualizar"
               className="ml-auto h-7 w-7 border-0 px-0 text-ink-3"
             >
-              <RefreshCw className={carregando ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+              <RefreshCw className={carregando ? 'h-3.5 w-3.5 motion-safe:animate-spin' : 'h-3.5 w-3.5'} />
             </Btn>
           </div>
 
