@@ -6,13 +6,25 @@ import { cn } from './base'
 import { FOCO } from './ds'
 
 /**
- * Escolha de tema: claro, escuro ou o do sistema.
+ * Escolha de tema: claro, escuro ou o do sistema — num botão só.
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ TRÊS ESTADOS, NÃO DOIS. "Sistema" é o padrão e não é um enfeite: quem usa   │
- * │ o computador no escuro à noite e no claro de dia já resolveu isso uma vez,  │
- * │ no sistema operacional. Um seletor de dois estados obriga essa pessoa a     │
- * │ resolver de novo, aqui, duas vezes por dia.                                │
+ * │ TRÊS ESTADOS, NÃO DOIS, e essa parte não mudou. "Sistema" é o padrão e não  │
+ * │ é enfeite: quem usa o computador no escuro à noite e no claro de dia já     │
+ * │ resolveu isso uma vez, no sistema operacional. Um alternador de dois        │
+ * │ estados obriga essa pessoa a resolver de novo, aqui, duas vezes por dia —   │
+ * │ e, pior, tira o caminho de VOLTAR para "sistema" depois de ter escolhido.   │
+ * │                                                                            │
+ * │ O QUE MUDOU É A FORMA: era um grupo segmentado com ícone e rótulo nos três  │
+ * │ botões, e passou a ser um botão de ícone que cicla, como no Publi (§12       │
+ * │ registra o alternador de lá como "3 estados e persistência"). Os rótulos    │
+ * │ custavam ~110px na barra de topo de dezesseis telas para repetir o que o    │
+ * │ ícone já diz — e a barra é justamente onde a largura briga com o nome da    │
+ * │ tela, que foi truncado a "O…" por causa desse tipo de peso.                 │
+ * │                                                                            │
+ * │ O texto sai da TELA, não da acessibilidade: `aria-label` e `title` dizem em │
+ * │ que tema se está E o que o próximo clique faz, porque num ciclo de três a   │
+ * │ segunda metade não é adivinhável pelo ícone.                               │
  * │                                                                            │
  * │ A escolha vira `data-theme` no <html>, que é o que o CSS já esperava (§02): │
  * │ explícito vence dos dois lados, e a ausência do atributo segue o            │
@@ -51,40 +63,52 @@ function aplicar(t: Tema) {
   }
 }
 
-const OPCOES: { chave: Tema; rotulo: string; titulo: string; icone: React.ReactNode }[] = [
-  {
-    chave: 'claro',
-    rotulo: 'Claro',
-    titulo: 'Sempre no tema claro',
-    icone: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-[15px] w-[15px]">
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-      </svg>
-    ),
-  },
-  {
-    chave: 'sistema',
-    rotulo: 'Sistema',
-    titulo: 'Segue a preferência do sistema operacional',
-    icone: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-[15px] w-[15px]">
-        <rect x="2" y="4" width="20" height="13" rx="2" />
-        <path d="M8 21h8M12 17v4" />
-      </svg>
-    ),
-  },
-  {
-    chave: 'escuro',
-    rotulo: 'Escuro',
-    titulo: 'Sempre no tema escuro',
-    icone: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-[15px] w-[15px]">
-        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
-      </svg>
-    ),
-  },
-]
+/**
+ * O CICLO, e a ordem dele.
+ *
+ * `sistema → claro → escuro → sistema`. Começa em "sistema" porque é o padrão, e
+ * a ordem seguinte é a que a pessoa espera de um botão de tema: o primeiro clique
+ * fixa o claro, o segundo o escuro, o terceiro devolve ao sistema. Sair do ciclo
+ * pelo mesmo botão é o que impede o "não consigo mais voltar para automático" —
+ * o defeito de todo alternador de dois estados que persiste a escolha.
+ *
+ * `proximo` está aqui e não embutido no clique para poder ser lido e testado: a
+ * ordem de um ciclo é a regra inteira deste componente.
+ */
+const CICLO: readonly Tema[] = ['sistema', 'claro', 'escuro'] as const
+
+export function proximoTema(atual: Tema): Tema {
+  const i = CICLO.indexOf(atual)
+  return CICLO[(i + 1) % CICLO.length]!
+}
+
+const NOME: Record<Tema, string> = {
+  sistema: 'o do sistema',
+  claro: 'claro',
+  escuro: 'escuro',
+}
+
+/* Os três ícones do documento: sol, lua e monitor. Traço de 2px e 15px de lado,
+   a medida de ícone dentro de controle (§05). */
+const ICONE: Record<Tema, React.ReactNode> = {
+  claro: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-[15px] w-[15px]">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </svg>
+  ),
+  escuro: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-[15px] w-[15px]">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+    </svg>
+  ),
+  sistema: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-[15px] w-[15px]">
+      <rect x="2" y="4" width="20" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  ),
+}
 
 export function SeletorDeTema({ className }: { className?: string }) {
   const [tema, setTema] = React.useState<Tema>('sistema')
@@ -100,40 +124,33 @@ export function SeletorDeTema({ className }: { className?: string }) {
     }
   }, [])
 
+  const proximo = proximoTema(tema)
+  const legenda = `Tema ${NOME[tema]} · clicar para ${NOME[proximo]}`
+
   return (
-    <div
-      className={cn('inline-flex rounded-md border border-line bg-surface p-0.5', className)}
-      role="group"
-      aria-label="Tema"
+    /* ds-excecao: alvo de ÍCONE da barra de topo, irmão do sino, do reportar e do
+       perfil, que são desenhados do mesmo jeito. Um <Btn> traria altura e fundo de
+       botão de ação e desequilibraria a fileira inteira da direita. */
+    <button
+      type="button"
+      onClick={() => {
+        setTema(proximo)
+        aplicar(proximo)
+      }}
+      title={legenda}
+      aria-label={legenda}
+      className={cn(
+        // `w-[28px]` e não `w-control-xs`: o preset define os degraus de controle em
+        // `height`/`minHeight` e NÃO em `width`, então a classe de largura compilaria
+        // para nada e o botão sairia do tamanho do ícone. 28px é o mesmo control-xs.
+        'inline-flex h-control-xs w-[28px] shrink-0 items-center justify-center rounded-md',
+        'border border-line bg-surface text-ink-3 hover:bg-surface-2 hover:text-ink',
+        FOCO,
+        className,
+      )}
     >
-      {OPCOES.map((o) => {
-        const ativo = tema === o.chave
-        return (
-          /* ds-excecao: controle SEGMENTADO — as três opções dividem uma borda e
-             um fundo, e são um `role="group"` com `aria-pressed`. Um <Btn> traz a
-             própria altura, o próprio arredondamento e a própria sombra, e o
-             grupo viraria três botões soltos encostados. */
-          <button
-            key={o.chave}
-            type="button"
-            title={o.titulo}
-            aria-label={o.titulo}
-            aria-pressed={ativo}
-            onClick={() => {
-              setTema(o.chave)
-              aplicar(o.chave)
-            }}
-            className={cn(
-              'inline-flex h-control-xs items-center gap-1.5 rounded-[5px] px-2 text-meta font-medium',
-              FOCO,
-              ativo ? 'bg-purple-50 text-purple-700' : 'text-ink-3 hover:text-ink',
-            )}
-          >
-            {o.icone}
-            <span className="hidden sm:inline">{o.rotulo}</span>
-          </button>
-        )
-      })}
-    </div>
+      {ICONE[tema]}
+    </button>
   )
 }
+

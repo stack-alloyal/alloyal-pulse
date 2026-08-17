@@ -57,6 +57,45 @@ const DOC = (d: string | null) => {
 
 const DATA = (d: Date | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—')
 
+/**
+ * O status do programa no Admin, com o nome e a cor que ele merece.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ SÃO QUATRO ESTADOS, e o booleano `ativo` funde três deles. Medido em        │
+ * │ 17/08/2026: active 2.157, suspended_by_overdue 592, inactive 454,           │
+ * │ suspended 11. "Suspenso por atraso" e "inativo" pedem ações opostas — um é  │
+ * │ cobrança, o outro é churn — e um selo que diga "inativo" para os dois manda  │
+ * │ 592 contas para a fila errada.                                             │
+ * │                                                                            │
+ * │ O CASO QUE NÃO ESTÁ NO CAMPO: 55 contas têm `status_core = 'active'` com     │
+ * │ `ativo = false`. Não é contradição do painel — é o sincronizador: cliente    │
+ * │ que não vem na carga do core passa a `ativo = false` ("cliente sai de        │
+ * │ circulação por ativo = false", em sincronizar-core). Pintar de verde diria   │
+ * │ que está tudo bem numa conta que DESAPARECEU da origem, e número alto ali é  │
+ * │ sinal de mudança de escopo da credencial, não de churn.                     │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const STATUS_ADMIN: Record<string, { texto: string; tom: 'green' | 'amber' | 'slate' }> = {
+  active: { texto: 'ativo', tom: 'green' },
+  suspended_by_overdue: { texto: 'suspenso por atraso', tom: 'amber' },
+  suspended: { texto: 'suspenso', tom: 'amber' },
+  inactive: { texto: 'inativo', tom: 'slate' },
+}
+
+function SeloDoAdmin({ status, ativo }: { status: string | null; ativo: boolean }) {
+  if (!ativo && status === 'active')
+    return (
+      <span title="O painel diz ativo, mas esta conta não veio na última carga do core">
+        <Badge tone="red">fora da carga do core</Badge>
+      </span>
+    )
+  const s = status ? STATUS_ADMIN[status] : undefined
+  if (s) return <Badge tone={s.tom}>{s.texto}</Badge>
+  // Status novo no core: mostra o código cru em vez de chutar uma cor. Inventar
+  // "ativo" para um valor desconhecido é o erro que não aparece em revisão.
+  return <Badge tone="slate">{status ?? 'sem situação'}</Badge>
+}
+
 const MES = (m: string) => {
   const [a, mm] = m.split('-')
   return `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(mm) - 1]}/${a?.slice(2)}`
@@ -342,7 +381,13 @@ export default async function FichaDeCliente({
 
         {/* ── As duas fontes, lado a lado ── */}
         <div className="grid gap-5 lg:grid-cols-2">
-          <Card title="Admin · o cadastro do programa">
+          <Card
+          title="Admin · o cadastro do programa"
+          /* Simétrico ao card do Omie, que já trazia o seu. A assimetria era o
+             defeito: o card do ERP dizia o status num selo e o do nosso painel
+             deixava a resposta escondida no meio de treze campos. */
+          actions={<SeloDoAdmin status={conta.statusCore} ativo={conta.ativo} />}
+        >
             <Campos
               pares={[
                 ['Razão social', conta.razaoSocial],
@@ -350,7 +395,11 @@ export default async function FichaDeCliente({
                 ['Business ID', <span className="font-mono text-meta">{conta.brandId}</span>],
                 ['Branch ID', <span className="font-mono text-meta">{conta.branchId}</span>],
                 ['HubSpot ID', <span className="font-mono text-meta">{conta.hubspotCompanyId}</span>],
-                ['Situação', conta.statusCore],
+                // O CÓDIGO cru, em mono, como Business ID e HubSpot ID: é o valor
+                // que veio da API, e é por ele que se confere no core. A leitura em
+                // português é o selo do cabeçalho — repetir a mesma palavra em prosa
+                // aqui seria dizer duas vezes a mesma coisa.
+                ['Situação', <span className="font-mono text-meta">{conta.statusCore}</span>],
                 ['Porte · setor', [conta.porte, conta.setor].filter(Boolean).join(' · ')],
                 ['CSM', conta.csmEmail],
                 ['Comercial', conta.ownerComercialEmail],

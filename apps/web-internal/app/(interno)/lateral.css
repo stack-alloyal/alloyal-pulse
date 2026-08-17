@@ -75,3 +75,27 @@
 :root[data-menu='min'] .lateral .lateral-alavanca-seta {
   transform: rotate(180deg);
 }
+
+/* ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A ROLAGEM INTERNA DA LATERAL DEPENDE DO ESTADO, e não é preciosismo.        │
+ * │                                                                            │
+ * │ Presa com `sticky top-0 h-screen`, a lateral não acompanha mais a página —  │
+ * │ mas aí o menu que não couber na ALTURA fica inalcançável. Com Configurações │
+ * │ aberto são dezoito linhas, e numa janela baixa as últimas somem.            │
+ * │                                                                            │
+ * │ `overflow-y: auto` resolve isso e cria um problema: o navegador promove     │
+ * │ `overflow-x` a `auto` junto, e o flyout dos 64px — que é `absolute` em      │
+ * │ `left-full`, ou seja, POR FORA da caixa — passa a ser recortado.            │
+ * │                                                                            │
+ * │ Então: rolagem na EXPANDIDA, onde o rótulo está na linha e flyout nenhum é  │
+ * │ usado; nada de recorte na MINIMIZADA, onde o flyout é a única forma de ler  │
+ * │ o nome dos itens — e onde o menu é curto o bastante para caber, porque são  │
+ * │ só ícones e o submenu não é desenhado embutido.                            │
+ * └───────────────────────────────────────────────────────────────────────────┘ */
+.lateral {
+  overflow-y: auto;
+}
+
+:root[data-menu='min'] .lateral {
+  overflow: visible;
+}

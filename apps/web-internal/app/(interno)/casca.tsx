@@ -35,12 +35,31 @@ import { identidadeDaSessao } from '../../lib/guarda'
 
 export function Casca({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen">
-      {/* `lateral` é o gancho do CSS que troca 252px por 64px; ver lateral.css.
-          A largura muda por atributo no <html>, e não por estado do React — a
-          lateral empurra a página inteira, e encolher depois de hidratar faria
-          a tela toda pular a cada navegação. */}
-      <aside className="lateral hidden w-[252px] shrink-0 flex-col border-r border-line bg-surface px-[14px] py-[18px] transition-[width] duration-200 motion-reduce:transition-none md:flex">
+    <div className="flex min-h-screen items-start">
+      {/* ┌───────────────────────────────────────────────────────────────────┐
+          │ A LATERAL FICA PARADA; só o conteúdo rola.                          │
+          │                                                                     │
+          │ Era `min-h-screen` com a lateral no fluxo: ela tinha a altura da     │
+          │ página, então em qualquer tela longa — a base com 100 linhas, a      │
+          │ ficha de um cliente, o histórico — o menu subia junto com o          │
+          │ conteúdo e sumia. Voltar a trocar de tela exigia rolar até o topo.   │
+          │                                                                     │
+          │ `sticky top-0 h-screen` e não `fixed`: sticky continua ocupando o    │
+          │ lugar dela no flex, então o conteúdo segue ao lado sem precisar de   │
+          │ margem à esquerda calculada à mão — que teria de mudar junto com os  │
+          │ 64px da minimizada, em dois lugares, e um dia divergiria.            │
+          │                                                                     │
+          │ A rolagem interna mora em lateral.css, e NÃO como classe aqui: ela   │
+          │ depende do estado (na minimizada o flyout sai da caixa e não pode ser │
+          │ recortado), e regra que depende de estado com uma classe utilitária   │
+          │ do lado seria a mesma regra em dois lugares.                          │
+          │                                                                     │
+          │ `lateral` é o gancho do CSS que troca 252px por 64px (lateral.css).  │
+          │ A largura muda por atributo no <html> e não por estado do React — a  │
+          │ lateral empurra a página, e encolher depois de hidratar faria a tela │
+          │ inteira pular a cada navegação.                                      │
+          └───────────────────────────────────────────────────────────────────┘ */}
+      <aside className="lateral sticky top-0 hidden h-screen w-[252px] shrink-0 flex-col border-r border-line bg-surface px-[14px] py-[18px] transition-[width] duration-200 motion-reduce:transition-none md:flex">
         <div className="px-2 pb-[18px] pt-1.5">
           <Link href="/" aria-label="Início" className="block">
             <AlloyalLogo className="lateral-marca-completa h-6" />

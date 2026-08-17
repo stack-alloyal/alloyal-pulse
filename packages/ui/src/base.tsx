@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import type React from 'react'
-import { twMerge } from 'tailwind-merge'
+import { extendTailwindMerge } from 'tailwind-merge'
 
 /**
  * Os componentes base do Alloyal — mesma API do `src/ui.tsx` do alloyal-publi.
@@ -12,9 +12,42 @@ import { twMerge } from 'tailwind-merge'
  * não numa variante nova de `Card` ou `Badge`.
  */
 
-/** Merge de classes Tailwind (padrão shadcn/Metas): a última vence. */
+/**
+ * Merge de classes Tailwind (padrão shadcn/Publi): a última vence.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A ESCALA NOMEADA PRECISA SER DECLARADA, senão ela é APAGADA em silêncio.    │
+ * │                                                                            │
+ * │ O `tailwind-merge` não conhece o tema: para ele, `text-nota` e `text-green`  │
+ * │ são os dois "text-*" e portanto conflitam — então mantém o último e joga o   │
+ * │ primeiro fora. O efeito medido: TODO badge do produto saía sem `text-nota`,  │
+ * │ herdando o tamanho de quem estivesse em volta. No cabeçalho de um card ele   │
+ * │ ficava em 14px em vez dos 11px do §03, e ninguém desconfia de um selo um     │
+ * │ pouco grande.                                                              │
+ * │                                                                            │
+ * │ A correção é dizer quais classes são TAMANHO. Vale para os oito nomes da     │
+ * │ escala, e não só para `text-nota`: qualquer um deles ao lado de uma cor      │
+ * │ tinha o mesmo destino — `text-tabela` no cabeçalho de tabela, `text-kpi` no  │
+ * │ número do KPI, `text-corpo` em qualquer texto colorido.                     │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const twMergeDoTema = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      'font-size': [
+        {
+          text: [
+            'h1', 'title', 'kpi', 'tabela', 'campo', 'secao', 'cartao', 'corpo',
+            'meta', 'nota', 'micro',
+          ],
+        },
+      ],
+    },
+  },
+})
+
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMergeDoTema(clsx(inputs))
 }
 
 export const cx = cn

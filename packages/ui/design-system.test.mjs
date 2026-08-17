@@ -814,3 +814,35 @@ test('a minimizada é escopada à lateral e não alcança a gaveta', () => {
     .filter((l) => !/:root\[data-menu='min'\] \.lateral[\s.:]/.test(l))
   assert.deepEqual(soltas, [], `regra da minimizada sem escopo em .lateral:\n${soltas.join('\n')}`)
 })
+
+/**
+ * Todo nome da escala do §03 tem de estar declarado no `cn`.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O `tailwind-merge` não conhece o tema: `text-nota` e `text-green` são os     │
+ * │ dois "text-*" para ele, então ele mantém um e APAGA o outro. Era o que        │
+ * │ acontecia com todo badge do produto — saía sem `text-nota`, herdando o       │
+ * │ tamanho de quem estava em volta.                                            │
+ * │                                                                            │
+ * │ Este portão fecha o furo pelo lado que volta a abrir: nome novo na escala do │
+ * │ preset sem entrar na lista do `cn` some em silêncio na primeira vez que      │
+ * │ alguém o usar ao lado de uma cor. Nada quebra, nada avisa — o texto só fica  │
+ * │ do tamanho errado.                                                          │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+test('o cn conhece todos os nomes da escala de tipo', () => {
+  const preset = readFileSync(join(RAIZ, 'packages', 'ui', 'tailwind-preset.ts'), 'utf8')
+  const bloco = preset.slice(preset.indexOf('fontSize: {'), preset.indexOf('height: {'))
+  const daEscala = [...bloco.matchAll(/^\s{8}([a-z0-9]+):\s*\[/gm)].map((m) => m[1]).sort()
+
+  const base = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'base.tsx'), 'utf8')
+  const lista = base.slice(base.indexOf("'font-size': ["), base.indexOf('export function cn'))
+  const declarados = [...lista.matchAll(/'([a-z0-9]+)'/g)].map((m) => m[1]).sort()
+
+  assert.ok(daEscala.length >= 8, `a escala do preset tem de ser lida; achei ${daEscala.length}`)
+  assert.deepEqual(
+    daEscala.filter((n) => !declarados.includes(n)),
+    [],
+    'nome da escala fora da lista do cn: ele será APAGADO quando usado junto de uma cor',
+  )
+})
