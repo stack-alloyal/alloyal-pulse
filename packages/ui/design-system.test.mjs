@@ -621,3 +621,68 @@ test('o delta do Kpi tem os quatro estados do documento', () => {
   assert.match(d, /valor === null/)
   assert.match(d, /valor === 0/)
 })
+
+/**
+ * ─── §06 · A faixa de aviso usa barra lateral, como o KPI ────────────────────
+ *
+ * Mesmo erro do KPI, achado na mesma releitura: estava com BORDA em volta. Borda
+ * desenha uma caixa, e caixa é contêiner; a barra é um MARCADOR — diz "isto pede
+ * atenção" sem cercar o texto. Os dois usam 4px, e é isso que faz a linguagem ser
+ * a mesma nas duas peças.
+ */
+test('a Faixa de aviso tem barra lateral de 4px, não borda', () => {
+  const base = readFileSync(BASE, 'utf8')
+  // Até o PRÓXIMO export: `\n}` cai dentro da desestruturação da assinatura e
+  // fatiaria fora o corpo — o portão passaria sem olhar o que importa.
+  const i = base.indexOf('export function Aviso(')
+  const j = base.indexOf('\nexport ', i + 10)
+  const corpo = base.slice(i, j > 0 ? j : undefined)
+  assert.match(corpo, /before:w-1/, 'falta a barra lateral de 4px')
+  assert.doesNotMatch(corpo, /'rounded-md border /, 'ainda desenha borda em volta')
+})
+
+test('o aviso de erro nasce com role=alert', () => {
+  // Vermelho EXIGE ação (§06). Um aviso que exige ação e não interrompe o leitor
+  // de tela não exigiu nada de quem não o enxerga.
+  const base = readFileSync(BASE, 'utf8')
+  const i = base.indexOf('export function Aviso(')
+  const j = base.indexOf('\nexport ', i + 10)
+  assert.match(base.slice(i, j > 0 ? j : undefined), /tom === 'erro' \? 'alert'/)
+})
+
+/**
+ * ─── §06 · Chip zerado fica apagado, não some ────────────────────────────────
+ *
+ * Sumir é o beco que a regra evita: a pessoa filtra, a contagem zera, o chip
+ * desaparece — e ela fica sem caminho de volta, olhando uma lista vazia sem saber
+ * qual filtro a trouxe ali.
+ */
+test('o Chip zerado fica apagado e sem clique', () => {
+  const ds = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'ds.tsx'), 'utf8')
+  const chip = ds.slice(ds.indexOf('export function Chip('), ds.indexOf('export function Chips('))
+  assert.doesNotMatch(chip, /return null/, 'chip zerado não pode sumir')
+  assert.match(chip, /aria-disabled/, 'chip zerado tem de ser inerte')
+  assert.match(chip, /title=/, 'chip zerado precisa explicar por que está apagado')
+})
+
+/**
+ * ─── §06 · Vazio por filtro exige saída ──────────────────────────────────────
+ */
+test('Vazio nivel="filtro" sem acao falha na hora', () => {
+  const vazio = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'Vazio.tsx'), 'utf8')
+  assert.match(vazio, /nivel === 'filtro' && !acao/, 'a regra do §06 não está no componente')
+  assert.match(vazio, /throw new Error/, 'tem de falhar no desenvolvimento, não em silêncio na tela')
+})
+
+/**
+ * ─── §06 · A confirmação tem os quatro elementos do padrão ───────────────────
+ *
+ * "o que acontece → por que importa → a saída → a pergunta". Faltava o quarto.
+ */
+test('o pedido de confirmação aceita os quatro elementos', () => {
+  const dsc = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'ds-cliente.tsx'), 'utf8')
+  const iface = dsc.slice(dsc.indexOf('interface PedidoDeConfirmacao'), dsc.indexOf('\n}', dsc.indexOf('interface PedidoDeConfirmacao')))
+  for (const campo of ['titulo', 'corpo', 'saida', 'pergunta']) {
+    assert.match(iface, new RegExp(`readonly ${campo}`), `falta o elemento ${campo} do padrão`)
+  }
+})

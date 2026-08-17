@@ -345,16 +345,35 @@ export function Aviso({
   tom?: 'info' | 'ok' | 'alerta' | 'erro'
   papel?: 'alert' | 'status'
 }) {
+  /* ┌─────────────────────────────────────────────────────────────────────┐
+     │ BARRA LATERAL DE 4px, e não borda inteira — §06, "Faixa de aviso".     │
+     │                                                                        │
+     │ Estava com borda em volta, o mesmo erro que o KPI tinha: a borda        │
+     │ desenha uma caixa, e caixa é contêiner. A barra é um MARCADOR — ela diz │
+     │ "isto aqui pede atenção" sem cercar o texto, e é a mesma linguagem do   │
+     │ KPI, que é o ponto de terem a mesma medida.                            │
+     │                                                                        │
+     │ Âmbar avisa e deixa seguir; vermelho EXIGE ação. Por isso o vermelho    │
+     │ nasce com `role="alert"` quando quem chama não diz o contrário: aviso   │
+     │ que exige ação e não interrompe o leitor de tela não exigiu nada.       │
+     └─────────────────────────────────────────────────────────────────────┘ */
   const t = {
-    info: 'border-line bg-surface-2 text-ink-2',
-    ok: 'border-green/30 bg-green-50 text-green',
-    alerta: 'border-amber/30 bg-amber-50 text-orange-700',
-    erro: 'border-red/30 bg-red-50 text-red',
+    info: 'bg-surface-2 text-ink-2 before:bg-line-strong',
+    ok: 'bg-green-50 text-green before:bg-green',
+    alerta: 'bg-amber-50 text-orange-700 before:bg-amber',
+    erro: 'bg-red-50 text-red before:bg-red',
   }[tom]
   return (
     /* `px-3 py-2` é a medida do `ErrorBox` do Publi, de quem este componente é a
-       generalização em quatro tons. Antes daqui havia um `py-[11px]` que eu inventei. */
-    <div role={papel} className={cn('rounded-md border px-3 py-2 text-corpo', t)}>
+       generalização em quatro tons. O `pl-4` abre espaço para a barra. */
+    <div
+      role={papel ?? (tom === 'erro' ? 'alert' : undefined)}
+      className={cn(
+        'relative overflow-hidden rounded-md py-2 pl-4 pr-3 text-corpo',
+        'before:absolute before:inset-y-0 before:left-0 before:w-1 before:content-[""]',
+        t,
+      )}
+    >
       {children}
     </div>
   )

@@ -106,7 +106,30 @@ export interface ChipProps {
 }
 
 export function Chip({ rotulo, href, ativo = false, conta, fixo = false }: ChipProps) {
-  if (conta === 0 && !ativo && !fixo) return null
+  /* ┌─────────────────────────────────────────────────────────────────────┐
+     │ ZERADO FICA APAGADO E SEM CLIQUE — §06, e eu tinha escondido.          │
+     │                                                                        │
+     │ Sumir com o chip é justamente o beco que a regra evita: a pessoa filtra │
+     │ por "cancelado", a contagem zera, o chip desaparece — e ela fica sem o  │
+     │ caminho de volta, olhando uma lista vazia sem saber qual filtro a       │
+     │ trouxe até ali.                                                        │
+     │                                                                        │
+     │ Apagado e sem clique diz as duas coisas ao mesmo tempo: o filtro existe │
+     │ e não tem nada agora. O `title` explica, para não depender só da cor.   │
+     └─────────────────────────────────────────────────────────────────────┘ */
+  const vazio = conta === 0 && !ativo
+  if (vazio && !fixo) {
+    return (
+      <span
+        title="nenhum registro nesta situação com os filtros atuais"
+        aria-disabled="true"
+        className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 py-1 text-meta text-ink-4"
+      >
+        {rotulo}
+        <span className="tabular-nums">0</span>
+      </span>
+    )
+  }
   return (
     <Link
       href={href}

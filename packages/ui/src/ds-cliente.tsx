@@ -23,6 +23,15 @@ export interface PedidoDeConfirmacao {
   readonly corpo?: React.ReactNode
   /** A alternativa. O documento chama de `saida`: o que fazer em vez disso. */
   readonly saida?: React.ReactNode
+  /**
+   * A pergunta, que é o quarto elemento do padrão (§06).
+   *
+   * "Enviar mesmo assim?" — separada do título de propósito: o título diz O QUE
+   * ACONTECE, e a pergunta é o que se responde. Num diálogo cujo título já é
+   * pergunta ("Descartar o disparo 21?"), este campo fica de fora e o padrão
+   * continua completo.
+   */
+  readonly pergunta?: string
   readonly confirmar?: string
   readonly cancelar?: string
   readonly destrutiva?: boolean
@@ -95,6 +104,9 @@ export function Confirmar({
           <div className="mt-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-meta text-ink-2">
             {pedido.saida}
           </div>
+        )}
+        {pedido.pergunta && (
+          <p className="mt-3 text-corpo font-semibold text-ink">{pedido.pergunta}</p>
         )}
         <div className="mt-4 flex justify-end gap-2">
           <button
