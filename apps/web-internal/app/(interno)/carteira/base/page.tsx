@@ -32,6 +32,30 @@ export const dynamic = "force-dynamic";
 
 const N = (v: number) => v.toLocaleString("pt-BR");
 
+/**
+ * Dinheiro em reais INTEIROS, e só nesta tabela.
+ *
+ * O design system manda mostrar centavos sempre, e a ficha do cliente mostra —
+ * é lá que se confere um título. Aqui são duas colunas de dinheiro em 1.959
+ * linhas, e os centavos custam ~50px que só existem para repetir ",00" ou ",20"
+ * onde a pergunta é "quem é grande". Rolagem horizontal apagaria a coluna
+ * Cliente ao rolar, que é perda maior que a dos centavos.
+ */
+const reais = (centavos: number) =>
+  (centavos / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
+
+/** `2026-07` → `jul/26`. O ano vai junto: sem ele, julho de 2025 e de 2026 são o mesmo rótulo. */
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MES = (rotulo: string | null) => {
+  if (!rotulo) return "";
+  const [ano, mes] = rotulo.split("-");
+  return `${MESES[Number(mes) - 1] ?? mes}/${(ano ?? "").slice(2)}`;
+};
+
 const CNPJ = (c: string | null) => {
   const d = (c ?? "").replace(/\D/g, "");
   if (d.length !== 14) return c ?? "—";
@@ -104,7 +128,7 @@ function Ordenavel({
   busca,
   children,
 }: {
-  por: "usuarios" | "ltv" | "nome";
+  por: "usuarios" | "autorizados" | "ltv" | "nome";
   atual: string;
   busca: (extra: Record<string, string>) => string;
   children: React.ReactNode;
@@ -122,6 +146,52 @@ function Ordenavel({
     >
       {children}
       {ativo && <span aria-hidden="true">↓</span>}
+    </Link>
+  );
+}
+
+/**
+ * Os tamanhos de página. `todas` é o único que não é número — ver `porPagina: 0`
+ * em `mainBusinesses`.
+ */
+const TAMANHOS = [
+  { chave: "20", rotulo: "20", n: 20 },
+  { chave: "50", rotulo: "50", n: 50 },
+  { chave: "100", rotulo: "100", n: 100 },
+  { chave: "todas", rotulo: "todas", n: 0 },
+] as const;
+
+/**
+ * Um passo da paginação.
+ *
+ * O passo indisponível continua NA TELA, apagado, em vez de sumir: os quatro
+ * controles ficam sempre no mesmo lugar, e clicar em "próxima" repetidamente não
+ * faz a fileira encolher e o cursor cair sobre outro botão.
+ */
+function Passo({
+  href,
+  ativo,
+  rotulo,
+  children,
+}: {
+  href: string;
+  ativo: boolean;
+  rotulo: string;
+  children: React.ReactNode;
+}) {
+  if (!ativo)
+    return (
+      <span aria-hidden="true" className="text-ink-4">
+        {children}
+      </span>
+    );
+  return (
+    <Link
+      href={href}
+      aria-label={rotulo}
+      className="font-semibold text-purple-700 hover:text-purple-500"
+    >
+      {children}
     </Link>
   );
 }
@@ -174,7 +244,7 @@ function linhaDaTabela(
       {/* `min-w-0` no contêiner E `max-w` no nome: sem os dois, o nome longo empurra
           a tabela e nasce a rolagem horizontal, que numa lista de 1.959 linhas faz a
           pessoa perder a coluna de referência ao rolar. */}
-      <span className="min-w-0 max-w-[26ch] lg:max-w-[34ch]">
+      <span className="min-w-0 max-w-[14ch] lg:max-w-[19ch]">
         {/* O NOME é o acesso à ficha. A seta ao lado abre os subs NESTA tela, e são
             ações diferentes: uma navega, a outra expande. Por isso o alvo de cada
             uma é visualmente distinto — o nome sublinha ao passar, a seta gira. */}
@@ -213,17 +283,26 @@ function linhaDaTabela(
         </span>
       ) : null}
     </span>,
-    /* LTV e MESES juntos, nunca o valor sozinho: R$ 500 mil em 60 meses e R$ 500
-       mil em 6 são clientes diferentes, e o número sem o prazo esconde isso. */
-    <span key="ltv" className="whitespace-nowrap tabular-nums text-ink">
-      {l.ltvCentavos > 0 ? (
+    <span key="mrrt" className="whitespace-nowrap tabular-nums text-ink">
+      {l.ltvCentavos > 0 ? reais(l.ltvCentavos) : <span className="text-ink-4">—</span>}
+    </span>,
+    /* MESES em coluna própria, e não mais como sufixo do valor: colado ele não era
+       ordenável nem comparável de cima a baixo — a vista "quem é cliente há mais
+       tempo" exigia ler linha a linha. Continua ao lado do MRR Total de propósito:
+       R$ 500 mil em 60 meses e R$ 500 mil em 6 são clientes diferentes. */
+    <span key="meses" className="tabular-nums text-ink-2">
+      {l.ltvMeses > 0 ? l.ltvMeses : <span className="text-ink-4">—</span>}
+    </span>,
+    /* O MÊS vai junto do valor, sempre. Ver `mrrMesCentavos`: este é o último mês
+       COM movimento, e sem o rótulo "ainda não venceu em agosto" e "não fatura
+       desde março" apareceriam idênticos na tela. */
+    <span key="mrrm" className="whitespace-nowrap tabular-nums text-ink">
+      {l.mrrMesCentavos > 0 ? (
         <>
-          {(l.ltvCentavos / 100).toLocaleString("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-            maximumFractionDigits: 0,
-          })}
-          <span className="ml-1 text-nota font-normal text-ink-3">{l.ltvMeses}m</span>
+          <span className="block">{reais(l.mrrMesCentavos)}</span>
+          <span className="block text-nota font-normal text-ink-3">
+            {MES(l.mrrMesRotulo)}
+          </span>
         </>
       ) : (
         <span className="text-ink-4">—</span>
@@ -258,8 +337,10 @@ export default async function BaseDeClientes({
     ativos?: string;
     /** "1" = só quem faturou nos 12 meses; "0" = só quem não faturou. */
     fat?: string;
-    /** Como organizar a lista: usuarios (padrão), ltv ou nome. */
+    /** Como organizar a lista: usuarios (padrão), autorizados, ltv ou nome. */
     ordem?: string;
+    /** Quantas por página: 20, 50 (padrão), 100 ou todas. */
+    pp?: string;
   }>;
 }) {
   await exigir((p) => temEscopo(p.contas), "base de clientes");
@@ -267,6 +348,10 @@ export default async function BaseDeClientes({
   const busca = (q.q ?? "").trim();
   const pagina = Math.max(Number(q.p ?? "1") || 1, 1);
   const somenteAtivos = q.ativos === "1";
+  // Valor desconhecido em `?pp=` cai no padrão em vez de virar erro: parâmetro de
+  // URL é digitado e colado por gente, e 50 é uma resposta melhor que uma tela 500.
+  const tamanho = TAMANHOS.find((t) => t.chave === q.pp)?.chave ?? "50";
+  const porPagina = TAMANHOS.find((t) => t.chave === tamanho)!.n;
 
   const db = pool();
   const [kpis, pag] = await Promise.all([
@@ -274,9 +359,11 @@ export default async function BaseDeClientes({
     mainBusinesses(db, {
       busca,
       pagina,
-      porPagina: 50,
+      porPagina,
       somenteAtivos,
-      ordem: (["usuarios", "ltv", "nome"] as const).find((o) => o === q.ordem) ?? "usuarios",
+      ordem:
+        (["usuarios", "autorizados", "ltv", "nome"] as const).find((o) => o === q.ordem) ??
+        "usuarios",
     }),
   ]);
 
@@ -294,6 +381,9 @@ export default async function BaseDeClientes({
       // A organização escolhida sobrevive à busca e aos chips: trocar de filtro e
       // perder a ordem obriga a refazer duas escolhas quando só uma mudou.
       ...(q.ordem ? { ordem: q.ordem } : {}),
+      // Idem o tamanho da página: quem escolheu "100" e depois filtrou não pediu
+      // para voltar a 50.
+      ...(tamanho !== "50" ? { pp: tamanho } : {}),
       ...extra,
     }).toString()}`;
 
@@ -307,7 +397,9 @@ export default async function BaseDeClientes({
     return q.fat === "1" ? faturou : !faturou;
   });
 
-  const ordem = (["usuarios", "ltv", "nome"] as const).find((o) => o === q.ordem) ?? "usuarios";
+  const ordem =
+    (["usuarios", "autorizados", "ltv", "nome"] as const).find((o) => o === q.ordem) ??
+    "usuarios";
 
   const linhas: React.ReactNode[][] = [];
   for (const l of visiveis) {
@@ -431,13 +523,17 @@ export default async function BaseDeClientes({
               "ID",
               "HubSpot ID",
               "Subs",
-              "Autorizados",
+              <Ordenavel key="ua" por="autorizados" atual={ordem} busca={comBusca}>
+                Autorizados
+              </Ordenavel>,
               <Ordenavel key="u" por="usuarios" atual={ordem} busca={comBusca}>
                 Cadastrados
               </Ordenavel>,
               <Ordenavel key="l" por="ltv" atual={ordem} busca={comBusca}>
-                LTV
+                MRR Total
               </Ordenavel>,
+              "Meses",
+              "MRR mês",
               "",
               "",
             ]}
@@ -448,31 +544,71 @@ export default async function BaseDeClientes({
                 : "A base ainda não foi carregada."
             }
           />
-          {paginas > 1 && (
-            <div className="mt-4 flex items-center justify-between text-meta text-ink-3">
+          {/* ┌──────────────────────────────────────────────────────────────────┐
+              │ PAGINAÇÃO COMPLETA: quantas por página, onde estou, e como andar. │
+              │                                                                   │
+              │ Eram só "anterior/próxima" com 50 fixas — 40 idas e voltas para   │
+              │ percorrer 1.959 clientes, e nenhuma forma de ver o fim da lista.  │
+              │                                                                   │
+              │ O tamanho volta para a PRIMEIRA página de propósito: estar na     │
+              │ página 30 de 40 e trocar para 100 por página deixaria a pessoa na │
+              │ página 30 de 20, que não existe — e o Postgres devolveria vazio   │
+              │ sem dizer por quê.                                                │
+              └──────────────────────────────────────────────────────────────────┘ */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-meta text-ink-3">
+            <span className="flex items-center gap-2">
+              <span className="text-nota uppercase tracking-wide">por página</span>
+              <Chips>
+                {TAMANHOS.map((t) => (
+                  <Chip
+                    key={t.chave}
+                    rotulo={t.rotulo}
+                    href={comBusca({ pp: t.chave, p: "1" })}
+                    ativo={tamanho === t.chave}
+                    fixo
+                  />
+                ))}
+              </Chips>
+            </span>
+            <span className="flex items-center gap-3">
               <span>
-                página {pag.pagina} de {N(paginas)}
+                {tamanho === "todas"
+                  ? `${N(visiveis.length)} de ${N(pag.total)}`
+                  : `página ${N(pag.pagina)} de ${N(paginas)}`}
               </span>
-              <div className="flex gap-3">
-                {pag.pagina > 1 && (
-                  <Link
+              {paginas > 1 && (
+                <span className="flex items-center gap-2">
+                  {/* PRIMEIRA e ÚLTIMA existem porque "última página" é uma pergunta
+                      real numa lista ordenada por tamanho: é lá que estão os clientes
+                      sem faturamento nenhum. Chegar lá com "próxima" são 39 cliques. */}
+                  <Passo href={comBusca({ p: "1" })} ativo={pag.pagina > 1} rotulo="Primeira página">
+                    ⇤
+                  </Passo>
+                  <Passo
                     href={comBusca({ p: String(pag.pagina - 1) })}
-                    className="font-semibold text-purple-700 hover:text-purple-500"
+                    ativo={pag.pagina > 1}
+                    rotulo="Página anterior"
                   >
                     ← anterior
-                  </Link>
-                )}
-                {pag.pagina < paginas && (
-                  <Link
+                  </Passo>
+                  <Passo
                     href={comBusca({ p: String(pag.pagina + 1) })}
-                    className="font-semibold text-purple-700 hover:text-purple-500"
+                    ativo={pag.pagina < paginas}
+                    rotulo="Próxima página"
                   >
                     próxima →
-                  </Link>
-                )}
-              </div>
-            </div>
-          )}
+                  </Passo>
+                  <Passo
+                    href={comBusca({ p: String(paginas) })}
+                    ativo={pag.pagina < paginas}
+                    rotulo="Última página"
+                  >
+                    ⇥
+                  </Passo>
+                </span>
+              )}
+            </span>
+          </div>
           <p className="mt-3 text-meta leading-relaxed text-ink-3">
             A ordem é por usuários cadastrados, somando os sub business.
             Alfabética poria na primeira página quem tem zero usuário e
@@ -483,6 +619,19 @@ export default async function BaseDeClientes({
             <strong className="font-semibold text-ink">cadastrados</strong> é
             quem efetivamente criou conta. Nenhum dos dois é &quot;usuário
             ativo&quot; — isso depende do C1.
+            <br />
+            {/* As três colunas de dinheiro respondem perguntas diferentes, e sem
+                esta frase elas se leem como a mesma medida em recortes distintos. */}
+            <strong className="font-semibold text-ink">MRR Total</strong> é tudo
+            que já entrou desta conta —{" "}
+            <em>recebido</em>, não faturado: boleto cancelado ou a vencer fica de
+            fora. <strong className="font-semibold text-ink">Meses</strong> é a
+            vida do cliente, do primeiro ao último vencimento.{" "}
+            <strong className="font-semibold text-ink">MRR mês</strong> é o{" "}
+            <em>faturado</em> no último mês que teve movimento, e o mês vai junto:
+            sem ele, &quot;agosto ainda não venceu&quot; e &quot;não fatura desde
+            março&quot; apareceriam iguais. Valores em reais inteiros — os
+            centavos estão na ficha de cada cliente.
           </p>
         </Card>
       </Corpo>

@@ -1,10 +1,56 @@
 'use client'
 
-import { cn } from '@pulse/ui'
+import { FOCO, cn } from '@pulse/ui'
+import { ChevronDown } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import * as React from 'react'
 
 import { MENU, itemAtivo } from './menu'
+
+/**
+ * A escolha de recolher/ampliar, por grupo, guardada entre sessões.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ LIDA NUM EFEITO, E NÃO NO ESTADO INICIAL. No servidor não existe            │
+ * │ `localStorage`, e chutar um valor faria o HTML e a primeira renderização do │
+ * │ cliente discordarem — o React descarta a árvore inteira e a sidebar pisca.  │
+ * │                                                                            │
+ * │ O custo é honesto e pequeno: quem recolheu Configurações vê o grupo aberto  │
+ * │ por um quadro antes de fechar. Diferente do tema, que reescreve a tela      │
+ * │ inteira e por isso ganhou script inline no `<head>`, aqui o que se move são │
+ * │ sete linhas dentro do menu.                                                │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const CHAVE = 'pulse.menu.grupos'
+
+function usarGrupos() {
+  const [grupos, setGrupos] = React.useState<Record<string, boolean>>({})
+
+  React.useEffect(() => {
+    try {
+      const guardado = localStorage.getItem(CHAVE)
+      if (guardado) setGrupos(JSON.parse(guardado) as Record<string, boolean>)
+    } catch {
+      // Armazenamento bloqueado ou JSON estragado por uma versão anterior: o
+      // menu volta ao padrão em vez de derrubar a navegação inteira.
+    }
+  }, [])
+
+  const alternar = React.useCallback((href: string, aberto: boolean) => {
+    setGrupos((antes) => {
+      const novo = { ...antes, [href]: aberto }
+      try {
+        localStorage.setItem(CHAVE, JSON.stringify(novo))
+      } catch {
+        /* sem armazenamento: a escolha vale para esta aba */
+      }
+      return novo
+    })
+  }, [])
+
+  return { grupos, alternar }
+}
 
 /**
  * A navegação da sidebar — o único componente de cliente da casca.
@@ -20,6 +66,7 @@ import { MENU, itemAtivo } from './menu'
 export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' }) {
   const pathname = usePathname()
   const ativo = itemAtivo(pathname)?.href
+  const { grupos, alternar } = usarGrupos()
 
   if (variante === 'topo') {
     return (
@@ -45,26 +92,59 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
       {MENU.map((m) => {
         const Icone = m.icone
         const isAtivo = m.href === ativo
-        /* O submenu abre quando se está DENTRO da seção, e só. Aberto sempre
-           acrescentaria sete linhas ao menu de quem nunca entra em Configurações;
-           fechado sempre esconderia onde a pessoa está. */
-        const dentro = Boolean(m.filhos) && pathname.startsWith(m.href)
+        const dentro = pathname.startsWith(m.href)
+        /* ┌────────────────────────────────────────────────────────────────────┐
+           │ O PADRÃO É ABRIR ONDE SE ESTÁ; a escolha explícita vence o padrão.  │
+           │                                                                     │
+           │ Aberto sempre acrescentaria sete linhas ao menu de quem nunca entra │
+           │ em Configurações; fechado sempre esconderia a seção onde a pessoa   │
+           │ está. Então: abre sozinho ao entrar, e quem recolher fica recolhido │
+           │ — inclusive depois de recarregar (§07: "grupos abertos/fechados,    │
+           │ persistidos em localStorage").                                      │
+           └────────────────────────────────────────────────────────────────────┘ */
+        const escolha = grupos[m.href]
+        const aberto = Boolean(m.filhos) && (escolha ?? dentro)
         return (
           <div key={m.href}>
-            <Link
-              href={m.href}
-              aria-current={isAtivo ? 'page' : undefined}
-              className={cn(
-                'flex items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-corpo font-semibold transition-colors',
-                isAtivo ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
+            <div className="flex items-center">
+              <Link
+                href={m.href}
+                aria-current={isAtivo ? 'page' : undefined}
+                className={cn(
+                  'flex min-w-0 flex-1 items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-corpo font-semibold transition-colors',
+                  isAtivo ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
+                )}
+              >
+                <Icone
+                  className={cn('h-[17px] w-[17px] shrink-0', isAtivo ? 'text-purple-500' : 'text-ink-3')}
+                />
+                <span className="truncate">{m.rotulo}</span>
+              </Link>
+              {/* BOTÃO SEPARADO do link, e não o link inteiro virando gatilho:
+                  Configurações É uma tela (o Catálogo), e transformar o item em
+                  interruptor tiraria o acesso a ela. Um navega, o outro recolhe. */}
+              {m.filhos && (
+                <button
+                  type="button"
+                  onClick={() => alternar(m.href, !aberto)}
+                  aria-expanded={aberto}
+                  aria-label={`${aberto ? 'Recolher' : 'Ampliar'} ${m.rotulo}`}
+                  title={`${aberto ? 'Recolher' : 'Ampliar'} ${m.rotulo}`}
+                  className={cn(
+                    'ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink',
+                    FOCO,
+                  )}
+                >
+                  <ChevronDown
+                    className={cn(
+                      'h-[15px] w-[15px] transition-transform motion-reduce:transition-none',
+                      aberto ? 'rotate-0' : '-rotate-90',
+                    )}
+                  />
+                </button>
               )}
-            >
-              <Icone
-                className={cn('h-[17px] w-[17px] shrink-0', isAtivo ? 'text-purple-500' : 'text-ink-3')}
-              />
-              <span className="truncate">{m.rotulo}</span>
-            </Link>
-            {dentro && m.filhos && (
+            </div>
+            {aberto && m.filhos && (
               <div className="ml-[26px] mt-0.5 flex flex-col gap-0.5 border-l border-line pl-2">
                 {m.filhos.map((f) => {
                   /* Ativo é o de href mais LONGO que casa: sem isso, "/configuracoes"
@@ -79,6 +159,7 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
                       aria-current={filhoAtivo ? 'page' : undefined}
                       className={cn(
                         'truncate rounded-sm px-2 py-1.5 text-meta transition-colors',
+                        FOCO,
                         filhoAtivo
                           ? 'font-semibold text-purple-700'
                           : 'text-ink-3 hover:bg-surface-2 hover:text-ink-2',

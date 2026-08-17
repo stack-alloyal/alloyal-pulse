@@ -103,6 +103,26 @@ export interface LinhaDaBase {
    */
   readonly ltvMeses: number;
   /**
+   * O último mês que teve faturamento, em centavos — o "quanto rende hoje".
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ É O ÚLTIMO MÊS COM MOVIMENTO, não o mês corrente.                        │
+   * │                                                                          │
+   * │ Fixar no mês corrente mostraria R$ 0 para todo cliente que vence no dia   │
+   * │ 20 sempre que a tela fosse aberta antes do dia 20 — e zero se lê como     │
+   * │ "parou de pagar", que é o oposto de "ainda não venceu". O rótulo do mês   │
+   * │ vai junto (`mrrMesRotulo`) justamente para que a diferença entre "agosto  │
+   * │ ainda não" e "não fatura desde março" apareça na própria célula.          │
+   * │                                                                          │
+   * │ Eixo: FATURADO por vencimento, o mesmo de `faturamento12m` — e diferente  │
+   * │ do `ltvCentavos`, que é recebido. São duas perguntas: "quanto ele nos     │
+   * │ deu" e "quanto ele cobra por mês".                                        │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  readonly mrrMesCentavos: number;
+  /** `2026-07` do mês de `mrrMesCentavos`. `null` quando nunca houve. */
+  readonly mrrMesRotulo: string | null;
+  /**
    * Os últimos 12 meses de faturamento, do mais antigo para o mais recente.
    *
    * Cada posição é o valor faturado naquele mês, em centavos — zero quando não
@@ -140,6 +160,8 @@ function paraLinha(r: Record<string, unknown>): LinhaDaBase {
     // que se lê como coluna que não carregou.
     ltvCentavos: 0,
     ltvMeses: 0,
+    mrrMesCentavos: 0,
+    mrrMesRotulo: null,
     faturamento12m: Array.isArray(r["faturamento12m"])
       ? (r["faturamento12m"] as unknown[]).map((v) => Number(v ?? 0))
       : Array.from({ length: 12 }, () => 0),
@@ -170,14 +192,24 @@ export async function mainBusinesses(
   opcoes: {
     busca?: string;
     pagina?: number;
+    /**
+     * Quantas por página. **`0` significa TODAS** — vira `LIMIT NULL`, que no
+     * Postgres é o mesmo que `LIMIT ALL`.
+     *
+     * Existe porque exportar mentalmente uma base de 1.959 linhas de 50 em 50 são
+     * 40 idas e voltas. O teto de 200 continua valendo para os valores explícitos:
+     * ele protege de `?pp=99999` na barra de endereço, e "todas" é uma escolha
+     * declarada, não um número grande digitado por engano.
+     */
     porPagina?: number;
     somenteAtivos?: boolean;
     /** Como organizar. `usuarios` é o padrão — ver o comentário do ORDER BY. */
-    ordem?: "usuarios" | "ltv" | "nome";
+    ordem?: "usuarios" | "autorizados" | "ltv" | "nome";
   } = {},
 ): Promise<PaginaDaBase> {
-  const porPagina = Math.min(Math.max(opcoes.porPagina ?? 50, 1), 200);
-  const pagina = Math.max(opcoes.pagina ?? 1, 1);
+  const todas = opcoes.porPagina === 0;
+  const porPagina = todas ? 0 : Math.min(Math.max(opcoes.porPagina ?? 50, 1), 200);
+  const pagina = todas ? 1 : Math.max(opcoes.pagina ?? 1, 1);
   const busca = (opcoes.busca ?? "").trim();
   const somenteAtivos = opcoes.somenteAtivos === true;
   const ordem = opcoes.ordem ?? "usuarios";
@@ -220,6 +252,10 @@ export async function mainBusinesses(
     // Maior primeiro: numa lista de 1.959 clientes, ordem alfabética põe na primeira
     // página quem tem 0 usuário e empurra o maior contrato para a página 30.
     usuarios: "(coalesce(a.usuarios_cadastrados, 0) + coalesce(f.cad, 0)) DESC, a.razao_social ASC",
+    // Autorizados é o TETO do contrato; cadastrados é a adesão. Ordenar pelos dois
+    // separadamente é o que deixa ver a diferença entre "cliente grande" e
+    // "cliente que aderiu" — pela ordem de cadastrados as duas se confundem.
+    autorizados: "coalesce(a.usuarios_autorizados, 0) DESC, a.razao_social ASC",
     ltv: "coalesce(l.pago, 0) DESC, a.razao_social ASC",
     nome: "a.razao_social ASC",
   };
@@ -244,8 +280,10 @@ export async function mainBusinesses(
        LEFT JOIN ltv l ON l.account_id = a.id
       WHERE ${filtro}
       ORDER BY ${ORDENS[ordem] ?? ORDENS["usuarios"]}
-      LIMIT $3 OFFSET $4`,
-    [busca, somenteAtivos, porPagina, (pagina - 1) * porPagina],
+      -- LIMIT NULL é "sem limite" no Postgres, e é assim que "todas" chega aqui:
+      -- sem ramo de SQL alternativo, sem concatenação de número na consulta.
+      LIMIT $3::bigint OFFSET $4::bigint`,
+    [busca, somenteAtivos, todas ? null : porPagina, todas ? 0 : (pagina - 1) * porPagina],
   );
 
   const linhas = await preencherFaturamento(
@@ -253,11 +291,14 @@ export async function mainBusinesses(
     rows.map((r) => paraLinha(r as Record<string, unknown>)),
   );
 
+  const total = Number(cont[0]?.n ?? 0);
   return {
     linhas,
-    total: Number(cont[0]?.n ?? 0),
+    total,
     pagina,
-    porPagina,
+    // Em "todas" a página É o total: quem lê `porPagina` para calcular quantas
+    // páginas existem chega a 1, que é a verdade da tela.
+    porPagina: todas ? Math.max(total, 1) : porPagina,
   };
 }
 
@@ -329,13 +370,35 @@ async function preencherFaturamento(
   return linhas.map((l) => {
     const m = porConta.get(l.id);
     const v = porLtv.get(l.id);
+    const serie12 = meses.map((x) => m?.get(x) ?? 0);
+    const ultimo = ultimoMesComMovimento(serie12, meses);
     return {
       ...l,
       ltvCentavos: Number(v?.pago ?? 0),
       ltvMeses: Number(v?.meses ?? 0),
-      faturamento12m: meses.map((x) => m?.get(x) ?? 0),
+      mrrMesCentavos: ultimo.centavos,
+      mrrMesRotulo: ultimo.rotulo,
+      faturamento12m: serie12,
     };
   });
+}
+
+/**
+ * O último mês da série que teve valor, varrendo de trás para frente.
+ *
+ * Exportada para ter teste: é uma varredura de três linhas, e as três formas de
+ * errar são silenciosas — pegar o mês corrente (zerado até o vencimento), parar
+ * no primeiro zero em vez do último valor, ou devolver o mês 0 quando a série é
+ * toda zero. Nenhuma delas quebra a tela; todas mentem sobre o cliente.
+ */
+export function ultimoMesComMovimento(
+  serie: readonly number[],
+  meses: readonly string[],
+): { centavos: number; rotulo: string | null } {
+  let i = serie.length - 1;
+  while (i >= 0 && (serie[i] ?? 0) === 0) i--;
+  if (i < 0) return { centavos: 0, rotulo: null };
+  return { centavos: serie[i] ?? 0, rotulo: meses[i] ?? null };
 }
 
 /** Os sub business de UM main. Usado quando a linha é aberta. */
@@ -347,6 +410,10 @@ export async function subBusinesses(
     // Maior primeiro: numa lista de 1.959 clientes, ordem alfabética põe na primeira
     // página quem tem 0 usuário e empurra o maior contrato para a página 30.
     usuarios: "(coalesce(a.usuarios_cadastrados, 0) + coalesce(f.cad, 0)) DESC, a.razao_social ASC",
+    // Autorizados é o TETO do contrato; cadastrados é a adesão. Ordenar pelos dois
+    // separadamente é o que deixa ver a diferença entre "cliente grande" e
+    // "cliente que aderiu" — pela ordem de cadastrados as duas se confundem.
+    autorizados: "coalesce(a.usuarios_autorizados, 0) DESC, a.razao_social ASC",
     ltv: "coalesce(l.pago, 0) DESC, a.razao_social ASC",
     nome: "a.razao_social ASC",
   };

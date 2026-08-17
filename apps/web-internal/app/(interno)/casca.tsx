@@ -18,12 +18,15 @@ import { identidadeDaSessao } from '../../lib/guarda'
  *
  * Duas diferenças deliberadas em relação ao alloyal-publi:
  *
- *  1. Não há colapso nem drawer mobile. Aquilo depende de estado de cliente, e
- *     esta casca é Server Component inteira. O menu do Pulse tem seis itens; o do
- *     Publi tem projetos aninhados, que é o que torna o colapso necessário lá.
+ *  1. Não há sidebar minimizada de 64px nem drawer mobile — as duas outras peças
+ *     do §07. O grupo recolhe e amplia (`nav.tsx`), que é o que o menu do Pulse
+ *     precisa: um único item com filhos. A minimizada exige o flyout que devolve
+ *     o rótulo do ícone, e meia minimizada é pior que nenhuma. No lugar do
+ *     drawer, o menu horizontal do `Nav variante="topo"`.
  *
  *  2. A nav é o único componente de cliente (`nav.tsx`), porque precisa do
- *     pathname para destacar o item ativo. Mesma pintura do NavLink do Publi.
+ *     pathname para destacar o item ativo e do `localStorage` para lembrar o que
+ *     foi recolhido. Mesma pintura do NavLink do Publi.
  *
  * As medidas são as do Publi: 252 px de sidebar, 62 px de topbar, logo de 24 px.
  * Elas estão em `--sidebar-w` e `--topbar-h` para não divergirem por engano.
@@ -85,7 +88,7 @@ export async function Topo({
   const nome = await nomeDaPessoa(pool(), eu.email)
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-[62px] shrink-0 items-center gap-3 border-b border-line bg-surface px-4 md:px-7">
+      <header className="sticky top-0 z-30 flex h-[62px] shrink-0 items-center gap-3 border-b border-line bg-surface px-4 md:px-8">
         <div className="md:hidden">
           <AlloyalLogo className="h-6" />
         </div>
@@ -129,10 +132,24 @@ export async function Topo({
   )
 }
 
-/** O corpo da página, com a largura e o respiro do Publi. */
+/**
+ * O corpo da página, com a largura e o respiro do Publi.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ 1200 E `md:px-8`, que é o que o §07 do documento manda: "Área de conteúdo   │
+ * │ máx. 1200px · px-4 py-6 → md:px-8 md:py-7".                                │
+ * │                                                                            │
+ * │ Estava 1180 com `md:px-7` — 20px a menos de caixa e 8px a mais de recuo,    │
+ * │ o que dava 1124 de área útil contra os 1136 do Publi. Números escolhidos    │
+ * │ "por aproximação" na primeira portagem; a divergência não tinha motivo.     │
+ * │                                                                            │
+ * │ A conta que importa: com a sidebar de 252px, ver os 1136 inteiros exige     │
+ * │ 1452px de janela. Abaixo disso é a janela que limita, não este número.      │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
 export function Corpo({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <main className={cn('mx-auto w-full max-w-[1180px] px-4 py-6 md:px-7 md:py-7', className)}>
+    <main className={cn('mx-auto w-full max-w-[1200px] px-4 py-6 md:px-8 md:py-7', className)}>
       {children}
     </main>
   )
