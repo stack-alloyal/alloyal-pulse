@@ -30,12 +30,25 @@ export function Card({
   children: React.ReactNode
   className?: string
 }) {
+  /* ┌─────────────────────────────────────────────────────────────────┐
+     │ O CABEÇALHO QUEBRA EM LINHAS, e o bloco de ações pode encolher. │
+     │                                                                  │
+     │ Era `flex` sem quebra e um `<div>` sem `min-w-0` em volta das    │
+     │ ações: no telefone, os cinco chips mais a busca da base de       │
+     │ clientes empurravam o cabeçalho para 462px numa tela de 390 — e  │
+     │ quem rolava de lado era a PÁGINA INTEIRA, não o card. Medido em  │
+     │ 390px antes e depois.                                            │
+     │                                                                  │
+     │ `min-w-0` é a metade que se esquece: sem ele um item de flex se  │
+     │ recusa a ficar menor que o próprio conteúdo, e `flex-wrap` no    │
+     │ pai não resolve nada.                                            │
+     └─────────────────────────────────────────────────────────────────┘ */
   return (
-    <section className={cn('rounded-lg border border-line bg-surface shadow-sm', className)}>
+    <section className={cn('min-w-0 rounded-lg border border-line bg-surface shadow-sm', className)}>
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-[18px] py-[14px]">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-[18px] py-[14px]">
           <h2 className="text-cartao font-bold tracking-[-0.01em] text-ink">{title}</h2>
-          <div className="flex gap-2">{actions}</div>
+          <div className="flex min-w-0 flex-wrap gap-2">{actions}</div>
         </header>
       )}
       <div className="p-[18px]">{children}</div>

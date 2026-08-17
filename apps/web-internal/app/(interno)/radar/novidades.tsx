@@ -208,7 +208,10 @@ export function NovidadesDoRadar() {
 
         {/* `z-40`: acima do header, que é `z-30` — a mesma medida do menu do perfil,
             e por isso a mesma casca (borda, raio e sombra) também. */}
-        <div className="absolute right-0 z-40 mt-2 w-96 overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-pop">
+        {/* `max-w-[calc(100vw-2rem)]` porque o painel é ancorado à direita do topo:
+           num telefone de 390px ele passava 3px da borda e a PÁGINA passava a
+           rolar de lado — 3px que ninguém vê e que estragam a rolagem inteira. */}
+        <div className="absolute right-0 z-40 mt-2 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface p-1 shadow-pop">
           <div className="flex items-center px-2 py-1.5 text-sm font-semibold text-ink">
             O que há de novo no Pulse
             {naoLidas.length > 0 && (

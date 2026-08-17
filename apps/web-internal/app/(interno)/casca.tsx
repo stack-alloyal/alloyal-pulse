@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import { nomeDaPessoa } from '@pulse/config'
 
 import { AlavancaDaLateral } from './lateral-alavanca'
+import { GavetaDaLateral } from './lateral-gaveta'
 import { itemAtivo } from './menu'
 import { Nav } from './nav'
 import { Perfil } from './perfil'
@@ -19,10 +20,10 @@ import { identidadeDaSessao } from '../../lib/guarda'
  *
  * Duas diferenças deliberadas em relação ao alloyal-publi:
  *
- *  1. Não há drawer mobile — a última peça do §07 que falta. No lugar dele, o
- *     menu horizontal do `Nav variante="topo"`, que já cobre o telefone sem
- *     backdrop nem estado. A expandida (252px), a minimizada (64px com flyout) e
- *     o grupo que recolhe estão todos aqui.
+ *  1. O §07 está inteiro: expandida (252px), minimizada (64px com flyout), o
+ *     grupo que recolhe e a gaveta do telefone (268px / 82%). A gaveta
+ *     SUBSTITUIU a fileira horizontal que havia sob o cabeçalho — era a segunda
+ *     navegação da mesma tela, e rolava de lado escondendo os últimos itens.
  *
  *  2. A nav é o único componente de cliente (`nav.tsx`), porque precisa do
  *     pathname para destacar o item ativo e do `localStorage` para lembrar o que
@@ -98,6 +99,9 @@ export async function Topo({
   return (
     <>
       <header className="sticky top-0 z-30 flex h-[62px] shrink-0 items-center gap-3 border-b border-line bg-surface px-4 md:px-8">
+        {/* Só no telefone: o gatilho da gaveta, e o logo ao lado. No computador
+            os dois somem — lá a lateral está sempre visível. */}
+        <GavetaDaLateral />
         <div className="md:hidden">
           <AlloyalLogo className="h-6" />
         </div>
@@ -122,7 +126,21 @@ export async function Topo({
             </span>
           )}
         </div>
-        {acoes && <div className="flex shrink-0 items-center gap-2 text-corpo">{acoes}</div>}
+        {/* ┌───────────────────────────────────────────────────────────────────┐
+            │ AS AÇÕES SOMEM NO TELEFONE, e o título fica.                       │
+            │                                                                    │
+            │ Medido em 390px: com elas, o cabeçalho de Configurações ia a 393px  │
+            │ — a página inteira passava a rolar de lado — e o bloco do título    │
+            │ era espremido a ZERO. Ou seja, o que sobrava era um contador        │
+            │ ("4 de 12 cadastrados") numa tela onde o nome da tela não aparecia. │
+            │                                                                    │
+            │ Toda `acoes` de hoje é um resumo — contador ou selo — e o número    │
+            │ que ela mostra está no corpo da página logo abaixo. O nome da tela  │
+            │ não está em lugar nenhum senão aqui.                               │
+            └───────────────────────────────────────────────────────────────────┘ */}
+        {acoes && (
+          <div className="hidden shrink-0 items-center gap-2 text-corpo sm:flex">{acoes}</div>
+        )}
         {/* Radar: reportar (🐛) e novidades (✨). Ficam AQUI pelo mesmo motivo do
             Perfil — são 16 telas, e pedir que cada uma monte os próprios garantiria
             que alguma esquecesse. A tela onde a pessoa esbarra no defeito é
@@ -135,8 +153,6 @@ export async function Topo({
         <PainelDoRadar />
         <Perfil id={eu} nome={nome} />
       </header>
-      {/* Menu horizontal no mobile, onde a sidebar não aparece. */}
-      <Nav variante="topo" />
     </>
   )
 }

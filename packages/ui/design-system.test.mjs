@@ -770,3 +770,47 @@ test('a escolha da lateral é aplicada antes da primeira pintura', () => {
   assert.match(fonte, /localStorage\.getItem/, 'o script lê a escolha guardada')
   assert.match(fonte, /setAttribute\('data-menu'/, 'e a aplica como atributo do <html>')
 })
+
+/**
+ * A gaveta do telefone tem quatro exigências, e três delas quebram em silêncio.
+ *
+ * A medida (268px / 82%) é visível; Esc, backdrop e FECHAR AO NAVEGAR não são —
+ * o último é o mais fácil de perder, e o sintoma é a gaveta ficar por cima da
+ * tela que a pessoa acabou de pedir. Aqui ele é garantido pelo efeito que observa
+ * o `pathname`, e não por um `onClick` em cada um dos dezessete links.
+ */
+test('a gaveta do telefone fecha por Esc, pelo backdrop e ao navegar', () => {
+  const g = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'lateral-gaveta.tsx'),
+    'utf8',
+  )
+  assert.match(g, /w-\[268px\]/, 'a gaveta é de 268px (§07)')
+  assert.match(g, /max-w-\[82%\]/, 'com teto de 82% da tela (§07)')
+  assert.match(g, /'Escape'/, 'Esc tem de fechar')
+  assert.match(g, /aria-label="Fechar o menu"/, 'o backdrop tem de fechar, e com rótulo')
+  assert.match(
+    g,
+    /useEffect\(\s*\(\)\s*=>\s*\{\s*setAberta\(false\)\s*\}\s*,\s*\[pathname\]\)/,
+    'navegar TEM de fechar a gaveta — pelo pathname, não por onClick em cada link',
+  )
+  assert.match(g, /motion-safe:duration-200/, 'a transição é de 200ms e respeita reduzir movimento')
+})
+
+/**
+ * As regras da lateral minimizada não podem vazar para a gaveta.
+ *
+ * As duas renderizam o MESMO `<Nav>`. Sem o escopo em `.lateral`, quem minimiza
+ * no computador abre a gaveta no celular e encontra dez ícones sem rótulo — o
+ * atributo no <html> diz "a lateral está minimizada", não "o menu está".
+ */
+test('a minimizada é escopada à lateral e não alcança a gaveta', () => {
+  const css = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'lateral.css'),
+    'utf8',
+  )
+  const soltas = css
+    .split('\n')
+    .filter((l) => /:root\[data-menu='min'\]/.test(l))
+    .filter((l) => !/:root\[data-menu='min'\] \.lateral[\s.:]/.test(l))
+  assert.deepEqual(soltas, [], `regra da minimizada sem escopo em .lateral:\n${soltas.join('\n')}`)
+})

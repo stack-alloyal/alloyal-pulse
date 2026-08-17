@@ -70,7 +70,10 @@ export function Perfil({ id, nome }: { id: Identidade; nome: string | null }) {
       </summary>
 
       {/* `z-40`: acima do header, que é `z-30`. */}
-      <div className="absolute right-0 z-40 mt-2 w-[268px] overflow-hidden rounded-lg border border-line bg-surface shadow-pop">
+      {/* `max-w-[calc(100vw-2rem)]` porque o painel é ancorado à direita do topo:
+         num telefone de 390px ele passava 3px da borda e a PÁGINA passava a
+         rolar de lado — 3px que ninguém vê e que estragam a rolagem inteira. */}
+      <div className="absolute right-0 z-40 mt-2 w-[268px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface shadow-pop">
         <div className="border-b border-line px-4 py-3">
           <div className="truncate text-corpo font-semibold text-ink">
             {nome ?? tratamento(nome, id.email)}

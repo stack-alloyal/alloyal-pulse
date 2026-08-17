@@ -19,6 +19,14 @@
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 
+/* ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ TODA REGRA ABAIXO EXIGE ESTAR DENTRO DE `.lateral`, e não só o atributo no  │
+ * │ <html>. O mesmo `<Nav>` é renderizado na gaveta do telefone, que NÃO é a    │
+ * │ lateral: sem o escopo, quem minimizasse no computador abriria a gaveta no   │
+ * │ celular e encontraria dez ícones sem rótulo e um flyout que não cabe na     │
+ * │ tela. O atributo diz "a LATERAL está minimizada", não "o menu está".        │
+ * └───────────────────────────────────────────────────────────────────────────┘ */
+
 /* O flyout não existe enquanto a lateral está aberta: lá o rótulo está na linha
    e o submenu abre embaixo. Ele é peça da minimizada, não um tooltip geral. */
 .lateral-flyout {
@@ -32,15 +40,15 @@
 /* Rótulo, chevron, submenu embutido e o rodapé saem: no lugar deles, o ícone
    centralizado. `justify-content` e não margem, para o ícone ficar no meio dos
    64px sem depender do tamanho do texto que sumiu. */
-:root[data-menu='min'] .lateral-rotulo,
-:root[data-menu='min'] .lateral-chevron,
-:root[data-menu='min'] .lateral-filhos,
-:root[data-menu='min'] .lateral-rodape,
-:root[data-menu='min'] .lateral-marca-completa {
+:root[data-menu='min'] .lateral .lateral-rotulo,
+:root[data-menu='min'] .lateral .lateral-chevron,
+:root[data-menu='min'] .lateral .lateral-filhos,
+:root[data-menu='min'] .lateral .lateral-rodape,
+:root[data-menu='min'] .lateral .lateral-marca-completa {
   display: none;
 }
 
-:root[data-menu='min'] .lateral-item {
+:root[data-menu='min'] .lateral .lateral-item {
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
@@ -51,19 +59,19 @@
 .lateral-marca-icone {
   display: none;
 }
-:root[data-menu='min'] .lateral-marca-icone {
+:root[data-menu='min'] .lateral .lateral-marca-icone {
   display: block;
 }
 
 /* O flyout: aparece ao passar o mouse OU ao receber foco em qualquer coisa
    dentro do alvo — o próprio ícone, o chevron, ou um link do submenu. */
-:root[data-menu='min'] .lateral-alvo:hover > .lateral-flyout,
-:root[data-menu='min'] .lateral-alvo:focus-within > .lateral-flyout {
+:root[data-menu='min'] .lateral .lateral-alvo:hover > .lateral-flyout,
+:root[data-menu='min'] .lateral .lateral-alvo:focus-within > .lateral-flyout {
   display: block;
 }
 
 /* O botão de recolher/ampliar gira a seta em vez de trocar de ícone: mesmo alvo,
    mesmo lugar, e a direção diz para onde a lateral vai. */
-:root[data-menu='min'] .lateral-alavanca-seta {
+:root[data-menu='min'] .lateral .lateral-alavanca-seta {
   transform: rotate(180deg);
 }

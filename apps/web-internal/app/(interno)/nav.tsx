@@ -99,29 +99,10 @@ function Filho({
  * Mesma pintura do NavLink do alloyal-publi: `bg-purple-50 text-purple-700`
  * no ativo, ícone em roxo, o resto em `ink-2`.
  */
-export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' }) {
+export function Nav() {
   const pathname = usePathname()
   const ativo = itemAtivo(pathname)?.href
   const { grupos, alternar } = usarGrupos()
-
-  if (variante === 'topo') {
-    return (
-      <div className="flex gap-1 overflow-x-auto border-b border-line bg-surface px-4 py-2 md:hidden">
-        {MENU.map((m) => (
-          <Link
-            key={m.href}
-            href={m.href}
-            className={cn(
-              'whitespace-nowrap rounded-sm px-2.5 py-1.5 text-meta font-semibold',
-              m.href === ativo ? 'bg-purple-50 text-purple-700' : 'text-ink-2',
-            )}
-          >
-            {m.rotulo}
-          </Link>
-        ))}
-      </div>
-    )
-  }
 
   return (
     <nav className="flex flex-col gap-0.5">

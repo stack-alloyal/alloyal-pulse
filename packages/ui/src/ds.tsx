@@ -55,7 +55,7 @@ export function Abas({
   className?: string
 }) {
   return (
-    <div className={cn('flex gap-1 overflow-x-auto border-b border-line', className)} role="tablist">
+    <div className={cn('flex min-w-0 gap-1 overflow-x-auto border-b border-line', className)} role="tablist">
       {abas.map((a) => {
         const ativa = a.chave === atual
         return (
@@ -242,13 +242,31 @@ export function KpiGrade({
   children: React.ReactNode
   colunas?: 2 | 3 | 4 | 6
 }) {
+  /* ┌─────────────────────────────────────────────────────────────────────────┐
+     │ UMA COLUNA NO TELEFONE, e itens que podem encolher.                      │
+     │                                                                           │
+     │ Começava em duas colunas em qualquer largura. Um KPI tem valor de 22px —  │
+     │ "17/08/2026, 07:10" na tela do Omie pede ~180px — e dois deles lado a     │
+     │ lado numa tela de 390 levavam a GRADE a 555px: a página inteira rolava    │
+     │ de lado. Medido.                                                          │
+     │                                                                           │
+     │ `min-w-0` NA PRÓPRIA GRADE é a outra metade, e a mais escorregadia: em    │
+     │ 26 telas o <Corpo> é `grid`, então esta grade é item de grade — e item de │
+     │ grade tem largura mínima AUTOMÁTICA, isto é, recusa-se a ficar menor que  │
+     │ o próprio conteúdo. Era daí que vinham os 555px na tela do Omie e os      │
+     │ 858px na de match, com o contêiner de 362.                                │
+     │                                                                           │
+     │ Tentei antes a variante `[&>*]:min-w-0`; ela NÃO é gerada pelo Tailwind    │
+     │ desta versão — conferido no CSS compilado, onde só existe `.min-w-0`.     │
+     │ Passou no build, passou no tipo, e não fez nada.                          │
+     └─────────────────────────────────────────────────────────────────────────┘ */
   const cls = {
-    2: 'grid-cols-2',
-    3: 'grid-cols-2 lg:grid-cols-3',
-    4: 'grid-cols-2 lg:grid-cols-4',
-    6: 'grid-cols-2 lg:grid-cols-3 xl:grid-cols-6',
+    2: 'grid-cols-1 sm:grid-cols-2',
+    3: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+    4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
+    6: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6',
   }[colunas]
-  return <div className={cn('grid gap-3', cls)}>{children}</div>
+  return <div className={cn('grid min-w-0 gap-3', cls)}>{children}</div>
 }
 
 // ═══ Ações em ícone ══════════════════════════════════════════════════════════
@@ -334,11 +352,11 @@ export function Busca({
   className?: string
 }) {
   return (
-    <form action={action} className={cn('flex items-center gap-2', className)}>
+    <form action={action} className={cn('flex min-w-0 items-center gap-2', className)}>
       {Object.entries(ocultos ?? {}).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
       ))}
-      <span className="relative">
+      <span className="relative min-w-0 flex-1 sm:flex-none">
         <svg
           aria-hidden="true"
           viewBox="0 0 24 24"
@@ -358,7 +376,10 @@ export function Busca({
           placeholder={placeholder}
           aria-label={placeholder ?? 'Buscar'}
           className={cn(
-            'h-control w-[280px] rounded-md border border-line-strong bg-surface pl-8 pr-3 text-corpo text-ink placeholder:text-ink-3',
+            // 280px é a medida do documento, e vale onde cabe. No telefone o campo
+            // passa a ocupar a linha: fixo em 280 ele estourava a tela, e quem
+            // rolava de lado era a página inteira.
+            'h-control w-full rounded-md border border-line-strong bg-surface pl-8 pr-3 text-corpo text-ink placeholder:text-ink-3 sm:w-[280px]',
             FOCO,
           )}
         />
