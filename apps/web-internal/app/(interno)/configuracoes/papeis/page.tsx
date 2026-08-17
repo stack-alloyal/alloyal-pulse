@@ -1,12 +1,9 @@
 import { PAPEIS, PERMISSOES, type Papel, type Permissoes } from '@pulse/auth'
 import { listarPessoas } from '@pulse/config'
 import { Aviso, Badge, Btn, Card, Field, Select, Table } from '@pulse/ui'
-import { ArrowLeft } from 'lucide-react'
-import Link from 'next/link'
 
 import { darPapel, tirarPapel } from '../acoes'
-import { Topo } from '../../casca'
-import { CorpoDeConfiguracao } from '../submenu'
+import { Corpo, Topo } from '../../casca'
 import { pool } from '../../../../lib/db'
 import { exigir } from '../../../../lib/guarda'
 
@@ -73,17 +70,8 @@ export default async function Acessos({
         href="/configuracoes"
         titulo="Acessos"
         proposito="quem vê o quê, e desde quando"
-        acoes={
-          <Link
-            href="/configuracoes"
-            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
-          >
-            <ArrowLeft className="h-[14px] w-[14px]" />
-            Configurações
-          </Link>
-        }
       />
-      <CorpoDeConfiguracao atual="/configuracoes/papeis">
+      <Corpo className="grid gap-5">
         {q.erro && (
           <Aviso tom="erro" papel="alert">
             {q.erro}
@@ -244,7 +232,7 @@ export default async function Acessos({
             coluna “o que isso dá” da tabela de cima mostra o resultado e não os papéis.
           </p>
         </Card>
-      </CorpoDeConfiguracao>
+      </Corpo>
     </>
   )
 }

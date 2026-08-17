@@ -1,10 +1,7 @@
 import { historicoDeMudancas } from '@pulse/config'
 import { Badge, Card, Table, Vazio } from '@pulse/ui'
-import { ArrowLeft } from 'lucide-react'
-import Link from 'next/link'
 
-import { Topo } from '../../casca'
-import { CorpoDeConfiguracao } from '../submenu'
+import { Corpo, Topo } from '../../casca'
 import { pool } from '../../../../lib/db'
 import { exigir } from '../../../../lib/guarda'
 
@@ -55,17 +52,8 @@ export default async function Historico() {
         href="/configuracoes"
         titulo="Histórico de mudanças"
         proposito="o que mudou, quem mudou e por quê"
-        acoes={
-          <Link
-            href="/configuracoes"
-            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
-          >
-            <ArrowLeft className="h-[14px] w-[14px]" />
-            Configurações
-          </Link>
-        }
       />
-      <CorpoDeConfiguracao atual="/configuracoes/historico">
+      <Corpo className="grid gap-5">
         {mudancas.length === 0 ? (
           <Vazio
             titulo="Nenhuma mudança registrada ainda."
@@ -110,7 +98,7 @@ export default async function Historico() {
           registro novo, nunca edição do anterior: trilha que se conserta não sustenta nenhuma
           conversa sobre o que aconteceu.
         </p>
-      </CorpoDeConfiguracao>
+      </Corpo>
     </>
   )
 }

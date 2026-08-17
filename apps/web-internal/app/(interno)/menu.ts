@@ -26,6 +26,15 @@ export interface ItemDeMenu {
   rotulo: string;
   icone: typeof Inbox;
   proposito: string;
+  /**
+   * As telas que pendem desta, como no Publi e no design system.
+   *
+   * Configurações tinha seis telas alcançáveis só por links no cabeçalho da
+   * própria página: quem estava em Segredos não via que existia Papéis sem
+   * voltar. Submenu resolve isso e é o padrão do §07 — a navegação é DECLARADA,
+   * e a hierarquia da declaração é a hierarquia da tela.
+   */
+  filhos?: readonly { href: string; rotulo: string; proposito: string }[];
 }
 
 export const MENU: readonly ItemDeMenu[] = [
@@ -109,6 +118,15 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Configurações",
     icone: Settings,
     proposito: "Ajustes, acessos e segredos",
+    filhos: [
+      { href: "/configuracoes", rotulo: "Catálogo", proposito: "Os ajustes e o que cada um muda" },
+      { href: "/configuracoes/usuarios", rotulo: "Acessos", proposito: "Quem entra e com qual papel" },
+      { href: "/configuracoes/papeis", rotulo: "Papéis", proposito: "A matriz de permissão por papel" },
+      { href: "/configuracoes/segredos", rotulo: "Segredos", proposito: "Credenciais das integrações" },
+      { href: "/configuracoes/omie", rotulo: "Omie", proposito: "A integração financeira" },
+      { href: "/configuracoes/sincronizacao", rotulo: "Sincronização", proposito: "Os ciclos e o que entrou" },
+      { href: "/configuracoes/historico", rotulo: "Histórico", proposito: "A trilha do que foi mudado" },
+    ],
   },
 ];
 

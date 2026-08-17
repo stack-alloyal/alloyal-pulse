@@ -14,8 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import { CorpoDeConfiguracao } from "../submenu";
-import { Topo } from "../../casca";
+import { Corpo, Topo } from "../../casca";
 import { dispararCiclo } from "../acoes";
 import { exigir } from "../../../../lib/guarda";
 import { pool } from "../../../../lib/db";
@@ -105,7 +104,7 @@ export default async function Sincronizacao({
         titulo="Sincronização"
         proposito="os ciclos, a agenda e o histórico de cada carga"
       />
-      <CorpoDeConfiguracao atual="/configuracoes/sincronizacao">
+      <Corpo className="grid gap-5">
         {q.erro && (
           <Aviso tom="erro" papel="alert">
             {q.erro}
@@ -370,7 +369,7 @@ export default async function Sincronizacao({
             </li>
           </ul>
         </Card>
-      </CorpoDeConfiguracao>
+      </Corpo>
     </>
   );
 }

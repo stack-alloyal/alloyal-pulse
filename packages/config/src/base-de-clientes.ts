@@ -89,6 +89,20 @@ export interface LinhaDaBase {
   readonly usuariosAutorizados: number;
   readonly usuariosCadastrados: number;
   /**
+   * LTV: tudo que este cliente já pagou, em centavos.
+   *
+   * É o RECEBIDO e não o faturado — "quanto este cliente já nos deu" não conta
+   * boleto que não entrou. Cancelado e a vencer ficam de fora por construção.
+   */
+  readonly ltvCentavos: number;
+  /**
+   * Em quantos meses. É a vida do cliente, do primeiro ao último vencimento.
+   *
+   * Vai junto do LTV e nunca sozinho: R$ 500 mil em 60 meses e R$ 500 mil em 6
+   * são clientes diferentes, e o número sem o prazo esconde justamente isso.
+   */
+  readonly ltvMeses: number;
+  /**
    * Os últimos 12 meses de faturamento, do mais antigo para o mais recente.
    *
    * Cada posição é o valor faturado naquele mês, em centavos — zero quando não
@@ -124,6 +138,8 @@ function paraLinha(r: Record<string, unknown>): LinhaDaBase {
     // `null` vira doze zeros: a célula desenha sempre a mesma grade, e "sem
     // faturamento" fica visível como doze barras vazias em vez de espaço branco,
     // que se lê como coluna que não carregou.
+    ltvCentavos: 0,
+    ltvMeses: 0,
     faturamento12m: Array.isArray(r["faturamento12m"])
       ? (r["faturamento12m"] as unknown[]).map((v) => Number(v ?? 0))
       : Array.from({ length: 12 }, () => 0),
@@ -156,12 +172,15 @@ export async function mainBusinesses(
     pagina?: number;
     porPagina?: number;
     somenteAtivos?: boolean;
+    /** Como organizar. `usuarios` é o padrão — ver o comentário do ORDER BY. */
+    ordem?: "usuarios" | "ltv" | "nome";
   } = {},
 ): Promise<PaginaDaBase> {
   const porPagina = Math.min(Math.max(opcoes.porPagina ?? 50, 1), 200);
   const pagina = Math.max(opcoes.pagina ?? 1, 1);
   const busca = (opcoes.busca ?? "").trim();
   const somenteAtivos = opcoes.somenteAtivos === true;
+  const ordem = opcoes.ordem ?? "usuarios";
 
   // $1 = busca, $2 = somenteAtivos. Limite e deslocamento entram DEPOIS, só na
   // consulta paginada — na contagem eles não existem, e parâmetro declarado e não usado
@@ -197,8 +216,23 @@ export async function mainBusinesses(
     [busca, somenteAtivos],
   );
 
+  const ORDENS: Record<string, string> = {
+    // Maior primeiro: numa lista de 1.959 clientes, ordem alfabética põe na primeira
+    // página quem tem 0 usuário e empurra o maior contrato para a página 30.
+    usuarios: "(coalesce(a.usuarios_cadastrados, 0) + coalesce(f.cad, 0)) DESC, a.razao_social ASC",
+    ltv: "coalesce(l.pago, 0) DESC, a.razao_social ASC",
+    nome: "a.razao_social ASC",
+  };
+
   const { rows } = await db.query(
-    `SELECT ${CAMPOS},
+    `WITH ltv AS (
+       SELECT v.account_id, sum(t.pago_centavos) pago
+         FROM core.vinculo_cliente v
+         JOIN core.omie_titulo t ON t.documento = v.chave
+        WHERE v.fonte = 'omie' AND t.situacao <> 'previsao'
+        GROUP BY 1
+     )
+     SELECT ${CAMPOS},
             coalesce(f.n, 0)::text   AS subs,
             coalesce(f.cad, 0)::text AS subs_cadastrados
        FROM core.account a
@@ -207,11 +241,9 @@ export async function mainBusinesses(
          SELECT count(*) AS n, coalesce(sum(coalesce(s.usuarios_cadastrados, 0)), 0) AS cad
            FROM core.account s WHERE s.parent_account_id = a.id
        ) f ON true
+       LEFT JOIN ltv l ON l.account_id = a.id
       WHERE ${filtro}
-      -- Maior primeiro: numa lista de 1.926 clientes, ordem alfabética põe na primeira
-      -- página quem tem 0 usuário e empurra o maior contrato para a página 30.
-      ORDER BY (coalesce(a.usuarios_cadastrados, 0) + coalesce(f.cad, 0)) DESC,
-               a.razao_social ASC
+      ORDER BY ${ORDENS[ordem] ?? ORDENS["usuarios"]}
       LIMIT $3 OFFSET $4`,
     [busca, somenteAtivos, porPagina, (pagina - 1) * porPagina],
   );
@@ -247,19 +279,35 @@ async function preencherFaturamento(
 ): Promise<LinhaDaBase[]> {
   if (linhas.length === 0) return linhas;
   const ids = linhas.map((l) => l.id);
-  const { rows } = await db.query<{ account_id: string; mes: string; total: string }>(
-    `SELECT v.account_id::text,
-            to_char(date_trunc('month', t.vencimento), 'YYYY-MM') mes,
-            sum(t.valor_centavos)::text total
-       FROM core.vinculo_cliente v
-       JOIN core.omie_titulo t ON t.documento = v.chave
-      WHERE v.account_id = ANY($1::uuid[]) AND v.fonte = 'omie'
-        AND t.situacao <> 'previsao'
-        AND t.vencimento >= date_trunc('month', current_date) - interval '11 months'
-        AND t.vencimento < date_trunc('month', current_date) + interval '1 month'
-      GROUP BY 1, 2`,
-    [ids],
-  );
+  const [serie, ltv] = await Promise.all([
+    db.query<{ account_id: string; mes: string; total: string }>(
+      `SELECT v.account_id::text,
+              to_char(date_trunc('month', t.vencimento), 'YYYY-MM') mes,
+              sum(t.valor_centavos)::text total
+         FROM core.vinculo_cliente v
+         JOIN core.omie_titulo t ON t.documento = v.chave
+        WHERE v.account_id = ANY($1::uuid[]) AND v.fonte = 'omie'
+          AND t.situacao <> 'previsao'
+          AND t.vencimento >= date_trunc('month', current_date) - interval '11 months'
+          AND t.vencimento < date_trunc('month', current_date) + interval '1 month'
+        GROUP BY 1, 2`,
+      [ids],
+    ),
+    // O LTV é sobre TODA a história, não sobre a janela de doze meses.
+    db.query<{ account_id: string; pago: string; meses: string }>(
+      `SELECT v.account_id::text,
+              coalesce(sum(t.pago_centavos), 0)::text pago,
+              (count(DISTINCT date_trunc('month', t.vencimento)))::text meses
+         FROM core.vinculo_cliente v
+         JOIN core.omie_titulo t ON t.documento = v.chave
+        WHERE v.account_id = ANY($1::uuid[]) AND v.fonte = 'omie'
+          AND t.situacao <> 'previsao'
+        GROUP BY 1`,
+      [ids],
+    ),
+  ]);
+  const rows = serie.rows;
+  const porLtv = new Map(ltv.rows.map((r) => [r.account_id, r]));
 
   // Os doze rótulos de mês, do mais antigo ao atual. Montados aqui e não no SQL
   // porque a linha precisa das doze posições mesmo quando a conta não tem nenhuma.
@@ -280,7 +328,13 @@ async function preencherFaturamento(
   // existe para que ninguém escreva nela por engano mais adiante.
   return linhas.map((l) => {
     const m = porConta.get(l.id);
-    return { ...l, faturamento12m: meses.map((x) => m?.get(x) ?? 0) };
+    const v = porLtv.get(l.id);
+    return {
+      ...l,
+      ltvCentavos: Number(v?.pago ?? 0),
+      ltvMeses: Number(v?.meses ?? 0),
+      faturamento12m: meses.map((x) => m?.get(x) ?? 0),
+    };
   });
 }
 
@@ -289,8 +343,23 @@ export async function subBusinesses(
   db: pg.Pool,
   mainId: string,
 ): Promise<LinhaDaBase[]> {
+  const ORDENS: Record<string, string> = {
+    // Maior primeiro: numa lista de 1.959 clientes, ordem alfabética põe na primeira
+    // página quem tem 0 usuário e empurra o maior contrato para a página 30.
+    usuarios: "(coalesce(a.usuarios_cadastrados, 0) + coalesce(f.cad, 0)) DESC, a.razao_social ASC",
+    ltv: "coalesce(l.pago, 0) DESC, a.razao_social ASC",
+    nome: "a.razao_social ASC",
+  };
+
   const { rows } = await db.query(
-    `SELECT ${CAMPOS}, 0 AS subs, 0 AS subs_cadastrados
+    `WITH ltv AS (
+       SELECT v.account_id, sum(t.pago_centavos) pago
+         FROM core.vinculo_cliente v
+         JOIN core.omie_titulo t ON t.documento = v.chave
+        WHERE v.fonte = 'omie' AND t.situacao <> 'previsao'
+        GROUP BY 1
+     )
+     SELECT ${CAMPOS}, 0 AS subs, 0 AS subs_cadastrados
        FROM core.account a
        LEFT JOIN core.account_hubspot h ON h.account_id = a.id
       WHERE a.parent_account_id = $1::uuid

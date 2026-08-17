@@ -1,6 +1,6 @@
 import { categoriasDoOmie, estadoDaIntegracao } from '@pulse/config'
 import { Abas, Aviso, Badge, Card, Kpi, KpiGrade, Table, Vazio } from '@pulse/ui'
-import { ArrowLeft, Wallet } from 'lucide-react'
+import { Wallet } from 'lucide-react'
 import Link from 'next/link'
 
 import { Corpo, Topo } from '../../casca'
@@ -85,13 +85,6 @@ export default async function ConfiguracoesOmie({
             ) : (
               <Badge tone="red">sem credencial</Badge>
             )}
-            <Link
-              href="/configuracoes"
-              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
-            >
-              <ArrowLeft className="h-[14px] w-[14px]" />
-              Configurações
-            </Link>
           </span>
         }
       />

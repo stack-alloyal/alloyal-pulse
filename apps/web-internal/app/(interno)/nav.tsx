@@ -45,21 +45,52 @@ export function Nav({ variante = 'lateral' }: { variante?: 'lateral' | 'topo' })
       {MENU.map((m) => {
         const Icone = m.icone
         const isAtivo = m.href === ativo
+        /* O submenu abre quando se está DENTRO da seção, e só. Aberto sempre
+           acrescentaria sete linhas ao menu de quem nunca entra em Configurações;
+           fechado sempre esconderia onde a pessoa está. */
+        const dentro = Boolean(m.filhos) && pathname.startsWith(m.href)
         return (
-          <Link
-            key={m.href}
-            href={m.href}
-            aria-current={isAtivo ? 'page' : undefined}
-            className={cn(
-              'flex items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-corpo font-semibold transition-colors',
-              isAtivo ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
+          <div key={m.href}>
+            <Link
+              href={m.href}
+              aria-current={isAtivo ? 'page' : undefined}
+              className={cn(
+                'flex items-center gap-[11px] rounded-sm px-[10px] py-[9px] text-corpo font-semibold transition-colors',
+                isAtivo ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
+              )}
+            >
+              <Icone
+                className={cn('h-[17px] w-[17px] shrink-0', isAtivo ? 'text-purple-500' : 'text-ink-3')}
+              />
+              <span className="truncate">{m.rotulo}</span>
+            </Link>
+            {dentro && m.filhos && (
+              <div className="ml-[26px] mt-0.5 flex flex-col gap-0.5 border-l border-line pl-2">
+                {m.filhos.map((f) => {
+                  /* Ativo é o de href mais LONGO que casa: sem isso, "/configuracoes"
+                     ficaria aceso nas sete telas ao mesmo tempo. */
+                  const filhoAtivo =
+                    pathname === f.href || (f.href !== m.href && pathname.startsWith(f.href + '/'))
+                  return (
+                    <Link
+                      key={f.href}
+                      href={f.href}
+                      title={f.proposito}
+                      aria-current={filhoAtivo ? 'page' : undefined}
+                      className={cn(
+                        'truncate rounded-sm px-2 py-1.5 text-meta transition-colors',
+                        filhoAtivo
+                          ? 'font-semibold text-purple-700'
+                          : 'text-ink-3 hover:bg-surface-2 hover:text-ink-2',
+                      )}
+                    >
+                      {f.rotulo}
+                    </Link>
+                  )
+                })}
+              </div>
             )}
-          >
-            <Icone
-              className={cn('h-[17px] w-[17px] shrink-0', isAtivo ? 'text-purple-500' : 'text-ink-3')}
-            />
-            <span className="truncate">{m.rotulo}</span>
-          </Link>
+          </div>
         )
       })}
     </nav>

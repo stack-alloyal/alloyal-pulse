@@ -89,17 +89,28 @@ export async function Topo({
         <div className="md:hidden">
           <AlloyalLogo className="h-6" />
         </div>
-        <div className="flex min-w-0 items-center gap-2">
+        {/* ┌─────────────────────────────────────────────────────────────────┐
+            │ O TÍTULO NÃO ENCOLHE; O PROPÓSITO SIM.                          │
+            │                                                                  │
+            │ Era `min-w-0` no bloco inteiro e um espaçador `flex-1` depois:   │
+            │ as ações da direita têm largura própria e não cedem, então quem  │
+            │ cedia era o título. Numa tela com badge e seletor de tema, "Omie"│
+            │ apareceu como "O…" — some justamente o nome da tela, que é o     │
+            │ contrário do que um cabeçalho serve para fazer.                  │
+            │                                                                  │
+            │ Agora o bloco toma o espaço livre, o título é `shrink-0`, e o    │
+            │ propósito — que é complemento — é o único que trunca.            │
+            └─────────────────────────────────────────────────────────────────┘ */}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Icone className="h-[18px] w-[18px] shrink-0 text-purple-500" />
-          <span className="truncate text-title text-ink">{titulo ?? item?.rotulo}</span>
+          <span className="shrink-0 text-title text-ink">{titulo ?? item?.rotulo}</span>
           {(proposito ?? item?.proposito) && (
-            <span className="hidden truncate text-corpo text-ink-3 lg:inline">
+            <span className="hidden min-w-0 truncate text-corpo text-ink-3 lg:inline">
               · {proposito ?? item?.proposito}
             </span>
           )}
         </div>
-        <div className="flex-1" />
-        {acoes}
+        {acoes && <div className="flex shrink-0 items-center gap-2 text-corpo">{acoes}</div>}
         {/* Radar: reportar (🐛) e novidades (✨). Ficam AQUI pelo mesmo motivo do
             Perfil — são 16 telas, e pedir que cada uma monte os próprios garantiria
             que alguma esquecesse. A tela onde a pessoa esbarra no defeito é

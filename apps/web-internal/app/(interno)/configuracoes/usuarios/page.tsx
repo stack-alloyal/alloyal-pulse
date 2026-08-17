@@ -1,11 +1,10 @@
 import { listarPessoas } from '@pulse/config'
 import { Aviso, Badge, Btn, Card, Field, Table } from '@pulse/ui'
-import { ArrowLeft, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 
 import { alternarAcesso, cadastrarPessoa } from '../acoes'
-import { Topo } from '../../casca'
-import { CorpoDeConfiguracao } from '../submenu'
+import { Corpo, Topo } from '../../casca'
 import { exigir } from '../../../../lib/guarda'
 import { pool } from '../../../../lib/db'
 
@@ -56,17 +55,8 @@ export default async function Usuarios({
         href="/configuracoes"
         titulo="Usuários"
         proposito="quem existe, e quem está com acesso ativo"
-        acoes={
-          <Link
-            href="/configuracoes"
-            className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
-          >
-            <ArrowLeft className="h-[14px] w-[14px]" />
-            Configurações
-          </Link>
-        }
       />
-      <CorpoDeConfiguracao atual="/configuracoes/usuarios">
+      <Corpo className="grid gap-5">
         {q.erro && (
           <Aviso tom="erro" papel="alert">
             {q.erro}
@@ -195,7 +185,7 @@ export default async function Usuarios({
             {semNome.length > 0 && ` — e ${semNome.length} pessoa(s) hoje aparecem pelo e-mail, por falta de nome`}.
           </p>
         </Card>
-      </CorpoDeConfiguracao>
+      </Corpo>
     </>
   )
 }

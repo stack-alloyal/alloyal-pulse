@@ -1,11 +1,9 @@
 import { CATALOGO, POR_GRUPO, chavesOrfas, gravados, lerConfiguracao } from '@pulse/config'
 import { Aviso, Badge, Btn, Card, Field } from '@pulse/ui'
-import { KeyRound, ScrollText, ShieldCheck, Users, Wallet } from 'lucide-react'
 import Link from 'next/link'
 
 import { salvarAjuste } from './acoes'
-import { Topo } from '../casca'
-import { CorpoDeConfiguracao } from './submenu'
+import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir } from '../../../lib/guarda'
 
@@ -50,50 +48,16 @@ export default async function Configuracoes({
     <>
       <Topo
         href="/configuracoes"
+        /* Só o CONTADOR. Os cinco atalhos que moravam aqui viraram o submenu da
+           lateral — mantê-los seria a terceira cópia da mesma navegação na mesma
+           tela, e a que fica desatualizada quando entra uma seção nova. */
         acoes={
-          <span className="flex items-center gap-3 text-corpo">
-            <Link
-                href="/configuracoes/usuarios"
-                className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
-              >
-                <Users className="h-[14px] w-[14px]" />
-                Usuários
-              </Link>
-              <Link
-              href="/configuracoes/papeis"
-              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
-            >
-              <ShieldCheck className="h-[14px] w-[14px]" />
-              Acessos
-            </Link>
-            <Link
-              href="/configuracoes/omie"
-              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
-            >
-              <Wallet className="h-[14px] w-[14px]" />
-              Omie
-            </Link>
-            <Link
-              href="/configuracoes/segredos"
-              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
-            >
-              <KeyRound className="h-[14px] w-[14px]" />
-              Segredos
-            </Link>
-            <Link
-              href="/configuracoes/historico"
-              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
-            >
-              <ScrollText className="h-[14px] w-[14px]" />
-              Histórico
-            </Link>
-            <span className="text-ink-2">
-              {quantosMudados} de {CATALOGO.length} fora do padrão
-            </span>
+          <span className="text-corpo text-ink-2">
+            {quantosMudados} de {CATALOGO.length} fora do padrão
           </span>
         }
       />
-      <CorpoDeConfiguracao atual="/configuracoes">
+      <Corpo className="grid gap-5">
         {q.erro && (
           <Aviso tom="erro" papel="alert">
             {q.erro}
@@ -187,7 +151,7 @@ export default async function Configuracoes({
             </Card>
           )
         })}
-      </CorpoDeConfiguracao>
+      </Corpo>
     </>
   )
 }

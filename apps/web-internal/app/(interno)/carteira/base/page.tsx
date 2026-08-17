@@ -90,39 +90,40 @@ const VINCULO: Record<
 };
 
 /**
- * Os 12 meses de faturamento, numa célula.
+ * Cabeçalho que organiza a lista.
  *
- * Barra e não número: a pergunta que esta coluna responde é de RITMO — "ainda
- * fatura? todo mês? parou quando?" — e doze números lado a lado não se leem de
- * relance. A altura é relativa ao maior mês DA PRÓPRIA linha, porque comparar
- * clientes entre si é trabalho da coluna de valor, não desta.
+ * A organização mora AQUI, no cabeçalho da coluna a que se refere, e não no
+ * título do card: ordenar é propriedade da coluna, e pôr o controle longe dela
+ * obriga a procurar em outro lugar o comando do que está logo abaixo.
+ *
+ * A seta só aparece na coluna ativa — três setas acesas não dizem qual manda.
  */
-function Faturamento12m({ serie }: { serie: readonly number[] }) {
-  const maior = Math.max(...serie, 1)
-  const meses = serie.filter((v) => v > 0).length
-  const total = serie.reduce((a, b) => a + b, 0)
+function Ordenavel({
+  por,
+  atual,
+  busca,
+  children,
+}: {
+  por: "usuarios" | "ltv" | "nome";
+  atual: string;
+  busca: (extra: Record<string, string>) => string;
+  children: React.ReactNode;
+}) {
+  const ativo = atual === por;
   return (
-    <span
-      className="inline-flex h-6 items-end gap-[2px]"
-      title={
-        meses === 0
-          ? "sem faturamento nos últimos 12 meses"
-          : `${meses} de 12 meses faturados · ${(total / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`
+    <Link
+      href={busca({ ordem: por })}
+      aria-sort={ativo ? "descending" : "none"}
+      className={
+        ativo
+          ? "inline-flex items-center gap-1 font-semibold text-purple-700"
+          : "inline-flex items-center gap-1 text-ink-3 hover:text-ink"
       }
     >
-      {serie.map((v, i) => (
-        <span
-          key={i}
-          aria-hidden="true"
-          className={v > 0 ? "w-[3px] rounded-sm bg-purple-500" : "w-[3px] rounded-sm bg-line-strong"}
-          style={{ height: v > 0 ? `${Math.max((v / maior) * 100, 18)}%` : "12%" }}
-        />
-      ))}
-      <span className="sr-only">
-        {meses === 0 ? "sem faturamento" : `${meses} de 12 meses faturados`}
-      </span>
-    </span>
-  )
+      {children}
+      {ativo && <span aria-hidden="true">↓</span>}
+    </Link>
+  );
 }
 
 function linhaDaTabela(
@@ -170,7 +171,10 @@ function linhaDaTabela(
         <span className="h-5 w-5 shrink-0" />
       )}
       <Marca nome={l.razaoSocial} chave={l.brandId ?? l.id} logo={l.logoUrl} />
-      <span className="min-w-0">
+      {/* `min-w-0` no contêiner E `max-w` no nome: sem os dois, o nome longo empurra
+          a tabela e nasce a rolagem horizontal, que numa lista de 1.959 linhas faz a
+          pessoa perder a coluna de referência ao rolar. */}
+      <span className="min-w-0 max-w-[26ch] lg:max-w-[34ch]">
         {/* O NOME é o acesso à ficha. A seta ao lado abre os subs NESTA tela, e são
             ações diferentes: uma navega, a outra expande. Por isso o alvo de cada
             uma é visualmente distinto — o nome sublinha ao passar, a seta gira. */}
@@ -209,7 +213,22 @@ function linhaDaTabela(
         </span>
       ) : null}
     </span>,
-    <Faturamento12m key="f" serie={l.faturamento12m} />,
+    /* LTV e MESES juntos, nunca o valor sozinho: R$ 500 mil em 60 meses e R$ 500
+       mil em 6 são clientes diferentes, e o número sem o prazo esconde isso. */
+    <span key="ltv" className="whitespace-nowrap tabular-nums text-ink">
+      {l.ltvCentavos > 0 ? (
+        <>
+          {(l.ltvCentavos / 100).toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+            maximumFractionDigits: 0,
+          })}
+          <span className="ml-1 text-nota font-normal text-ink-3">{l.ltvMeses}m</span>
+        </>
+      ) : (
+        <span className="text-ink-4">—</span>
+      )}
+    </span>,
     <Badge key="a" tone={l.ativo ? "green" : "slate"}>
       {l.ativo ? "ativo" : "inativo"}
     </Badge>,
@@ -239,6 +258,8 @@ export default async function BaseDeClientes({
     ativos?: string;
     /** "1" = só quem faturou nos 12 meses; "0" = só quem não faturou. */
     fat?: string;
+    /** Como organizar a lista: usuarios (padrão), ltv ou nome. */
+    ordem?: string;
   }>;
 }) {
   await exigir((p) => temEscopo(p.contas), "base de clientes");
@@ -250,7 +271,13 @@ export default async function BaseDeClientes({
   const db = pool();
   const [kpis, pag] = await Promise.all([
     kpisDaCarteira(db),
-    mainBusinesses(db, { busca, pagina, porPagina: 50, somenteAtivos }),
+    mainBusinesses(db, {
+      busca,
+      pagina,
+      porPagina: 50,
+      somenteAtivos,
+      ordem: (["usuarios", "ltv", "nome"] as const).find((o) => o === q.ordem) ?? "usuarios",
+    }),
   ]);
 
   // Só a linha aberta busca os filhos. Carregar os subs de 50 mains a cada render seria
@@ -263,6 +290,10 @@ export default async function BaseDeClientes({
     `/carteira/base?${new URLSearchParams({
       ...(busca ? { q: busca } : {}),
       ...(somenteAtivos ? { ativos: "1" } : {}),
+      ...(q.fat ? { fat: q.fat } : {}),
+      // A organização escolhida sobrevive à busca e aos chips: trocar de filtro e
+      // perder a ordem obriga a refazer duas escolhas quando só uma mudou.
+      ...(q.ordem ? { ordem: q.ordem } : {}),
       ...extra,
     }).toString()}`;
 
@@ -275,6 +306,8 @@ export default async function BaseDeClientes({
     const faturou = l.faturamento12m.some((v) => v > 0);
     return q.fat === "1" ? faturou : !faturou;
   });
+
+  const ordem = (["usuarios", "ltv", "nome"] as const).find((o) => o === q.ordem) ?? "usuarios";
 
   const linhas: React.ReactNode[][] = [];
   for (const l of visiveis) {
@@ -386,15 +419,25 @@ export default async function BaseDeClientes({
             </div>
           }
         >
+          {/* A ORGANIZAÇÃO fica no cabeçalho da tabela, junto das colunas a que se
+              refere: ordenar é uma propriedade da coluna, e pôr isso no título do
+              card obrigava a procurar em outro lugar o controle do que está logo
+              abaixo. */}
           <Table
             cols={[
-              "Cliente",
-              "Business ID",
+              <Ordenavel key="c" por="nome" atual={ordem} busca={comBusca}>
+                Cliente
+              </Ordenavel>,
+              "ID",
               "HubSpot ID",
               "Subs",
               "Autorizados",
-              "Cadastrados",
-              "12 meses",
+              <Ordenavel key="u" por="usuarios" atual={ordem} busca={comBusca}>
+                Cadastrados
+              </Ordenavel>,
+              <Ordenavel key="l" por="ltv" atual={ordem} busca={comBusca}>
+                LTV
+              </Ordenavel>,
               "",
               "",
             ]}

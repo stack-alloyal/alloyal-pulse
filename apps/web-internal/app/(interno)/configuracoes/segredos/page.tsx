@@ -1,12 +1,10 @@
 import { chaveMestraConfigurada } from '@pulse/auth'
 import { INTEGRACAO_DA_CHAVE, INTEGRACOES_SONDAVEIS, SEGREDOS, listarSegredos } from '@pulse/config'
 import { Aviso, Badge, Btn, Card, Field } from '@pulse/ui'
-import { ArrowLeft, Lock, PlugZap } from 'lucide-react'
-import Link from 'next/link'
+import { Lock, PlugZap } from 'lucide-react'
 
 import { removerSegredo, salvarSegredo, verificarConexao } from '../acoes'
-import { Topo } from '../../casca'
-import { CorpoDeConfiguracao } from '../submenu'
+import { Corpo, Topo } from '../../casca'
 import { pool } from '../../../../lib/db'
 import { exigir } from '../../../../lib/guarda'
 
@@ -55,17 +53,10 @@ export default async function Segredos({
             <span className="text-ink-2">
               {gravados.length} de {SEGREDOS.length} cadastrados
             </span>
-            <Link
-              href="/configuracoes"
-              className="inline-flex items-center gap-1 font-semibold text-purple-700 hover:text-purple-500"
-            >
-              <ArrowLeft className="h-[14px] w-[14px]" />
-              Configurações
-            </Link>
           </span>
         }
       />
-      <CorpoDeConfiguracao atual="/configuracoes/segredos">
+      <Corpo className="grid gap-5">
         {q.erro && (
           <Aviso tom="erro" papel="alert">
             {q.erro}
@@ -245,7 +236,7 @@ export default async function Segredos({
             )
           })}
         </div>
-      </CorpoDeConfiguracao>
+      </Corpo>
     </>
   )
 }
