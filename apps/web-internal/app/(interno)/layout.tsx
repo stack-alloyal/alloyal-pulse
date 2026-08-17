@@ -1,3 +1,4 @@
+import { SCRIPT_DO_TEMA } from '@pulse/ui'
 import '@pulse/ui/estilo.css'
 
 import type { ReactNode } from 'react'
@@ -69,7 +70,15 @@ export default async function LayoutInterno({ children }: { children: ReactNode 
   const temAlguem = await autenticado()
 
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        {/* ANTES DA PRIMEIRA PINTURA, e por isso inline no <head> e não num efeito.
+            Sem ele a página nasce no tema do sistema e troca depois que o React
+            hidrata — a tela pisca branco no escuro justamente para quem escolheu o
+            escuro por incomodar-se com luz. `suppressHydrationWarning` no <html>
+            porque o script muda um atributo dele antes de o React chegar. */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_DO_TEMA }} />
+      </head>
       <body>{temAlguem ? <Casca>{children}</Casca> : children}</body>
     </html>
   )

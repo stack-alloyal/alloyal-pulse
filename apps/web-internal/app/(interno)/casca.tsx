@@ -1,4 +1,4 @@
-import { AlloyalLogo, cn } from '@pulse/ui'
+import { AlloyalLogo, SeletorDeTema, cn } from '@pulse/ui'
 import { BarChart3 } from 'lucide-react'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
@@ -104,6 +104,10 @@ export async function Topo({
             Perfil — são 16 telas, e pedir que cada uma monte os próprios garantiria
             que alguma esquecesse. A tela onde a pessoa esbarra no defeito é
             justamente a que não pode ser a esquecida. */}
+        {/* O seletor de tema fica AQUI pelo mesmo motivo do Perfil e do Radar: são
+            16 telas, e pedir que cada uma monte o próprio garantiria que alguma
+            esquecesse. Tema é preferência da pessoa, não da tela. */}
+        <SeletorDeTema className="hidden md:inline-flex" />
         <NovidadesDoRadar />
         <PainelDoRadar />
         <Perfil id={eu} nome={nome} />

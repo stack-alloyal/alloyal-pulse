@@ -1,5 +1,5 @@
 import { carregarCarteira, resumir, type ContaDaCarteira } from '@pulse/success'
-import { Aviso, Badge, Card, Kpi, TOM_POR_FAIXA, Table, Vazio, cn } from '@pulse/ui'
+import { Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade, TOM_POR_FAIXA, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
 import { Corpo, Topo } from '../casca'
@@ -31,6 +31,14 @@ const REAIS = (c: string | null) =>
 const PCT = (v: number | null) =>
   v === null ? '—' : `${(v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`
 
+/**
+ * As faixas que a carteira SEMPRE mostra, na ordem do pior para o melhor.
+ *
+ * `sem_sinal` entra por último e é a única condicional: ela existe quando há conta
+ * sem sinal calculado, e some quando todas têm — aí ela é ruído, não estado.
+ */
+const FAIXAS_FIXAS = ['critico', 'risco', 'atencao', 'saudavel'] as const
+
 const FAIXA: Record<string, string> = {
   critico: 'Crítico',
   risco: 'Risco',
@@ -56,16 +64,30 @@ export default async function Carteira({
   const id = await exigir((p) => temEscopo(p.contas), 'carteira')
   const q = await searchParams
 
-  const carteira = await carregarCarteira(pool(), id, {
-    ...(q.faixa ? { faixa: q.faixa } : {}),
-  })
-  const r = resumir(carteira)
+  /* ┌───────────────────────────────────────────────────────────────────────┐
+     │ DOIS CARREGAMENTOS, e é o que corrige o defeito: os KPIs e as contagens  │
+     │ vêm da carteira INTEIRA, a lista vem da filtrada.                        │
+     │                                                                          │
+     │ Antes, filtrar por "crítico" recalculava tudo sobre o recorte — e os      │
+     │ quatro KPIs viravam um só. O painel some justamente quando a pessoa está  │
+     │ olhando um pedaço e mais precisa do todo para saber o tamanho dele.       │
+     │                                                                          │
+     │ É também o que dá contagem aos chips: sem o total, o chip mostraria o     │
+     │ número do próprio recorte, que é sempre igual ao que está na tela.        │
+     └───────────────────────────────────────────────────────────────────────┘ */
+  const [carteiraToda, carteira] = await Promise.all([
+    carregarCarteira(pool(), id),
+    q.faixa ? carregarCarteira(pool(), id, { faixa: q.faixa }) : null,
+  ])
+  const lista = carteira ?? carteiraToda
+  const rTodos = resumir(carteiraToda)
+  const r = resumir(lista)
 
   return (
     <>
       <Topo
         href="/carteira"
-        titulo={carteira.visaoDaBase ? 'Base de clientes' : 'Minha carteira'}
+        titulo={carteiraToda.visaoDaBase ? 'Base de clientes' : 'Minha carteira'}
         acoes={
           <span className="tabular-nums text-corpo text-ink-2">
             {r.total} conta(s) · {REAIS(r.mrrTotalCentavos)}/mês
@@ -73,19 +95,30 @@ export default async function Carteira({
         }
       />
       <Corpo className="grid gap-5">
-        {carteira.semSinal > 0 && (
+        {carteiraToda.semSinal > 0 && (
           /* Conta sem sinal não é conta saudável: é conta sobre a qual não se sabe
              nada. Somá-la ao verde faria a carteira parecer melhor do que é. */
           <Aviso tom="alerta">
-            {carteira.semSinal} conta(s) sem sinal calculado. Elas não são saudáveis — são
+            {carteiraToda.semSinal} conta(s) sem sinal calculado. Elas não são saudáveis — são
             desconhecidas, e por isso pesam como atenção na ordem desta lista.
           </Aviso>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {r.porFaixa.slice(0, 4).map((f) => (
-            <Kpi
-              key={f.faixa}
+        {/* AS QUATRO FAIXAS SEMPRE, mesmo zeradas — mesma regra do chip `fixo`:
+            faixa de saúde é estado ESTRUTURAL do produto. `resumir` devolve só as
+            que têm conta, e mostrar o que ele devolve fazia a carteira aparecer com
+            um KPI só, como se as outras faixas não existissem. Zero é um fato;
+            ausência da faixa é outra coisa, e a tela afirmava a segunda. */}
+        <KpiGrade>
+          {FAIXAS_FIXAS.map((chave) => {
+            const f = rTodos.porFaixa.find((x) => x.faixa === chave) ?? {
+              faixa: chave,
+              contas: 0,
+              mrrCentavos: '0',
+            }
+            return (
+              <Kpi
+                key={chave}
               rotulo={FAIXA[f.faixa] ?? f.faixa}
               valor={f.contas}
               nota={`${REAIS(f.mrrCentavos)}/mês`}
@@ -94,33 +127,28 @@ export default async function Carteira({
                 : f.faixa === 'atencao' || f.faixa === 'sem_sinal'
                   ? { tom: 'amber' as const }
                   : { tom: 'green' as const })}
-            />
-          ))}
-        </div>
+              />
+            )
+          })}
+        </KpiGrade>
 
-        <div className="flex flex-wrap items-center gap-3 text-corpo">
-          <span className="text-ink-3">Filtrar:</span>
-          <Link
-            href="/carteira"
-            className={cn(
-              'rounded-sm px-2.5 py-1 font-semibold',
-              !q.faixa ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
-            )}
-          >
-            todas
-          </Link>
-          {['critico', 'risco', 'atencao', 'saudavel'].map((f) => (
-            <Link
-              key={f}
-              href={`/carteira?faixa=${f}`}
-              className={cn(
-                'rounded-sm px-2.5 py-1 font-semibold',
-                q.faixa === f ? 'bg-purple-50 text-purple-700' : 'text-ink-2 hover:bg-surface-2',
-              )}
-            >
-              {FAIXA[f]}
-            </Link>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <Chips rotulo="Filtrar:">
+            <Chip rotulo="todas" href="/carteira" ativo={!q.faixa} conta={rTodos.total} fixo />
+            {['critico', 'risco', 'atencao', 'saudavel'].map((f) => (
+              <Chip
+                key={f}
+                rotulo={FAIXA[f] ?? f}
+                href={`/carteira?faixa=${f}`}
+                ativo={q.faixa === f}
+                conta={rTodos.porFaixa.find((x) => x.faixa === f)?.contas ?? 0}
+                /* `fixo`: faixa de saúde é estado ESTRUTURAL. Some "crítico"
+                   porque hoje não há nenhum e a carteira parece não ter essa
+                   dimensão — some o mapa do produto. */
+                fixo
+              />
+            ))}
+          </Chips>
           <span className="ml-auto text-meta text-ink-3">
             {r.semItem} sem item aberto
             {r.parciais > 0 && ` · ${r.parciais} com dado parcial`}
@@ -129,9 +157,9 @@ export default async function Carteira({
         </div>
 
         <Card title={q.faixa ? `Faixa: ${FAIXA[q.faixa] ?? q.faixa}` : 'Ordenada por risco × receita'}>
-          {carteira.contas.length === 0 ? (
+          {lista.contas.length === 0 ? (
             <Vazio
-              titulo={q.faixa ? 'Nenhuma conta nesta faixa.' : 'Nenhuma conta na sua carteira.'}
+              titulo={q.faixa ? 'Nenhuma conta nesta faixa.' : 'Nenhuma conta na sua lista.'}
               porque={
                 q.faixa
                   ? 'O filtro não achou nada. Volte para "todas" para ver a carteira inteira — pode ser que a faixa esteja vazia hoje, e isso é boa notícia.'
@@ -143,7 +171,7 @@ export default async function Carteira({
           ) : (
             <Table
               cols={['Cliente', 'MRR', 'Faixa', 'Adesão', 'Cobertura', 'Atraso', 'Contato', 'Fila']}
-              rows={carteira.contas.map((c) => {
+              rows={lista.contas.map((c) => {
                 const f = faixaDe(c)
                 return [
                   <>
@@ -155,7 +183,7 @@ export default async function Carteira({
                     </Link>
                     <span className="mt-0.5 block text-nota text-ink-3">
                       {[c.setor, c.porte].filter(Boolean).join(' · ')}
-                      {carteira.visaoDaBase && c.csmEmail && ` · ${c.csmEmail}`}
+                      {carteiraToda.visaoDaBase && c.csmEmail && ` · ${c.csmEmail}`}
                       {/* Dado parcial marcado na linha: o número dela não é
                           comparável ao das outras, e não dizer isso convida à
                           comparação errada. */}
