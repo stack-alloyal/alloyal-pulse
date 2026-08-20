@@ -165,218 +165,280 @@ export async function contasQuePararamDeFaturar(
   }));
 }
 
-// ═══ 2. O reajuste que não foi aplicado ══════════════════════════════════════
+// ═══ 2. O reajuste: quem teve, quem não teve ═════════════════════════════════
 
 /**
- * O mês em que o reajuste anual foi aplicado, e as janelas de comparação.
+ * As janelas de comparação, e por que a MODA em vez da média.
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ MARÇO FICA DE FORA DAS DUAS JANELAS, de propósito. Medido: o MRR de março    │
- * │ de 2026 foi R$ 1,85M contra ~R$ 1,2M em janeiro, fevereiro e abril — o mês    │
- * │ do reajuste carrega cobrança extra e retroativo, e comparar contra ele       │
- * │ inventaria aumento em quem não teve nenhum.                                 │
+ * │ A PRIMEIRA VERSÃO USAVA A MÉDIA DE DOIS MESES, E ERRAVA. O caso que expôs:   │
+ * │ a SWILE fatura R$ 59.625 em janeiro, fevereiro, abril, maio, julho e agosto  │
+ * │ — não teve reajuste nenhum. Mas março veio dobrado (R$ 117.617, cobrança     │
+ * │ extra) e junho parcial (R$ 53.982). A média de jan+fev contra mai+jun deu    │
+ * │ −4,7%, e a SWILE foi classificada como "caiu" em vez de "sem reajuste":      │
+ * │ sumiu da fila justamente por um mês irregular.                              │
  * │                                                                            │
- * │ Então: ANTES é jan+fev, DEPOIS é mai+jun, e cada um é dividido por 2 para    │
- * │ virar valor mensal. Dois meses em cada lado e não um, porque um mês só cai   │
- * │ no primeiro cliente que atrasou uma fatura.                                 │
+ * │ A MODA é imune a isso. O valor recorrente de um cliente é o que mais se      │
+ * │ repete, não o que dá na média — um mês dobrado e um mês parcial não movem a  │
+ * │ moda de cinco meses. Com ela a SWILE aparece com 0,00% de variação, que é o  │
+ * │ fato.                                                                       │
+ * │                                                                            │
+ * │ O ganho foi geral, não só num caso: 178 clientes sem mudança contra 136 pela │
+ * │ média, e 110 exatamente na taxa de 4,4% contra 96 — o sinal ficou mais       │
+ * │ limpo dos dois lados.                                                       │
+ * │                                                                            │
+ * │ Cinco meses antes e quatro depois, com MARÇO FORA das duas: é o mês do       │
+ * │ reajuste e carrega retroativo. Agosto também fica fora — hoje é dia 20, e o  │
+ * │ mês em curso ainda não fechou.                                              │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 export const JANELA_DO_REAJUSTE = {
   reajuste: "2026-03-01",
-  antesDe: "2026-01-01",
+  antesDe: "2025-10-01",
   antesAte: "2026-03-01",
-  depoisDe: "2026-05-01",
-  depoisAte: "2026-07-01",
+  depoisDe: "2026-04-01",
+  depoisAte: "2026-08-01",
 } as const;
 
 /** Quanto de variação ainda conta como "não mudou": meio ponto percentual. */
 export const TOLERANCIA = 0.005;
+
+/**
+ * As CTEs que produzem a moda mensal de cada lado da janela.
+ *
+ * `DISTINCT ON (documento) ... ORDER BY n DESC, v DESC` é a moda: agrupa por
+ * valor, conta quantos meses repetem cada um, e fica com o mais frequente. O
+ * empate desempata pelo MAIOR valor — entre dois valores que aparecem o mesmo
+ * número de vezes, o recorrente é o maior; o menor costuma ser mês parcial.
+ */
+const CTE_MODA = `
+  WITH mensal AS (
+    SELECT t.documento, date_trunc('month', t.vencimento) m,
+           sum(t.valor_centavos) v
+      FROM core.omie_titulo t
+      LEFT JOIN core.omie_categoria c ON c.codigo = t.categoria
+     WHERE c.descricao = 'MRR' AND t.situacao <> 'previsao' AND t.valor_centavos > 0
+       AND t.vencimento >= $1::date AND t.vencimento < $4::date
+       AND ${E_CLIENTE('t.documento')}
+     GROUP BY 1, 2
+  ),
+  antes AS (
+    SELECT DISTINCT ON (documento) documento, v
+      FROM (SELECT documento, v, count(*) n FROM mensal
+             WHERE m < $2::date GROUP BY 1, 2) x
+     ORDER BY documento, n DESC, v DESC
+  ),
+  depois AS (
+    SELECT DISTINCT ON (documento) documento, v
+      FROM (SELECT documento, v, count(*) n FROM mensal
+             WHERE m >= $3::date GROUP BY 1, 2) x
+     ORDER BY documento, n DESC, v DESC
+  ),
+  var AS (
+    SELECT a.documento, a.v AS antes, d.v AS depois,
+           (d.v::numeric / a.v - 1) AS delta
+      FROM antes a JOIN depois d USING (documento)
+  ),
+  ctr AS (
+    SELECT documento, min(vigencia_inicio) AS inicio
+      FROM core.omie_contrato GROUP BY 1
+  )`;
+
+const PARAMS = [
+  JANELA_DO_REAJUSTE.antesDe,
+  JANELA_DO_REAJUSTE.antesAte,
+  JANELA_DO_REAJUSTE.depoisDe,
+  JANELA_DO_REAJUSTE.depoisAte,
+];
+
+/** O nome da conta e o id, a partir do documento do Omie. */
+const IDENTIFICA = `
+  LEFT JOIN core.vinculo_cliente vc ON vc.chave = v.documento AND vc.fonte = 'omie'
+  LEFT JOIN core.account a ON a.id = vc.account_id
+  LEFT JOIN core.omie_cliente oc ON oc.documento = v.documento`;
 
 export interface ContaSemReajuste {
   readonly documento: string;
   readonly accountId: string | null;
   readonly razaoSocial: string;
   readonly mrrMensal: number;
-  /** Início do contrato mais antigo no Omie. */
   readonly contratoDesde: string | null;
   readonly aniversarios: number;
-  /** O que deixou de entrar por mês, à taxa de referência, em centavos. */
   readonly perdaMensal: number;
 }
 
-export interface RevisaoDoReajuste {
+export interface ContaComReajuste {
+  readonly documento: string;
+  readonly accountId: string | null;
+  readonly razaoSocial: string;
+  /** A moda mensal ANTES de março, em centavos. */
+  readonly mrrAntes: number;
+  /** A moda mensal DEPOIS de março, em centavos. */
+  readonly mrrDepois: number;
+  readonly incremento: number;
+  readonly pct: number;
   /**
-   * A taxa de referência, LIDA DO DADO e não digitada.
+   * Está exatamente na taxa de referência?
    *
-   * É a moda dos aumentos observados, arredondada a 0,1 ponto. Em 2026 saiu
-   * 4,40%, com 96 dos 142 clientes que subiram — 67,6% — exatamente nela. Uma
-   * taxa digitada à mão envelheceria em silêncio no ano seguinte; esta, não.
+   * Separa reajuste de MUDANÇA DE CONTRATO. Dos 141 que subiram, 110 estão em
+   * 4,4% e somam R$ 8.116/mês de incremento; os outros 31 somam R$ 91.341 —
+   * upsell, troca de plano, cobrança nova. Somar os dois numa linha só
+   * atribuiria ao IPCA um aumento que veio de venda.
    */
+  readonly naTaxa: boolean;
+}
+
+export interface RevisaoDoReajuste {
   readonly taxaPct: number;
   readonly clientesNaTaxa: number;
   readonly clientesQueSubiram: number;
   readonly clientesSemMudanca: number;
-  /** Sem mudança E com aniversário vencido: a fila de verdade. */
+  readonly clientesQueCairam: number;
   readonly semReajusteVencidos: ContaSemReajuste[];
-  /** Sem mudança mas com contrato novo demais — corretamente não reajustados. */
   readonly semReajusteNaoDevidos: number;
   readonly perdaMensal: number;
   readonly mesesDesdeOReajuste: number;
   readonly perdaAcumulada: number;
-  /**
-   * A HIPÓTESE: e se TODOS os que ficaram parados tivessem sido reajustados?
-   *
-   * ┌─────────────────────────────────────────────────────────────────────────┐
-   * │ Não é a mesma pergunta da perda. A perda conta só quem tinha aniversário  │
-   * │ VENCIDO — é dinheiro a que temos direito contratual e não cobramos. Esta   │
-   * │ conta inclui também os de contrato novo, que corretamente não foram        │
-   * │ reajustados: é o teto do que a correção renderia se valesse para todos,    │
-   * │ não uma cobrança esquecida.                                               │
-   * │                                                                          │
-   * │ As duas ficam lado a lado de propósito. Levar só a maior para uma reunião  │
-   * │ é prometer receita que não existe; levar só a menor é subdimensionar o     │
-   * │ efeito de padronizar a data de reajuste.                                  │
-   * └─────────────────────────────────────────────────────────────────────────┘
-   */
   readonly hipotese: {
     readonly clientes: number;
     readonly mrrMensal: number;
     readonly ganhoMensal: number;
     readonly ganhoAcumulado: number;
-    /** O mesmo, a 4,00% cravados — a taxa "redonda" de referência. */
     readonly ganhoMensalA4: number;
     readonly ganhoAcumuladoA4: number;
   };
+  /** Quem TEVE o reajuste, com o antes, o depois e o incremento. */
+  readonly comReajuste: ContaComReajuste[];
+  readonly totalNaTaxa: { mrrAntes: number; incremento: number; clientes: number };
+  readonly totalFora: { incremento: number; clientes: number };
 }
 
 export async function revisaoDoReajuste(db: pg.Pool): Promise<RevisaoDoReajuste> {
   const j = JANELA_DO_REAJUSTE;
-  // A categoria vem pelo NOME e não pelo código: "MRR" é como o plano de contas
-  // do Omie chama a receita de assinatura, e o código (1.01.02) é o que muda se
-  // alguém reorganizar o plano.
-  const base = `
-    WITH mrr AS (
-      SELECT t.documento,
-             sum(t.valor_centavos) FILTER (
-               WHERE t.vencimento >= $1::date AND t.vencimento < $2::date) / 2 AS antes,
-             sum(t.valor_centavos) FILTER (
-               WHERE t.vencimento >= $3::date AND t.vencimento < $4::date) / 2 AS depois
-        FROM core.omie_titulo t
-        LEFT JOIN core.omie_categoria c ON c.codigo = t.categoria
-       WHERE t.situacao <> 'previsao' AND t.valor_centavos > 0 AND c.descricao = 'MRR'
-         AND ${E_CLIENTE('t.documento')}
-       GROUP BY 1
-    ),
-    var AS (
-      SELECT documento, antes, depois, (depois::numeric / antes - 1) AS delta
-        FROM mrr WHERE antes > 0 AND depois > 0
-    )`;
-  const p = [j.antesDe, j.antesAte, j.depoisDe, j.depoisAte];
 
-  const { rows: taxa } = await db.query<{ pct: string; n: string; subiram: string; parados: string }>(
-    `${base}
+  const { rows: contagem } = await db.query<Record<string, string>>(
+    `${CTE_MODA}
      SELECT (SELECT round(delta * 100, 1) FROM var WHERE delta > $5::numeric
-              GROUP BY 1 ORDER BY count(*) DESC, 1 DESC LIMIT 1)::text AS pct,
-            (SELECT count(*) FROM var WHERE delta > $5::numeric)::text  AS subiram,
-            (SELECT count(*) FROM var WHERE abs(delta) <= $5::numeric)::text AS parados,
-            '0' AS n`,
-    [...p, TOLERANCIA],
+              GROUP BY 1 ORDER BY count(*) DESC, 1 DESC LIMIT 1)::text AS taxa,
+            (SELECT count(*) FROM var WHERE delta > $5::numeric)::text      AS subiram,
+            (SELECT count(*) FROM var WHERE abs(delta) <= $5::numeric)::text AS iguais,
+            (SELECT count(*) FROM var WHERE delta < -$5::numeric)::text     AS cairam,
+            (SELECT coalesce(sum(antes), 0) FROM var
+              WHERE abs(delta) <= $5::numeric)::text                        AS mrr_iguais`,
+    [...PARAMS, TOLERANCIA],
   );
-  const taxaPct = Number(taxa[0]?.pct ?? 0);
-  const subiram = Number(taxa[0]?.subiram ?? 0);
-  const parados = Number(taxa[0]?.parados ?? 0);
-
-  const { rows: naTaxa } = await db.query<{ n: string }>(
-    `${base}
-     SELECT count(*)::text AS n FROM var
-      WHERE round(delta * 100, 1) = $5::numeric`,
-    [...p, taxaPct],
-  );
+  const taxaPct = Number(contagem[0]?.["taxa"] ?? 0);
 
   const { rows: fila } = await db.query<Record<string, string>>(
-    `${base},
-     ctr AS (SELECT documento, min(vigencia_inicio) AS inicio FROM core.omie_contrato GROUP BY 1)
-     -- DISTINCT ON (documento): os dois LEFT JOIN de identidade multiplicam a
-     -- linha — 42 contas têm mais de uma identidade no Omie, e um CNPJ pode casar
-     -- com mais de um cliente lá. Sem isto a fila saía com 90 nomes onde havia 74,
-     -- e a perda mensal vinha 26% inflada. Conferido: 74 + 62 = 136, que é o
-     -- total de clientes sem mudança.
+    `${CTE_MODA}
      SELECT DISTINCT ON (v.documento)
-            v.documento, v.antes::text AS mrr_mensal,
-            to_char(c.inicio, 'YYYY-MM-DD') AS contrato_desde,
+            v.documento, v.antes::text AS mrr,
+            to_char(c.inicio, 'YYYY-MM-DD') AS desde,
             (extract(year FROM age($6::date, c.inicio)))::text AS aniversarios,
             vc.account_id::text AS account_id,
-            coalesce(a.razao_social, oc.razao_social, v.documento) AS razao_social
+            coalesce(a.razao_social, oc.razao_social, v.documento) AS nome
        FROM var v
        LEFT JOIN ctr c ON c.documento = v.documento
-       LEFT JOIN core.vinculo_cliente vc ON vc.chave = v.documento AND vc.fonte = 'omie'
-       LEFT JOIN core.account a ON a.id = vc.account_id
-       LEFT JOIN core.omie_cliente oc ON oc.documento = v.documento
+       ${IDENTIFICA}
       WHERE abs(v.delta) <= $5::numeric
         AND c.inicio IS NOT NULL
         AND c.inicio <= ($6::date - interval '12 months')
       ORDER BY v.documento, v.antes DESC`,
-    [...p, TOLERANCIA, j.reajuste],
-  );
-
-  // A hipótese: o MRR mensal de TODOS os que ficaram parados, com ou sem
-  // aniversário vencido. É o teto do que a correção renderia.
-  const { rows: todos } = await db.query<{ n: string; mrr: string }>(
-    `${base}
-     SELECT count(*)::text AS n, coalesce(sum(antes), 0)::text AS mrr
-       FROM var WHERE abs(delta) <= $5::numeric`,
-    [...p, TOLERANCIA],
+    [...PARAMS, TOLERANCIA, j.reajuste],
   );
 
   const { rows: naoDevidos } = await db.query<{ n: string }>(
-    `${base},
-     ctr AS (SELECT documento, min(vigencia_inicio) AS inicio FROM core.omie_contrato GROUP BY 1)
+    `${CTE_MODA}
      SELECT count(*)::text AS n
        FROM var v LEFT JOIN ctr c ON c.documento = v.documento
       WHERE abs(v.delta) <= $5::numeric
         AND (c.inicio IS NULL OR c.inicio > ($6::date - interval '12 months'))`,
-    [...p, TOLERANCIA, j.reajuste],
+    [...PARAMS, TOLERANCIA, j.reajuste],
   );
 
-  // A ordenação FINAL é aqui, e não no SQL: `DISTINCT ON (documento)` obriga o
-  // ORDER BY a começar pelo documento, então a consulta sai em ordem de CNPJ. A
-  // fila tem de sair pela maior perda — é por onde se começa a ligar.
+  const { rows: subiu } = await db.query<Record<string, string>>(
+    `${CTE_MODA}
+     SELECT DISTINCT ON (v.documento)
+            v.documento, v.antes::text, v.depois::text,
+            round(v.delta * 100, 1)::text AS pct,
+            vc.account_id::text AS account_id,
+            coalesce(a.razao_social, oc.razao_social, v.documento) AS nome
+       FROM var v
+       ${IDENTIFICA}
+      WHERE v.delta > $5::numeric
+      ORDER BY v.documento, v.depois DESC`,
+    [...PARAMS, TOLERANCIA],
+  );
+
   const semReajusteVencidos: ContaSemReajuste[] = fila.map((r) => {
-    const mrr = Number(r["mrr_mensal"]);
+    const mrr = Number(r["mrr"]);
     return {
       documento: String(r["documento"]),
       accountId: (r["account_id"] as string | null) ?? null,
-      razaoSocial: String(r["razao_social"] ?? ""),
+      razaoSocial: String(r["nome"] ?? ""),
       mrrMensal: mrr,
-      contratoDesde: (r["contrato_desde"] as string | null) ?? null,
+      contratoDesde: (r["desde"] as string | null) ?? null,
       aniversarios: Number(r["aniversarios"] ?? 0),
       perdaMensal: Math.round((mrr * taxaPct) / 100),
     };
   });
-
   semReajusteVencidos.sort((x, y) => y.perdaMensal - x.perdaMensal);
+
+  const comReajuste: ContaComReajuste[] = subiu
+    .map((r) => {
+      const antes = Number(r["antes"]);
+      const depois = Number(r["depois"]);
+      const pct = Number(r["pct"]);
+      return {
+        documento: String(r["documento"]),
+        accountId: (r["account_id"] as string | null) ?? null,
+        razaoSocial: String(r["nome"] ?? ""),
+        mrrAntes: antes,
+        mrrDepois: depois,
+        incremento: depois - antes,
+        pct,
+        naTaxa: Math.abs(pct - taxaPct) < 0.05,
+      };
+    })
+    .sort((x, y) => y.incremento - x.incremento);
+
+  const naTaxa = comReajuste.filter((c) => c.naTaxa);
+  const fora = comReajuste.filter((c) => !c.naTaxa);
+
   const perdaMensal = semReajusteVencidos.reduce((s, c) => s + c.perdaMensal, 0);
   const meses = mesesDesde(j.reajuste, new Date());
-  const mrrParado = Number(todos[0]?.mrr ?? 0);
+  const mrrParado = Number(contagem[0]?.["mrr_iguais"] ?? 0);
   const ganhoMensal = Math.round((mrrParado * taxaPct) / 100);
   const ganhoMensalA4 = Math.round(mrrParado * 0.04);
+
   return {
     taxaPct,
-    clientesNaTaxa: Number(naTaxa[0]?.n ?? 0),
-    clientesQueSubiram: subiram,
-    clientesSemMudanca: parados,
+    clientesNaTaxa: naTaxa.length,
+    clientesQueSubiram: Number(contagem[0]?.["subiram"] ?? 0),
+    clientesSemMudanca: Number(contagem[0]?.["iguais"] ?? 0),
+    clientesQueCairam: Number(contagem[0]?.["cairam"] ?? 0),
     semReajusteVencidos,
     semReajusteNaoDevidos: Number(naoDevidos[0]?.n ?? 0),
     perdaMensal,
     mesesDesdeOReajuste: meses,
     perdaAcumulada: perdaMensal * meses,
     hipotese: {
-      clientes: Number(todos[0]?.n ?? 0),
+      clientes: Number(contagem[0]?.["iguais"] ?? 0),
       mrrMensal: mrrParado,
       ganhoMensal,
       ganhoAcumulado: ganhoMensal * meses,
       ganhoMensalA4,
       ganhoAcumuladoA4: ganhoMensalA4 * meses,
+    },
+    comReajuste,
+    totalNaTaxa: {
+      clientes: naTaxa.length,
+      mrrAntes: naTaxa.reduce((s, c) => s + c.mrrAntes, 0),
+      incremento: naTaxa.reduce((s, c) => s + c.incremento, 0),
+    },
+    totalFora: {
+      clientes: fora.length,
+      incremento: fora.reduce((s, c) => s + c.incremento, 0),
     },
   };
 }
@@ -386,14 +448,12 @@ export async function revisaoDoReajuste(db: pg.Pool): Promise<RevisaoDoReajuste>
  *
  * Fechados, e não corridos: em 20/08 o mês de agosto ainda está sendo faturado,
  * e contá-lo inflaria a perda acumulada com um mês que não terminou. Exportada
- * para ter teste — é uma conta de calendário, e as contas de calendário erram
- * na virada do ano.
+ * para ter teste — é conta de calendário, e elas erram na virada do ano.
  */
 export function mesesDesde(mesInicial: string, agora: Date): number {
   const [a, m] = mesInicial.split("-").map(Number);
   if (!a || !m) return 0;
-  const meses =
-    (agora.getUTCFullYear() - a) * 12 + (agora.getUTCMonth() + 1 - m);
+  const meses = (agora.getUTCFullYear() - a) * 12 + (agora.getUTCMonth() + 1 - m);
   return Math.max(meses, 0);
 }
 
@@ -415,6 +475,28 @@ export interface ContaSemVinculo {
    * sabe por onde começar.
    */
   readonly temCandidatoNoOmie: boolean;
+  /**
+   * O afiliado a que a conta pertence, quando o nome traz um entre parênteses.
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ "Loma Proteção Veicular (Hinova Mobile)" não tem faturamento nosso porque │
+   * │ quem fatura é o AFILIADO — a conta existe, o clube roda, e a cobrança sai  │
+   * │ pelo parceiro. Sem separar isso, a fila de 515 contas "sem vínculo" mistura │
+   * │ duas coisas com ações opostas: 410 que estão certas assim e 105 que são a  │
+   * │ pergunta de verdade.                                                     │
+   * │                                                                          │
+   * │ O nome do afiliado vem do parêntese porque é onde ele está — não existe    │
+   * │ campo de afiliado no core. É convenção de nomenclatura lida como dado, e a │
+   * │ tela diz isso: se alguém cadastrar "(matriz)" ou "(teste)", vai aparecer   │
+   * │ aqui como afiliado, e é melhor aparecer do que ser silenciosamente         │
+   * │ agrupado em outro lugar.                                                  │
+   * │                                                                          │
+   * │ Guardado em MAIÚSCULA para agrupar: a base tem "Hinova", "HINOVA",         │
+   * │ "Playhub" e "PLAYHUB". `afiliadoExibido` preserva a grafia original.       │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  readonly afiliado: string | null;
+  readonly afiliadoExibido: string | null;
 }
 
 export async function contasSemVinculoComOmie(
@@ -425,7 +507,11 @@ export async function contasSemVinculoComOmie(
     `SELECT a.id::text AS account_id, a.razao_social, a.cnpj, a.brand_id,
             h.hubspot_company_id, a.status_core,
             coalesce(a.usuarios_cadastrados, 0)::text AS usuarios_cadastrados,
-            (oc.documento IS NOT NULL) AS tem_candidato
+            (oc.documento IS NOT NULL) AS tem_candidato,
+            -- O ÚLTIMO parêntese, e não o primeiro: "MAIS CHECK-IN (Trul Hoteis)"
+            -- e "Sócio Lance (Painel Principal) (Hinova Mobile)" — o afiliado vem
+            -- por último quando há dois.
+            nullif(trim(substring(a.razao_social from '\\(([^()]+)\\)[^()]*$')), '') AS afiliado
        FROM core.account a
        LEFT JOIN core.account_hubspot h ON h.account_id = a.id
        -- Candidato pelo CNPJ limpo dos dois lados: "26.989.697/0001-00" e
@@ -464,6 +550,8 @@ export async function contasSemVinculoComOmie(
       statusCore: (r["status_core"] as string | null) ?? null,
       usuariosCadastrados: Number(r["usuarios_cadastrados"]),
       temCandidatoNoOmie: r["tem_candidato"] === true,
+      afiliado: r["afiliado"] ? String(r["afiliado"]).toUpperCase() : null,
+      afiliadoExibido: (r["afiliado"] as string | null) ?? null,
     });
   }
   return saida;

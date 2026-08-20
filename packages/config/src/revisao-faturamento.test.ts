@@ -46,12 +46,35 @@ test("o mês do reajuste fica FORA das duas janelas de comparação", () => {
   const j = JANELA_DO_REAJUSTE;
   assert.equal(j.antesAte, j.reajuste, "a janela de antes termina no reajuste");
   assert.ok(j.depoisDe > j.reajuste, "a de depois começa após o reajuste");
-  assert.ok(
-    j.depoisDe > "2026-04-01",
-    "e pula abril também: o mês seguinte ainda carrega acerto do reajuste",
-  );
 });
 
+test("cada janela tem meses suficientes para a moda significar algo", () => {
+  // ┌─────────────────────────────────────────────────────────────────────────┐
+  // │ ABRIL VOLTOU PARA DENTRO, e a mudança é consequência do método. Com a     │
+  // │ MÉDIA de dois meses, abril precisava ficar fora: ele ainda carrega acerto │
+  // │ do reajuste, e um mês torto move a média. Com a MODA, não move — o valor  │
+  // │ recorrente é o que mais se repete, e um mês fora do padrão em quatro ou    │
+  // │ cinco não é o mais frequente.                                            │
+  // │                                                                          │
+  // │ O que a moda EXIGE em troca é largura: com dois meses de cada lado, "o    │
+  // │ que mais se repete" é empate, e o desempate decide tudo. Daí a asserção   │
+  // │ ser sobre o número de meses, e não sobre quais.                          │
+  // └─────────────────────────────────────────────────────────────────────────┘
+  const meses = (de: string, ate: string) => {
+    const [a1, m1] = de.split("-").map(Number);
+    const [a2, m2] = ate.split("-").map(Number);
+    return (a2! - a1!) * 12 + (m2! - m1!);
+  };
+  const j = JANELA_DO_REAJUSTE;
+  assert.ok(
+    meses(j.antesDe, j.antesAte) >= 4,
+    `a janela de antes tem ${meses(j.antesDe, j.antesAte)} meses; a moda pede 4`,
+  );
+  assert.ok(
+    meses(j.depoisDe, j.depoisAte) >= 4,
+    `a janela de depois tem ${meses(j.depoisDe, j.depoisAte)} meses; a moda pede 4`,
+  );
+});
 test("a carência de 'parou de faturar' é maior que um mês", () => {
   // Um mês só marcaria como parado todo cliente que vence dia 20, todo dia 1º.
   assert.ok(MESES_DE_CARENCIA >= 2);

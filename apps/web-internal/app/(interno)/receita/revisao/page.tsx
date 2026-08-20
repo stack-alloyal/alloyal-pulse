@@ -7,12 +7,13 @@ import {
   JANELA_DO_REAJUSTE,
   MESES_DE_CARENCIA,
   type ContaAtiva,
+  type ContaComReajuste,
   type ContaQueParou,
   type ContaSemReajuste,
   type ContaSemVinculo,
   type VinculoSemTag,
 } from '@pulse/config'
-import { Abas, Aviso, Badge, Card, Kpi, KpiGrade } from '@pulse/ui'
+import { Abas, Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade } from '@pulse/ui'
 import { ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 
@@ -116,13 +117,13 @@ const Meta = ({ children }: { children: React.ReactNode }) => (
 
 /* ─── As cinco abas ────────────────────────────────────────────────────────── */
 
-const ABAS = ['ativos', 'pararam', 'reajuste', 'semvinculo', 'semtag'] as const
+const ABAS = ['ativos', 'pararam', 'reajuste', 'comreajuste', 'semvinculo', 'semtag'] as const
 type Chave = (typeof ABAS)[number]
 
 export default async function RevisaoDeFaturamento({
   searchParams,
 }: {
-  searchParams: Promise<{ aba?: string; ord?: string; dir?: string }>
+  searchParams: Promise<{ aba?: string; ord?: string; dir?: string; af?: string }>
 }) {
   await exigir((p) => temEscopo(p.contas), 'revisão de faturamento')
   const q = await searchParams
@@ -138,6 +139,37 @@ export default async function RevisaoDeFaturamento({
     vinculosSemTagDeCliente(db),
   ])
 
+  /* ┌──────────────────────────────────────────────────────────────────────┐
+     │ O RECORTE POR AFILIADO na aba sem vínculo. Das 515 contas, 410 têm um   │
+     │ afiliado no nome — e essas NÃO deveriam ter faturamento nosso: quem      │
+     │ cobra é o parceiro. Sem separar, a fila mistura 410 contas que estão     │
+     │ certas assim com 105 que são a pergunta de verdade.                     │
+     │                                                                         │
+     │ `af` aceita `com`, `sem`, ou o nome do afiliado em maiúscula. Nome           │
+     │ desconhecido cai em "todos" em vez de devolver lista vazia: parâmetro de │
+     │ URL é colado por gente, e lista vazia sem explicação parece defeito.    │
+     └──────────────────────────────────────────────────────────────────────┘ */
+  const afiliados = new Map<string, { exibido: string; n: number }>()
+  for (const c of semVinculo) {
+    if (!c.afiliado) continue
+    const atual = afiliados.get(c.afiliado)
+    afiliados.set(c.afiliado, {
+      exibido: atual?.exibido ?? c.afiliadoExibido ?? c.afiliado,
+      n: (atual?.n ?? 0) + 1,
+    })
+  }
+  const porAfiliado = [...afiliados.entries()].sort((a, b) => b[1].n - a[1].n)
+  const comAfiliado = semVinculo.filter((c) => c.afiliado).length
+  const af = q.af ?? 'todos'
+  const afValido =
+    af === 'com' || af === 'sem' || afiliados.has(af) ? af : 'todos'
+  const semVinculoVisiveis = semVinculo.filter((c) =>
+    afValido === 'com' ? Boolean(c.afiliado)
+    : afValido === 'sem' ? !c.afiliado
+    : afValido === 'todos' ? true
+    : c.afiliado === afValido,
+  )
+
   const mrrAtivo = ativos.reduce((s, c) => s + c.mrrMes, 0)
   const mrrQueSumiu = pararam.reduce((s, c) => s + c.mrrAnterior, 0)
   const comCandidato = semVinculo.filter((c) => c.temCandidatoNoOmie).length
@@ -145,8 +177,12 @@ export default async function RevisaoDeFaturamento({
   /* A URL carrega a aba E a ordenação: trocar de aba não deve levar a ordem da
      aba anterior, porque as colunas são outras — um `?ord=` que não existe na
      aba nova cairia no padrão dela, e é isso que acontece. */
-  const link = (a: Chave, ord?: string, d?: 'asc' | 'desc') => {
+  const link = (a: Chave, ord?: string, d?: 'asc' | 'desc', afiliado?: string) => {
     const p = new URLSearchParams({ aba: a })
+    // O recorte de afiliado sobrevive à ordenação, e a ordenação ao recorte:
+    // trocar um e perder o outro obriga a refazer duas escolhas quando mudou uma.
+    const alvo = afiliado ?? (a === 'semvinculo' ? afValido : 'todos')
+    if (alvo !== 'todos') p.set('af', alvo)
     if (ord) { p.set('ord', ord); p.set('dir', d ?? 'desc') }
     return `/receita/revisao?${p.toString()}`
   }
@@ -204,6 +240,7 @@ export default async function RevisaoDeFaturamento({
             { chave: 'ativos', rotulo: 'Clientes ativos', conta: ativos.length },
             { chave: 'pararam', rotulo: 'Pararam de faturar', conta: pararam.length },
             { chave: 'reajuste', rotulo: 'Sem reajuste', conta: reajuste.semReajusteVencidos.length },
+            { chave: 'comreajuste', rotulo: 'Com reajuste', conta: reajuste.comReajuste.length },
             { chave: 'semvinculo', rotulo: 'Sem vínculo no Omie', conta: semVinculo.length },
             { chave: 'semtag', rotulo: 'Sem tag de cliente', conta: semTag.length },
           ]}
@@ -329,10 +366,109 @@ export default async function RevisaoDeFaturamento({
           </Card>
         )}
 
+        {aba === 'comreajuste' && (
+          <Card
+            title={`Clientes com reajuste aplicado · ${N(reajuste.comReajuste.length)}`}
+            actions={
+              <span className="text-corpo text-ink-2">
+                taxa de referência{' '}
+                <strong className="font-semibold text-ink">{reajuste.taxaPct}%</strong>
+              </span>
+            }
+          >
+            {/* ┌───────────────────────────────────────────────────────────────┐
+                │ DOIS TOTAIS, e separá-los é a única forma de o número servir.   │
+                │                                                                │
+                │ Dos que subiram, 110 estão exatamente na taxa e somam           │
+                │ R$ 8.116/mês de incremento; os outros 31 somam R$ 91.341. Esses │
+                │ 31 não são reajuste — são upsell, troca de plano, cobrança      │
+                │ nova. Somados numa linha só, atribuiriam ao IPCA um aumento que │
+                │ veio de venda, e o efeito real do reajuste apareceria onze vezes │
+                │ maior do que é.                                                 │
+                └───────────────────────────────────────────────────────────────┘ */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-md border border-line bg-surface-2 p-3">
+                <p className="text-nota uppercase tracking-wide text-ink-3">
+                  Na taxa de {reajuste.taxaPct}% · {N(reajuste.totalNaTaxa.clientes)} clientes
+                </p>
+                <p className="mt-1 text-title text-ink">
+                  + {BRL(reajuste.totalNaTaxa.incremento)}<span className="text-corpo font-normal text-ink-2">/mês</span>
+                </p>
+                <p className="mt-0.5 text-meta text-ink-2">
+                  MRR antes de março: {BRL(reajuste.totalNaTaxa.mrrAntes)}/mês · acumulado em{' '}
+                  {reajuste.mesesDesdeOReajuste} meses fechados:{' '}
+                  {BRL(reajuste.totalNaTaxa.incremento * reajuste.mesesDesdeOReajuste)}
+                </p>
+              </div>
+              <div className="rounded-md border border-line bg-surface-2 p-3">
+                <p className="text-nota uppercase tracking-wide text-ink-3">
+                  Fora da taxa · {N(reajuste.totalFora.clientes)} clientes
+                </p>
+                <p className="mt-1 text-title text-ink">
+                  + {BRL(reajuste.totalFora.incremento)}<span className="text-corpo font-normal text-ink-2">/mês</span>
+                </p>
+                <p className="mt-0.5 text-meta text-ink-2">
+                  Não é reajuste: é upsell, troca de plano ou cobrança nova. Fica aqui para
+                  não inflar o efeito do IPCA.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <TabelaOrdenavel<ContaComReajuste>
+                dados={reajuste.comReajuste}
+                ord={q.ord ?? 'inc'}
+                dir={dir}
+                href={hrefDaColuna('comreajuste')}
+                chaveDaLinha={(c) => c.documento}
+                vazio="Nenhum cliente teve aumento de MRR entre as duas janelas."
+                colunas={COLUNAS_COM_REAJUSTE}
+              />
+            </div>
+            <p className="mt-3 text-meta leading-relaxed text-ink-3">
+              <strong className="font-semibold text-ink">MRR antes</strong> e{' '}
+              <strong className="font-semibold text-ink">MRR depois</strong> são a MODA
+              mensal de cada lado de março — o valor que mais se repete, não a média. É o
+              que torna a comparação confiável: um mês dobrado por cobrança extra ou um
+              mês parcial não move a moda, e move a média. A SWILE é o caso que provou
+              isso — março dela veio dobrado e junho parcial, e pela média ela aparecia
+              como queda de 4,7% quando o valor recorrente nunca mudou.
+            </p>
+          </Card>
+        )}
+
         {aba === 'semvinculo' && (
-          <Card title={`Contas ativas sem vínculo com o Omie · ${N(semVinculo.length)}`}>
+          <Card
+            title={`Contas ativas sem vínculo com o Omie · ${N(semVinculoVisiveis.length)}${
+              afValido === 'todos' ? '' : ` de ${N(semVinculo.length)}`
+            }`}
+            actions={
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <Chips>
+                  <Chip rotulo="todos" href={link('semvinculo', undefined, undefined, 'todos')} ativo={afValido === 'todos'} conta={semVinculo.length} fixo />
+                  <Chip rotulo="com afiliado" href={link('semvinculo', undefined, undefined, 'com')} ativo={afValido === 'com'} conta={comAfiliado} fixo />
+                  <Chip rotulo="sem afiliado" href={link('semvinculo', undefined, undefined, 'sem')} ativo={afValido === 'sem'} conta={semVinculo.length - comAfiliado} fixo />
+                </Chips>
+                {/* Um chip por afiliado, do maior para o menor. São dez nomes, e
+                    ver o tamanho de cada um É a informação: 350 contas são de um
+                    afiliado só, e isso muda como se lê a fila de 515. */}
+                <Chips rotulo="afiliado:">
+                  {porAfiliado.map(([chave, { exibido, n }]) => (
+                    <Chip
+                      key={chave}
+                      rotulo={exibido}
+                      href={link('semvinculo', undefined, undefined, chave)}
+                      ativo={afValido === chave}
+                      conta={n}
+                      fixo
+                    />
+                  ))}
+                </Chips>
+              </div>
+            }
+          >
             <TabelaOrdenavel<ContaSemVinculo>
-              dados={semVinculo}
+              dados={semVinculoVisiveis}
               ord={q.ord ?? 'cad'}
               dir={dir}
               href={hrefDaColuna('semvinculo')}
@@ -349,6 +485,16 @@ export default async function RevisaoDeFaturamento({
               filas com ações opostas: <em>mesmo CNPJ no Omie</em> é ligação que falta fazer — e
               são apenas {N(comCandidato)} —, enquanto <em>não existe lá</em> é conta que o
               financeiro nunca cadastrou, e aí a pergunta é se ela deveria estar ativa no painel.
+              <br />
+              <strong className="font-semibold text-ink">O afiliado sai do nome</strong>, do
+              que vem entre parênteses — não existe campo de afiliado no core. Conta de
+              afiliado não tem faturamento nosso porque quem cobra é o parceiro, e por isso
+              estar aqui é o esperado para ela: são{' '}
+              <strong className="font-semibold text-ink">{N(comAfiliado)}</strong> das{' '}
+              {N(semVinculo.length)}, e {N(semVinculo.length - comAfiliado)} contas{' '}
+              <em>próprias</em> — essas sim são a pergunta. Como é convenção de nome lida
+              como dado, um &quot;(matriz)&quot; ou &quot;(teste)&quot; no cadastro aparece
+              aqui como afiliado; melhor aparecer do que ser agrupado em silêncio.
             </p>
           </Card>
         )}
@@ -449,11 +595,52 @@ const COLUNAS_REAJUSTE: readonly Coluna<ContaSemReajuste>[] = [
   { id: 'painel', rotulo: '', celula: (c) => <NoPainel cnpj={c.documento} /> },
 ]
 
+const COLUNAS_COM_REAJUSTE: readonly Coluna<ContaComReajuste>[] = [
+  { id: 'nome', rotulo: 'Cliente', celula: (c) => <Nome id={c.accountId} nome={c.razaoSocial} />, chave: (c) => c.razaoSocial, inicial: 'asc' },
+  { id: 'doc', rotulo: 'Documento', celula: (c) => <Meta>{DOC(c.documento)}</Meta>, chave: (c) => c.documento, inicial: 'asc' },
+  { id: 'antes', rotulo: 'MRR antes', celula: (c) => <Meta>{BRL(c.mrrAntes)}</Meta>, chave: (c) => c.mrrAntes, inicial: 'desc', alinhar: 'direita' },
+  { id: 'depois', rotulo: 'MRR depois', celula: (c) => <Num>{BRL(c.mrrDepois)}</Num>, chave: (c) => c.mrrDepois, inicial: 'desc', alinhar: 'direita' },
+  {
+    id: 'inc',
+    rotulo: 'Incremento',
+    celula: (c) => <span className="whitespace-nowrap tabular-nums font-semibold text-green">+ {BRL(c.incremento)}</span>,
+    chave: (c) => c.incremento,
+    inicial: 'desc',
+    alinhar: 'direita',
+  },
+  {
+    id: 'pct',
+    rotulo: 'Variação',
+    celula: (c) => (
+      <Badge tone={c.naTaxa ? 'green' : 'amber'}>
+        {c.pct.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+      </Badge>
+    ),
+    chave: (c) => c.pct,
+    inicial: 'desc',
+  },
+  { id: 'painel', rotulo: '', celula: (c) => <NoPainel cnpj={c.documento} /> },
+]
+
 const COLUNAS_SEM_VINCULO: readonly Coluna<ContaSemVinculo>[] = [
   { id: 'nome', rotulo: 'Cliente', celula: (c) => <Nome id={c.accountId} nome={c.razaoSocial} doc={c.cnpj} />, chave: (c) => c.razaoSocial, inicial: 'asc' },
   { id: 'id', rotulo: 'ID', celula: (c) => <span className="font-mono text-meta text-ink-2">{c.brandId ?? '—'}</span>, chave: (c) => Number(c.brandId ?? 0), inicial: 'asc' },
   { id: 'hs', rotulo: 'HubSpot ID', celula: (c) => <span className="font-mono text-meta text-ink-2">{c.hubspotCompanyId ?? '—'}</span>, chave: (c) => c.hubspotCompanyId ?? '', inicial: 'asc' },
   { id: 'cad', rotulo: 'Cadastrados', celula: (c) => <Meta>{N(c.usuariosCadastrados)}</Meta>, chave: (c) => c.usuariosCadastrados, inicial: 'desc', alinhar: 'direita' },
+  {
+    id: 'afiliado',
+    rotulo: 'Afiliado',
+    celula: (c) =>
+      c.afiliadoExibido ? (
+        <Badge tone="indigo">{c.afiliadoExibido}</Badge>
+      ) : (
+        <span className="text-meta text-ink-4">próprio</span>
+      ),
+    // Agrupa por nome, e quem não tem afiliado vai para o fim: "próprio" é a
+    // fila que precisa de ação, e ela merece ficar junta.
+    chave: (c) => c.afiliado ?? 'zzzz',
+    inicial: 'asc',
+  },
   {
     id: 'cand',
     rotulo: 'Candidato no Omie',
