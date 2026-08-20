@@ -396,19 +396,38 @@ export default async function BaseDeClientes({
   const filhos = abertaId ? await subBusinesses(db, abertaId) : [];
 
   const paginas = Math.max(Math.ceil(pag.total / pag.porPagina), 1);
+  /**
+   * O recorte que está valendo, numa DECLARAÇÃO SÓ.
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ Existe porque a tela tem dois jeitos de navegar — link e formulário — e o │
+   * │ conjunto de parâmetros estava escrito duas vezes. A do formulário levava  │
+   * │ dois dos quatro: buscar apagava a ORDEM e o TAMANHO DA PÁGINA. É o mesmo  │
+   * │ defeito da seta de expandir, no outro caminho de montagem.                │
+   * │                                                                          │
+   * │ Agora `comBusca` e os campos ocultos da busca leem daqui. Filtro novo      │
+   * │ entra num lugar e chega aos dois — o que é o ponto: enquanto eram duas     │
+   * │ listas, "acrescentar nas duas" era uma disciplina, e disciplina falha.     │
+   * │                                                                          │
+   * │ `p` NÃO entra: mudar de recorte tem de voltar para a página 1, senão a     │
+   * │ pessoa cai numa página que talvez não exista no recorte novo. Quem precisa │
+   * │ da página — a seta de expandir e os próprios passos — acrescenta.          │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  const recorte: Record<string, string> = {
+    ...(busca ? { q: busca } : {}),
+    ...(somenteAtivos ? {} : { ativos: "0" }),
+    ...(q.fat ? { fat: q.fat } : {}),
+    // A organização escolhida sobrevive à busca e aos chips: trocar de filtro e
+    // perder a ordem obriga a refazer duas escolhas quando só uma mudou.
+    ...(q.ordem ? { ordem: q.ordem } : {}),
+    // Idem o tamanho da página: quem escolheu "100" e depois filtrou não pediu
+    // para voltar a 50.
+    ...(tamanho !== "50" ? { pp: tamanho } : {}),
+  };
+
   const comBusca = (extra: Record<string, string>) => {
-    const p: Record<string, string> = {
-      ...(busca ? { q: busca } : {}),
-      ...(somenteAtivos ? {} : { ativos: "0" }),
-      ...(q.fat ? { fat: q.fat } : {}),
-      // A organização escolhida sobrevive à busca e aos chips: trocar de filtro e
-      // perder a ordem obriga a refazer duas escolhas quando só uma mudou.
-      ...(q.ordem ? { ordem: q.ordem } : {}),
-      // Idem o tamanho da página: quem escolheu "100" e depois filtrou não pediu
-      // para voltar a 50.
-      ...(tamanho !== "50" ? { pp: tamanho } : {}),
-      ...extra,
-    };
+    const p: Record<string, string> = { ...recorte, ...extra };
     // String vazia REMOVE o parâmetro. É como o chip "qualquer" desliga o recorte
     // de faturamento sem precisar de um valor sentinela na URL — `?fat=` seria
     // igual a não ter, mas apareceria na barra de endereço e no link copiado.
@@ -561,11 +580,12 @@ export default async function BaseDeClientes({
                 action="/carteira/base"
                 valor={busca}
                 placeholder="nome, CNPJ, Business ID ou HubSpot ID"
-                ocultos={{
-                  ...(somenteAtivos ? {} : { ativos: "0" }),
-                  ...(q.fat ? { fat: q.fat } : {}),
-                }}
-                hrefLimpar={comBusca(somenteAtivos ? {} : { ativos: "0" })}
+                /* Todo o recorte menos o `q`, que é o próprio campo de texto: sem
+                   isto o formulário sobrescreveria o termo digitado com o antigo. */
+                ocultos={Object.fromEntries(
+                  Object.entries(recorte).filter(([k]) => k !== "q"),
+                )}
+                hrefLimpar={comBusca({ q: "" })}
               />
             </div>
           }

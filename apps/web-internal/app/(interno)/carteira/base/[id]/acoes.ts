@@ -16,9 +16,29 @@ import { uuidOu404 } from '../../../../../lib/parametro'
  * mudança de dado, não de visão.
  */
 
-const volta = (id: string, params: Record<string, string>) => {
+/**
+ * Volta para a ficha, na MESMA vista de onde a ação partiu.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ `redirect` monta a URL do zero, então não existe "preservar" aqui: o que a  │
+ * │ tela não mandar, se perde. Sem a `vista`, vincular uma identidade devolvia   │
+ * │ a ficha com eixo, período, visão do gráfico e os dois filtros do histórico   │
+ * │ de volta ao padrão — e a pessoa acabara de mudar justamente o dado que       │
+ * │ estava olhando naquele recorte.                                            │
+ * │                                                                            │
+ * │ `ok`/`erro` entram DEPOIS da vista, de propósito: a mensagem da ação é a     │
+ * │ única coisa que pode sobrescrever, e a vista que chega já vem sem elas.      │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const volta = (
+  id: string,
+  params: Record<string, string>,
+  vista = '',
+) => {
+  const p = new URLSearchParams(vista)
+  for (const [k, v] of Object.entries(params)) p.set(k, v)
   revalidatePath(`/carteira/base/${id}`)
-  redirect(`/carteira/base/${id}?${new URLSearchParams(params).toString()}#identidades`)
+  redirect(`/carteira/base/${id}?${p.toString()}#identidades`)
 }
 
 export async function vincularIdentidade(dados: FormData): Promise<void> {
@@ -27,6 +47,7 @@ export async function vincularIdentidade(dados: FormData): Promise<void> {
   const fonte = String(dados.get('fonte') ?? 'omie') as 'omie' | 'hubspot'
   const chave = String(dados.get('chave') ?? '')
   const motivo = String(dados.get('motivo') ?? '')
+  const vista = String(dados.get('vista') ?? '')
 
   try {
     await vincular(pool(), identidade, { accountId: id, fonte, chave, motivo })
@@ -34,11 +55,11 @@ export async function vincularIdentidade(dados: FormData): Promise<void> {
     if (e instanceof VinculoOcupadoError || e instanceof VinculoInvalidoError) {
       // A mensagem do erro é escrita para ser lida por quem clicou — inclusive o
       // nome da conta que já é dona. "Já existe" mandaria procurar no escuro.
-      volta(id, { erro: e.message })
+      volta(id, { erro: e.message }, vista)
     }
     throw e
   }
-  volta(id, { ok: `${chave} vinculado a esta conta.` })
+  volta(id, { ok: `${chave} vinculado a esta conta.` }, vista)
 }
 
 export async function desvincularIdentidade(dados: FormData): Promise<void> {
@@ -47,12 +68,13 @@ export async function desvincularIdentidade(dados: FormData): Promise<void> {
   const fonte = String(dados.get('fonte') ?? 'omie') as 'omie' | 'hubspot'
   const chave = String(dados.get('chave') ?? '')
   const motivo = String(dados.get('motivo') ?? '')
+  const vista = String(dados.get('vista') ?? '')
 
   try {
     await desvincular(pool(), identidade, { accountId: id, fonte, chave, motivo })
   } catch (e) {
-    if (e instanceof VinculoInvalidoError) volta(id, { erro: e.message })
+    if (e instanceof VinculoInvalidoError) volta(id, { erro: e.message }, vista)
     throw e
   }
-  volta(id, { ok: `${chave} desvinculado. O faturamento da conta mudou de valor.` })
+  volta(id, { ok: `${chave} desvinculado. O faturamento da conta mudou de valor.` }, vista)
 }

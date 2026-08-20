@@ -216,6 +216,20 @@ export default async function FichaDeCliente({
      presets — quem digitou uma data quis aquela. */
   const eixo = (['vencimento', 'emissao', 'pagamento'] as const).find((e) => e === q.eixo) ?? 'vencimento'
   const meses = q.de || q.ate ? null : Number(q.meses ?? 24)
+  /**
+   * A vista atual em querystring, para viajar com as ações de servidor.
+   *
+   * As ações de identidade REDIRECIONAM, e um redirect monta a URL do zero — não
+   * há como ele "preservar" o que estava na tela. Sem isto, vincular ou
+   * desvincular uma identidade devolvia a ficha com eixo, período, visão e os
+   * dois filtros do histórico todos no padrão. Então a tela manda o que está
+   * valendo, e a ação devolve junto do `ok`/`erro`.
+   */
+  const vistaAtual = new URLSearchParams(
+    Object.entries(q).filter(
+      ([k, v]) => v && k !== 'ok' && k !== 'erro',
+    ) as [string, string][],
+  ).toString()
   const desde =
     q.de ?? (meses && Number.isFinite(meses) ? mesesAtras(meses) : null)
   const f = await fichaDoCliente(pool(), conta_id, filtro, {
@@ -563,6 +577,11 @@ export default async function FichaDeCliente({
                 {q.sit && <input type="hidden" name="sit" value={q.sit} />}
                 {q.cat && <input type="hidden" name="cat" value={q.cat} />}
                 <input type="hidden" name="eixo" value={eixo} />
+                {/* A VISÃO vem junto: sem ela, aplicar um intervalo devolvia o
+                    gráfico para "valor" sem ninguém ter pedido. `meses` fica de
+                    fora DE PROPÓSITO — quem digitou uma data quis aquela, e ela
+                    vence do preset; é a única omissão intencional aqui. */}
+                {q.vis && <input type="hidden" name="vis" value={q.vis} />}
                 {/* ds-excecao: par de datas EM LINHA, com o rótulo ao lado e não acima.
                     O <Field> monta rótulo em bloco e ocupa a largura toda — aqui os dois
                     campos e o botão "aplicar" precisam caber numa linha do cabeçalho. */}
@@ -863,6 +882,7 @@ export default async function FichaDeCliente({
                     </summary>
                     <form action={desvincularIdentidade} className="mt-2 grid gap-2">
                       <input type="hidden" name="accountId" value={conta.id} />
+                      <input type="hidden" name="vista" value={vistaAtual} />
                       <input type="hidden" name="fonte" value={v.fonte} />
                       <input type="hidden" name="chave" value={v.chave} />
                       <Field
@@ -924,6 +944,7 @@ export default async function FichaDeCliente({
                       </summary>
                       <form action={vincularIdentidade} className="mt-2 grid gap-2">
                         <input type="hidden" name="accountId" value={conta.id} />
+                        <input type="hidden" name="vista" value={vistaAtual} />
                         <input type="hidden" name="fonte" value="omie" />
                         <input type="hidden" name="chave" value={c.chave} />
                         <TextArea
