@@ -880,3 +880,42 @@ test('cada seção da ficha do cliente tem a âncora que os filtros apontam', ()
       `Secao: ${secoes.join(', ')}\nâncoras: ${ancoras.join(', ')}`,
   )
 })
+
+/**
+ * Na base de clientes, toda URL da própria tela sai de `comBusca` — e só dela.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A seta de expandir montava a própria URL com `new URLSearchParams`,         │
+ * │ carregando só o termo de busca. Abrir os sub business de uma conta apagava  │
+ * │ o recorte de ativos, o de faturamento, a ordem, o tamanho da página e a     │
+ * │ página — com "só ativos + sem faturamento" a lista voltava para "qualquer", │
+ * │ e a conta que a pessoa acabou de abrir ia para longe na lista inteira.      │
+ * │                                                                            │
+ * │ Como `scroll={false}` mantém a tela parada, o sintoma era a conta           │
+ * │ DESAPARECER: nada de erro, nada de aviso, só a lista trocada por baixo.     │
+ * │                                                                            │
+ * │ `comBusca` é o único lugar que sabe o conjunto inteiro de parâmetros. Uma    │
+ * │ segunda montagem de URL nesta tela é, por construção, uma que esquece       │
+ * │ algum deles — e o próximo filtro que entrar não vai ser acrescentado nas     │
+ * │ duas. Daí o portão contar UMA.                                             │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+test('a base de clientes tem um único construtor de URL', () => {
+  const base = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'carteira', 'base', 'page.tsx'),
+    'utf8',
+  )
+  const construtores = [...base.matchAll(/new URLSearchParams/g)].length
+  assert.equal(
+    construtores,
+    1,
+    `${construtores} montagens de URL nesta tela; só \`comBusca\` deve montar. ` +
+      'Uma segunda esquece algum filtro — foi assim que a seta de expandir os perdeu.',
+  )
+  // E a seta de expandir tem de usar o construtor de fora, não um href literal.
+  assert.match(
+    base,
+    /href=\{hrefExpandir\(/,
+    'a seta de expandir tem de receber a URL de fora, com todos os filtros',
+  )
+})

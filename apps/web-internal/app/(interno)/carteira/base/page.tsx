@@ -200,7 +200,22 @@ function linhaDaTabela(
   l: LinhaDaBase,
   aberta: boolean,
   sub: boolean,
-  buscaAtual: string,
+  /**
+   * Para onde a seta de expandir leva.
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ VEM DE FORA porque a URL de expandir tem de carregar TUDO o que está      │
+   * │ valendo na tela, e esta função não conhece o estado da tela.              │
+   * │                                                                          │
+   * │ Antes ela montava a própria URL com o termo de busca e mais nada: abrir   │
+   * │ os sub business de uma conta apagava o recorte de ativos, o de            │
+   * │ faturamento, a ordem, o tamanho da página E a página. Com "só ativos +    │
+   * │ sem faturamento" a lista voltava para "qualquer", e a conta que a pessoa  │
+   * │ acabou de abrir ia para longe na lista inteira — parecendo ter            │
+   * │ desaparecido, porque `scroll={false}` mantém a tela no mesmo lugar.       │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  hrefExpandir: (id: string, aberta: boolean) => string,
 ) {
   const v = l.hubspotVinculo ? VINCULO[l.hubspotVinculo] : undefined;
   return [
@@ -221,10 +236,7 @@ function linhaDaTabela(
           // então precisa procurar de novo onde estava. Abrir é mudança de estado da
           // MESMA tela, não ida para outra.
           scroll={false}
-          href={`/carteira/base?${new URLSearchParams({
-            ...(buscaAtual ? { q: buscaAtual } : {}),
-            ...(aberta ? {} : { abrir: l.id }),
-          }).toString()}`}
+          href={hrefExpandir(l.id, aberta)}
           aria-label={`${aberta ? "Fechar" : "Abrir"} os ${l.subs} sub business de ${l.razaoSocial}`}
           aria-expanded={aberta}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-3 hover:bg-surface-2 hover:text-ink"
@@ -404,6 +416,23 @@ export default async function BaseDeClientes({
     return `/carteira/base?${new URLSearchParams(p).toString()}`;
   };
 
+  /**
+   * A URL de abrir/fechar os sub business de uma linha.
+   *
+   * É `comBusca` MAIS a página: `comBusca` sozinho não carrega `p` de propósito —
+   * trocar um filtro tem de voltar para a página 1, senão a pessoa cai numa
+   * página que talvez não exista mais no recorte novo. Expandir é o contrário:
+   * é a MESMA lista, o mesmo recorte e a mesma página; só uma linha se abre.
+   *
+   * `abrir: ""` fecha, aproveitando a regra de que string vazia remove o
+   * parâmetro — sem valor sentinela e sem um segundo caminho de montagem.
+   */
+  const hrefExpandir = (id: string, aberta: boolean) =>
+    comBusca({
+      ...(pagina > 1 ? { p: String(pagina) } : {}),
+      abrir: aberta ? "" : id,
+    });
+
   /* O recorte por faturamento é aplicado AQUI e não no SQL, e a tela diz isso:
      ele filtra a página carregada, não a base inteira. Levar para a consulta
      exigiria juntar títulos antes de paginar — caro e, pior, mudaria a contagem
@@ -421,9 +450,9 @@ export default async function BaseDeClientes({
   const linhas: React.ReactNode[][] = [];
   for (const l of visiveis) {
     const aberta = l.id === abertaId;
-    linhas.push(linhaDaTabela(l, aberta, false, busca));
+    linhas.push(linhaDaTabela(l, aberta, false, hrefExpandir));
     if (aberta)
-      for (const f of filhos) linhas.push(linhaDaTabela(f, false, true, busca));
+      for (const f of filhos) linhas.push(linhaDaTabela(f, false, true, hrefExpandir));
   }
 
   return (
