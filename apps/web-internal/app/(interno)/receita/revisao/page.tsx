@@ -222,19 +222,6 @@ export default async function RevisaoDeFaturamento({
           />
         </KpiGrade>
 
-        <Aviso tom="info">
-          <strong className="font-semibold">Só quem é cliente no Omie, sem a tag Azul.</strong>{' '}
-          O Omie usa a mesma base de cadastro para cliente, fornecedor, investidor e
-          usuário. Sem esse recorte a lista trazia a BIZ INVEST no topo, R$ 33 mil/mês
-          &quot;parados desde 2021&quot;, quando as tags dela são <em>Fornecedor</em> e{' '}
-          <em>Investidor</em> — o que parou foi um pagamento nosso a ela. A tag{' '}
-          <strong className="font-semibold">Azul</strong> sai junto: é a intermediação de
-          pontos, a linha que saltou de R$ 30 mil em fevereiro para R$ 3,2 milhões em
-          março e que não é assinatura. Fica dentro quem tem <em>Cliente</em>,{' '}
-          <em>Cliente Hinova</em>, ou simplesmente não é fornecedor nem investidor —
-          cadastro sem tag fica, porque ausência de tag é ausência de informação.
-        </Aviso>
-
         <Abas
           abas={[
             { chave: 'ativos', rotulo: 'Clientes ativos', conta: ativos.length },
@@ -246,6 +233,7 @@ export default async function RevisaoDeFaturamento({
           ]}
           atual={aba}
           href={(k) => link(k as Chave)}
+          iguais
         />
 
         {aba === 'ativos' && (

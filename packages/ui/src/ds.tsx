@@ -48,11 +48,30 @@ export function Abas({
   atual,
   href,
   className,
+  iguais = false,
 }: {
   abas: readonly Aba[]
   atual: string
   href: (chave: string) => string
   className?: string
+  /**
+   * Todas as abas com a MESMA largura, dividindo a linha.
+   *
+   * ┌───────────────────────────────────────────────────────────────────────┐
+   * │ Opção e não padrão, porque as duas formas estão certas em contextos     │
+   * │ diferentes. Aba do tamanho do texto é o padrão e funciona com dois ou    │
+   * │ três rótulos: o alvo é do tamanho da palavra, e nada se desloca.         │
+   * │                                                                        │
+   * │ Com SEIS abas de rótulos desiguais — "Clientes ativos 337" ao lado de    │
+   * │ "Sem reajuste 95" — a fileira fica com passo irregular, e a posição de    │
+   * │ cada aba deixa de ser memorizável: a pessoa procura a aba em vez de ir     │
+   * │ nela. Largura igual devolve o passo fixo.                               │
+   * │                                                                        │
+   * │ `basis-0 grow` e não `w-1/6`: a divisão se ajusta ao número de abas sem  │
+   * │ ninguém contar, e uma aba nova não exige mexer numa fração.              │
+   * └───────────────────────────────────────────────────────────────────────┘
+   */
+  iguais?: boolean
 }) {
   return (
     <div className={cn('flex min-w-0 gap-1 overflow-x-auto border-b border-line', className)} role="tablist">
@@ -68,6 +87,7 @@ export function Abas({
             className={cn(
               '-mb-px whitespace-nowrap rounded-t-sm border-b-2 px-3.5 py-2 text-corpo font-medium transition-colors',
               FOCO,
+              iguais && 'min-w-0 shrink basis-0 grow text-center',
               ativa
                 ? 'border-purple-500 text-purple-700'
                 : 'border-transparent text-ink-2 hover:text-ink',
