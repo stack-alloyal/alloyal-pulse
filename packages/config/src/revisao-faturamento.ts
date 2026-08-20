@@ -69,6 +69,24 @@ const E_CLIENTE = (coluna: string) => `(
  */
 export const MESES_DE_CARENCIA = 2;
 
+/**
+ * O mês em que o faturamento PARA de contar: o corrente, inclusive.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O Omie EMITE título com vencimento à frente, e ele não é `previsao` — são    │
+ * │ 61 títulos de 24.037, em 45 documentos, o mais distante em janeiro de 2027.  │
+ * │                                                                            │
+ * │ Sem este corte, `max(vencimento)` de um cliente devolvia dez/26 em agosto de │
+ * │ 2026: a coluna "último mês" mostrava mês do FUTURO, e o "MRR do mês" era o   │
+ * │ valor de um mês que ainda não aconteceu. Pior no outro sentido — um cliente  │
+ * │ parado desde março com um título emitido para dezembro contava como ATIVO, e │
+ * │ ficava fora da fila de quem parou. Era o defeito silencioso dos dois lados.  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const ATE_O_MES_CORRENTE =
+  "t.vencimento < date_trunc('month', current_date) + interval '1 month'";
+
+
 export interface ContaQueParou {
   readonly accountId: string;
   readonly razaoSocial: string;
@@ -101,6 +119,7 @@ export async function contasQuePararamDeFaturar(
          FROM core.vinculo_cliente v
          JOIN core.omie_titulo t ON t.documento = v.chave
         WHERE v.fonte = 'omie' AND t.situacao <> 'previsao' AND t.valor_centavos > 0
+          AND ${ATE_O_MES_CORRENTE}
           AND ${E_CLIENTE('v.chave')}
         GROUP BY 1
      ),
@@ -521,5 +540,91 @@ export async function vinculosSemTagDeCliente(
     tags: (r["tags"] as string[] | null) ?? [],
     cadastros: Number(r["cadastros"] ?? 0),
     faturamento12m: Number(r["faturamento12m"] ?? 0),
+  }));
+}
+
+// ═══ 5. Os clientes ativos que estão faturando ═══════════════════════════════
+
+export interface ContaAtiva {
+  readonly accountId: string;
+  readonly razaoSocial: string;
+  readonly cnpj: string | null;
+  readonly brandId: string | null;
+  /** `2026-08` do último mês faturado. */
+  readonly ultimoMes: string;
+  /** O que faturou nesse último mês, em centavos. */
+  readonly mrrMes: number;
+  /** Os últimos 12 meses somados, em centavos. */
+  readonly faturamento12m: number;
+  /** Em quantos meses distintos já faturou — a idade da relação. */
+  readonly meses: number;
+  readonly usuariosCadastrados: number;
+}
+
+/**
+ * Quem está ativo no painel E faturando — a contraparte das outras quatro listas.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ EXISTE PARA FECHAR A CONTA. Sem ela a tela só mostrava problema, e não dava │
+ * │ para saber se 183 paradas é muito ou pouco: das 1.043 contas ativas no      │
+ * │ painel, esta lista é a parte sadia. Com as cinco visões, a soma dá o todo e  │
+ * │ cada número passa a ter denominador.                                       │
+ * │                                                                            │
+ * │ "Faturando" é o complemento exato de `contasQuePararamDeFaturar`: mesmo      │
+ * │ recorte de cliente, mesma carência. Uma conta não pode aparecer nas duas.    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export async function contasAtivasFaturando(db: pg.Pool): Promise<ContaAtiva[]> {
+  const { rows } = await db.query<Record<string, string>>(
+    `WITH fat AS (
+       SELECT v.account_id,
+              max(date_trunc('month', t.vencimento))               AS ultimo,
+              count(DISTINCT date_trunc('month', t.vencimento))    AS meses,
+              sum(t.valor_centavos) FILTER (
+                WHERE t.vencimento >= date_trunc('month', current_date) - interval '11 months'
+              )                                                    AS doze
+         FROM core.vinculo_cliente v
+         JOIN core.omie_titulo t ON t.documento = v.chave
+        WHERE v.fonte = 'omie' AND t.situacao <> 'previsao' AND t.valor_centavos > 0
+          AND ${ATE_O_MES_CORRENTE}
+          AND ${E_CLIENTE('v.chave')}
+        GROUP BY 1
+     ),
+     ultimo_mes AS (
+       SELECT v.account_id, sum(t.valor_centavos) AS valor
+         FROM core.vinculo_cliente v
+         JOIN core.omie_titulo t ON t.documento = v.chave
+         JOIN fat f ON f.account_id = v.account_id
+        WHERE v.fonte = 'omie' AND t.situacao <> 'previsao' AND t.valor_centavos > 0
+          AND date_trunc('month', t.vencimento) = f.ultimo
+          AND ${ATE_O_MES_CORRENTE}
+        GROUP BY 1
+     )
+     SELECT a.id::text AS account_id, a.razao_social, a.cnpj, a.brand_id,
+            to_char(f.ultimo, 'YYYY-MM')        AS ultimo_mes,
+            coalesce(u.valor, 0)::text          AS mrr_mes,
+            coalesce(f.doze, 0)::text           AS faturamento12m,
+            f.meses::text                       AS meses,
+            coalesce(a.usuarios_cadastrados, 0)::text AS usuarios_cadastrados
+       FROM core.account a
+       JOIN fat f ON f.account_id = a.id
+       LEFT JOIN ultimo_mes u ON u.account_id = a.id
+      WHERE a.parent_account_id IS NULL
+        AND a.status_core = 'active'
+        -- O complemento EXATO de quem parou: mesma carência, sinal invertido.
+        AND f.ultimo >= date_trunc('month', current_date) - ($1::int || ' months')::interval
+      ORDER BY coalesce(u.valor, 0) DESC, a.razao_social`,
+    [MESES_DE_CARENCIA],
+  );
+  return rows.map((r) => ({
+    accountId: String(r["account_id"]),
+    razaoSocial: String(r["razao_social"] ?? ""),
+    cnpj: (r["cnpj"] as string | null) ?? null,
+    brandId: (r["brand_id"] as string | null) ?? null,
+    ultimoMes: String(r["ultimo_mes"]),
+    mrrMes: Number(r["mrr_mes"]),
+    faturamento12m: Number(r["faturamento12m"]),
+    meses: Number(r["meses"]),
+    usuariosCadastrados: Number(r["usuarios_cadastrados"]),
   }));
 }
