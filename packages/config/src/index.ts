@@ -22,3 +22,4 @@ export * from './ficha-do-cliente.js'
 export * from './omie.js'
 export * from './vinculo.js'
 export * from './omie-integracao.js'
+export * from './revisao-faturamento.js';

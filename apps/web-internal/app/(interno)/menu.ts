@@ -76,6 +76,14 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Receita",
     icone: Wallet,
     proposito: "Cascata e fechamento mensal",
+    filhos: [
+      { href: "/receita", rotulo: "Cascata", proposito: "O fechamento do mês, linha por linha" },
+      {
+        href: "/receita/revisao",
+        rotulo: "Revisão",
+        proposito: "Onde o faturamento e o cadastro discordam",
+      },
+    ],
   },
   {
     href: "/relatorios",
