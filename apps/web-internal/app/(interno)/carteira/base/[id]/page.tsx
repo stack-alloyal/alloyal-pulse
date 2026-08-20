@@ -8,7 +8,7 @@ import {
   vinculosDaConta,
 } from '@pulse/config'
 import { Aviso, Badge, Btn, Card, Chip, Chips, Field, Kpi, KpiGrade, Table, TextArea, Vazio } from '@pulse/ui'
-import { ArrowLeft, Building2, GitMerge } from 'lucide-react'
+import { ArrowLeft, Building2, ExternalLink, GitMerge } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
@@ -47,6 +47,23 @@ const N = (v: number) => v.toLocaleString('pt-BR')
 
 const BRL = (centavos: number | string) =>
   (Number(centavos) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+/**
+ * O endereço da conta no painel da Alloyal — o Admin de verdade.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A CHAVE DO PAINEL É O CNPJ SEM PONTUAÇÃO, não o Business ID nem o id       │
+ * │ interno: `dashboard.alloyal.com.br/business/34254084000101/configuracao`.   │
+ * │                                                                            │
+ * │ Devolve `null` sem CNPJ, e a tela não desenha o botão. Um link para         │
+ * │ `/business//configuracao` levaria a uma tela de erro do painel, o que é     │
+ * │ pior que não ter link: parece que o Pulse está quebrado.                    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const PAINEL = (cnpj: string | null) => {
+  const d = (cnpj ?? '').replace(/\D/g, '')
+  return d ? `https://dashboard.alloyal.com.br/business/${d}/configuracao` : null
+}
 
 const DOC = (d: string | null) => {
   const s = (d ?? '').replace(/\D/g, '')
@@ -424,7 +441,38 @@ export default async function FichaDeCliente({
           /* Simétrico ao card do Omie, que já trazia o seu. A assimetria era o
              defeito: o card do ERP dizia o status num selo e o do nosso painel
              deixava a resposta escondida no meio de treze campos. */
-          actions={<SeloDoAdmin status={conta.statusCore} ativo={conta.ativo} />}
+          actions={
+            <>
+              <SeloDoAdmin status={conta.statusCore} ativo={conta.ativo} />
+              {/* ┌─────────────────────────────────────────────────────────────┐
+                  │ O CTA LEVA AO PAINEL; não alterna o status daqui.             │
+                  │                                                               │
+                  │ Ativar e inativar é escrita no Admin, e a API que o Pulse usa  │
+                  │ (api.lecupon.com/client/v3) é só de leitura no nosso código.   │
+                  │ Sondei sem alterar nada: `OPTIONS` responde 404 e não devolve  │
+                  │ `Allow`, então não há como descobrir se existe endpoint de     │
+                  │ escrita a não ser TENTANDO escrever numa conta real. Um botão  │
+                  │ que promete alternar e não sabe se consegue é pior que um link │
+                  │ que leva a quem consegue.                                     │
+                  │                                                               │
+                  │ Abre em aba nova de propósito: quem ativa uma conta volta para │
+                  │ esta ficha para conferir o efeito, e trocar de aba é mais      │
+                  │ barato que refazer o caminho até aqui.                         │
+                  └─────────────────────────────────────────────────────────────┘ */}
+              {PAINEL(conta.cnpj) && (
+                <a
+                  href={PAINEL(conta.cnpj)!}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Abre a configuração desta conta no painel, onde se ativa e inativa o cliente"
+                  className="inline-flex items-center gap-1 text-corpo font-semibold text-purple-700 hover:text-purple-500"
+                >
+                  ativar/inativar no painel
+                  <ExternalLink className="h-[13px] w-[13px]" />
+                </a>
+              )}
+            </>
+          }
         >
             <Campos
               pares={[
