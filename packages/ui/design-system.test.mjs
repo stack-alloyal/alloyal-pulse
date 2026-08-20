@@ -183,7 +183,11 @@ test('nenhuma cor cravada fora dos tokens', () => {
   const cravadas = []
   for (const { caminho, texto } of ARQUIVOS) {
     if (caminho.endsWith('AlloyalLogo.tsx') || caminho === relative(RAIZ, BASE)) continue
-    for (const m of semComentarios(texto).matchAll(/#[0-9a-fA-F]{3,8}\b/g)) {
+    // `(?<!&)` descarta ENTIDADE HTML: `&#123;` é a chave `{` escapada em JSX, e
+    // a varredura lia o "#123" como a cor #123. Aconteceu de verdade, num texto
+    // que citava a rota `PATCH /businesses/{id}` — o portão acusou a própria
+    // documentação. Entidade numérica nunca é cor, então o descarte é seguro.
+    for (const m of semComentarios(texto).matchAll(/(?<!&)#[0-9a-fA-F]{3,8}\b/g)) {
       const linha = texto.slice(0, m.index).split('\n').length
       cravadas.push(`${caminho}:${linha} — ${m[0]}`)
     }

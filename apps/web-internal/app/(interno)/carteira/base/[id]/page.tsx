@@ -5,9 +5,10 @@ import {
   fichaDoCliente,
   historicoDeVinculos,
   iniciaisDoCliente,
+  buscarNoOmie,
   vinculosDaConta,
 } from '@pulse/config'
-import { Aviso, Badge, Btn, Card, Chip, Chips, Field, Kpi, KpiGrade, Table, TextArea, Vazio } from '@pulse/ui'
+import { Aviso, Badge, Btn, Busca, Card, Chip, Chips, Field, Kpi, KpiGrade, Table, TextArea, Vazio } from '@pulse/ui'
 import { ArrowLeft, Building2, ExternalLink, GitMerge } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -145,7 +146,7 @@ function mesesAtras(n: number): string {
  * │ compila sem dizer a que seção pertence.                                    │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-type Secao = 'grafico' | 'faturamento' | 'identidades'
+type Secao = 'grafico' | 'faturamento' | 'identidades' | 'omie'
 
 const comFiltro = (
   id: string,
@@ -217,6 +218,8 @@ export default async function FichaDeCliente({
   searchParams: Promise<{
     ok?: string; erro?: string; sit?: string; cat?: string
     eixo?: string; meses?: string; de?: string; ate?: string; vis?: string
+    /** Termo da busca manual de ficha no Omie. */
+    omie?: string
   }>
 }) {
   const identidade = await exigir((p) => temEscopo(p.contas), 'ficha do cliente')
@@ -256,11 +259,14 @@ export default async function FichaDeCliente({
   })
   if (!f) notFound()
 
-  const [identidades, candidatos, diagnostico, historico] = await Promise.all([
+  const [identidades, candidatos, diagnostico, historico, achadosNoOmie] = await Promise.all([
     vinculosDaConta(pool(), conta_id),
     candidatosDaConta(pool(), conta_id),
     diagnosticoDaConta(pool(), conta_id),
     historicoDeVinculos(pool(), conta_id),
+    // Só busca quando há termo: `buscarNoOmie` recusa abaixo de 3 caracteres, e
+    // pedir a consulta em toda abertura de ficha seria uma varredura por nada.
+    q.omie ? buscarNoOmie(pool(), q.omie) : Promise.resolve([]),
   ])
   const podeEditar = identidade.permissoes.configurar
   const livres = candidatos.filter((c) => !c.jaVinculadaA)
@@ -364,6 +370,11 @@ export default async function FichaDeCliente({
           </div>
         </div>
 
+        {/* A âncora do card do Omie: o "limpar" da busca manual aponta para cá,
+            e sem ela a navegação simplesmente não rolaria — foi o portão de
+            âncoras que pegou, escrito para exatamente este descuido. */}
+        <div id="omie" className="scroll-mt-24" />
+
         {/* ── O financeiro, primeiro: é a pergunta que traz alguém aqui ── */}
         {vinculo === 'nenhum' ? (
           <Aviso tom="alerta">
@@ -444,21 +455,28 @@ export default async function FichaDeCliente({
           actions={
             <>
               <SeloDoAdmin status={conta.statusCore} ativo={conta.ativo} />
-              {/* ┌─────────────────────────────────────────────────────────────┐
-                  │ O CTA LEVA AO PAINEL; não alterna o status daqui.             │
-                  │                                                               │
-                  │ Ativar e inativar é escrita no Admin, e a API que o Pulse usa  │
-                  │ (api.lecupon.com/client/v3) é só de leitura no nosso código.   │
-                  │ Sondei sem alterar nada: `OPTIONS` responde 404 e não devolve  │
-                  │ `Allow`, então não há como descobrir se existe endpoint de     │
-                  │ escrita a não ser TENTANDO escrever numa conta real. Um botão  │
-                  │ que promete alternar e não sabe se consegue é pior que um link │
-                  │ que leva a quem consegue.                                     │
-                  │                                                               │
-                  │ Abre em aba nova de propósito: quem ativa uma conta volta para │
-                  │ esta ficha para conferir o efeito, e trocar de aba é mais      │
-                  │ barato que refazer o caminho até aqui.                         │
-                  └─────────────────────────────────────────────────────────────┘ */}
+              {/* ┌───────────────────────────────────────────────────────────────┐
+                  │ POR QUE NÃO HÁ BOTÃO DE ATIVAR/INATIVAR AQUI, e o que falta     │
+                  │ para haver.                                                     │
+                  │                                                                 │
+                  │ Sondei a API do Admin sem tocar em conta nenhuma — com o id      │
+                  │ 999999999, que não existe:                                       │
+                  │                                                                 │
+                  │   GET   /businesses/:id   → 404 "Registro não encontrado"        │
+                  │   PATCH /businesses/:id   → 403 "Acesso negado"                  │
+                  │   POST  .../activate      → 404 "Not Found"                      │
+                  │                                                                 │
+                  │ A leitura: `PATCH /businesses/:id` É a rota de escrita — se não   │
+                  │ existisse, devolveria 404 como as outras. E o 403 num id que não  │
+                  │ existe prova que a autorização é checada ANTES do registro: o     │
+                  │ nosso token não escreve.                                        │
+                  │                                                                 │
+                  │ Então o bloqueio é de credencial, não de código. Um botão aqui    │
+                  │ prometeria uma ação que falha em 403 — pior que não ter botão.    │
+                  │ Quando existir um token com escopo de escrita, a ação são poucas  │
+                  │ linhas: PATCH nessa rota, confirmação destrutiva e trilha em      │
+                  │ ops.mudanca. Até lá, o caminho é o painel.                       │
+                  └───────────────────────────────────────────────────────────────┘ */}
               {PAINEL(conta.cnpj) && (
                 <a
                   href={PAINEL(conta.cnpj)!}
@@ -474,6 +492,24 @@ export default async function FichaDeCliente({
             </>
           }
         >
+          <Aviso tom="alerta">
+            <strong className="font-semibold">
+              Ativar e inativar daqui depende de um token de escrita no Admin.
+            </strong>{' '}
+            A rota existe — <code className="font-mono text-meta">PATCH /businesses/:id</code>{' '}
+            — e a credencial que o Pulse usa recebe{' '}
+            <strong className="font-semibold">403 &quot;Acesso negado&quot;</strong> nela. Conferido
+            sem alterar nenhuma conta, com um id inexistente: o mesmo id devolve 404 no{' '}
+            <code className="font-mono text-meta">GET</code> e 403 no{' '}
+            <code className="font-mono text-meta">PATCH</code>, o que prova que a permissão é
+            checada antes do registro. Com um token de escrita em{' '}
+            <Link href="/configuracoes/segredos" className="font-semibold text-purple-700 hover:text-purple-500">
+              Segredos
+            </Link>
+            , o botão passa a existir aqui — com confirmação e trilha de quem mudou. Até então, o
+            link acima abre o painel.
+          </Aviso>
+
             <Campos
               pares={[
                 ['Razão social', conta.razaoSocial],
@@ -560,9 +596,150 @@ export default async function FichaDeCliente({
             ) : (
               <Vazio
                 titulo="Sem ficha no Omie."
-                porque="Nenhum cadastro com este documento. O cliente pode ser faturado sob outro CNPJ do grupo."
+                porque="Nenhum cadastro com este documento. O cliente pode ser faturado sob outro CNPJ do grupo — busque abaixo pelo nome que o financeiro usa."
               />
             )}
+
+            {/* ┌──────────────────────────────────────────────────────────────┐
+                │ A BUSCA MANUAL, e por que ela é necessária mesmo existindo a   │
+                │ lista de candidatos automática.                                │
+                │                                                                │
+                │ `candidatosDaConta` só sugere com evidência forte — HubSpot     │
+                │ igual, raiz de CNPJ igual, ou primeiro termo raro. É o que      │
+                │ impede a tela de propor "Banco Afro" para toda conta que        │
+                │ comece com "Banco". O preço é que o caso legítimo SEM           │
+                │ evidência não aparece: a conta "Playhub" e a ficha "LCI         │
+                │ TELECOM" são o mesmo cliente, e nenhuma regra vai adivinhar.    │
+                │ Aí quem sabe é a pessoa — e ela precisa de um campo, não de     │
+                │ uma sugestão.                                                   │
+                │                                                                │
+                │ Fica no card do Omie e não no de identidades porque é aqui que  │
+                │ a pergunta nasce: quem abre a ficha e vê "sem ficha no Omie"    │
+                │ quer procurar agora, não rolar até o fim da página.             │
+                └──────────────────────────────────────────────────────────────┘ */}
+            <div className="mt-4 border-t border-line pt-4">
+              {/* Empilha até `lg`: este card é a coluna direita de uma grade de
+                  duas, e em 1024px o campo de 280px mais o botão e o "limpar" não
+                  cabiam ao lado do texto — o "limpar" saía 43px além da tela e a
+                  página passava a rolar de lado. */}
+              <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
+                <div className="min-w-0">
+                  <p className="text-cartao font-bold tracking-[-0.01em] text-ink">
+                    Procurar a ficha no Omie
+                  </p>
+                  <p className="mt-0.5 text-meta text-ink-3">
+                    Por nome da organização ou por CNPJ — o financeiro costuma cadastrar
+                    com a razão social, que raramente é o nome do programa.
+                  </p>
+                </div>
+                <Busca
+                  className="min-w-0"
+                  action={`/carteira/base/${conta.id}`}
+                  nome="omie"
+                  valor={q.omie ?? ''}
+                  placeholder="razão social, nome fantasia ou CNPJ"
+                  ocultos={Object.fromEntries(
+                    Object.entries(q).filter(
+                      ([k, v]) => v && k !== 'omie' && k !== 'ok' && k !== 'erro',
+                    ) as [string, string][],
+                  )}
+                  hrefLimpar={comFiltro(conta.id, { ...q, omie: '' }, 'omie')}
+                />
+              </div>
+
+              {q.omie && q.omie.trim().length >= 3 && (
+                <div className="mt-4">
+                  {achadosNoOmie.length === 0 ? (
+                    <Aviso tom="alerta">
+                      <strong className="font-semibold">
+                        Nada no Omie para &quot;{q.omie}&quot;.
+                      </strong>{' '}
+                      Nem por nome, nem por documento. Se o cliente paga, a cobrança sai por
+                      outro cadastro — tente a razão social do grupo, ou o CNPJ que aparece
+                      no boleto. Se não achar nada, é provável que o financeiro não tenha o
+                      cadastro, e aí a pergunta é outra: por que a conta está ativa no
+                      painel.
+                    </Aviso>
+                  ) : (
+                    /* ┌─────────────────────────────────────────────────────────┐
+                       │ LISTA e não tabela, e a razão é medida: este card é a      │
+                       │ coluna DIREITA de uma grade de duas, com ~570px. Uma       │
+                       │ tabela de seis colunas ali era recortada — "Títulos"       │
+                       │ aparecia como "Títul" e o botão de vincular ficava fora    │
+                       │ da tela, o que torna a busca inútil justamente no passo    │
+                       │ que importa.                                              │
+                       │                                                           │
+                       │ Empilhado, cada achado usa a largura que tem: nome em      │
+                       │ cima, procedência embaixo, e a ação à direita.             │
+                       └─────────────────────────────────────────────────────────┘ */
+                    <ul className="grid gap-2">
+                      {achadosNoOmie.map((c) => (
+                        <li
+                          key={c.chave + c.detalhe}
+                          /* EMPILHADO, não lado a lado: o card é a coluna direita
+                             de uma grade de duas, com ~570px. Com a ação ao lado, o
+                             campo de motivo e o botão vazavam para fora da tela —
+                             medido duas vezes, primeiro como tabela e depois como
+                             linha. Vertical cabe em qualquer largura. */
+                          className="grid gap-2 rounded-md border border-line bg-surface-2 p-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-corpo font-semibold text-ink">{c.rotulo}</p>
+                            <p className="mt-0.5 truncate text-nota text-ink-3">{c.detalhe}</p>
+                            <p className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-2">
+                              <span className="tabular-nums">{DOC(c.chave)}</span>
+                              <span className="text-ink-4">·</span>
+                              <span className="tabular-nums">
+                                {N(c.titulos)} {c.titulos === 1 ? 'título' : 'títulos'}
+                              </span>
+                              <span className="text-ink-4">·</span>
+                              <span className="tabular-nums font-semibold text-ink">
+                                {BRL(c.valorCentavos)}
+                              </span>
+                              {c.inativo && <Badge tone="slate">inativo</Badge>}
+                              {c.jaVinculadaA && <Badge tone="amber">de {c.jaVinculadaA}</Badge>}
+                            </p>
+                          </div>
+                          {/* A ação só existe onde vincular é POSSÍVEL. Ficha que já é
+                              de outra conta diz de quem — vincular ali derrubaria o
+                              faturamento da outra, e a ação recusa mesmo. Dizer antes é
+                              melhor que deixar tentar e explicar depois. */}
+                          {c.jaVinculadaA ? (
+                            <span className="text-meta text-ink-4">
+                              Já é de outra conta — vincular aqui derrubaria o faturamento dela.
+                            </span>
+                          ) : podeEditar ? (
+                            <form action={vincularIdentidade} className="flex flex-wrap items-center gap-2">
+                              <input type="hidden" name="accountId" value={conta.id} />
+                              <input type="hidden" name="vista" value={vistaAtual} />
+                              <input type="hidden" name="fonte" value="omie" />
+                              <input type="hidden" name="chave" value={c.chave} />
+                              {/* ds-excecao: campo EM LINHA dentro de um item de lista.
+                                  O <Field> monta rótulo em bloco e empurraria cada
+                                  achado para três alturas; o rótulo vive no aria-label
+                                  e a instrução, no placeholder. */}
+                              <input
+                                name="motivo"
+                                minLength={10}
+                                required
+                                placeholder="por que é o mesmo cliente"
+                                aria-label="Por que é o mesmo cliente (obrigatório)"
+                                className="h-control-xs min-w-0 flex-1 rounded-sm border border-line-strong bg-surface px-2 text-meta text-ink placeholder:text-ink-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              />
+                              <Btn type="submit" variant="ghost">Vincular</Btn>
+                            </form>
+                          ) : (
+                            <span className="shrink-0 self-center text-meta text-ink-4">
+                              sem permissão
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
           </Card>
         </div>
 

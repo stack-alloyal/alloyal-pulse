@@ -376,7 +376,7 @@ export function Busca({
       {Object.entries(ocultos ?? {}).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
       ))}
-      <span className="relative min-w-0 flex-1 sm:flex-none">
+      <span className="relative min-w-0 flex-1">
         <svg
           aria-hidden="true"
           viewBox="0 0 24 24"
@@ -396,6 +396,16 @@ export function Busca({
           placeholder={placeholder}
           aria-label={placeholder ?? 'Buscar'}
           className={cn(
+              // 280px é a PREFERÊNCIA, e o que mudou foi o direito de encolher: o
+              // `span` em volta perdeu o `sm:flex-none`, então este 280 vira base de
+              // flex e cede quando falta espaço, em vez de estourar o contêiner.
+              //
+              // A busca vive em dois lugares de largura muito diferente: cabeçalho
+              // de card largo e a coluna estreita de uma grade de duas. Fixa em 280
+              // ela furava a estreita — medido na ficha do cliente em 1024px, onde o
+              // "limpar" saía 43px além da tela e a página rolava de lado. Só teto
+              // (`max-w`) resolvia isso e custava largura onde havia espaço: caía
+              // para 217px na base de clientes. Base flexível dá os dois.
             // 280px é a medida do documento, e vale onde cabe. No telefone o campo
             // passa a ocupar a linha: fixo em 280 ele estourava a tela, e quem
             // rolava de lado era a página inteira.

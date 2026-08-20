@@ -656,3 +656,89 @@ export async function vincularPeloHubspot(db: pg.Pool): Promise<AutoVinculo> {
 
   return { criados, ambiguos: Number(ambiguos.rows[0]?.n ?? 0), valorAtribuidoCentavos: valor }
 }
+
+/**
+ * Busca livre no cadastro do Omie, por nome ou por documento.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ EXISTE PORQUE `candidatosDaConta` NÃO ACHA TUDO, e por bom motivo: ele só   │
+ * │ sugere com evidência forte — HubSpot igual, raiz de CNPJ igual, ou primeiro │
+ * │ termo do nome raro. É o que impede a tela de propor "Banco Afro" para       │
+ * │ qualquer conta que comece com "Banco".                                     │
+ * │                                                                            │
+ * │ O preço é que o caso legítimo sem evidência não aparece: a conta chamada    │
+ * │ "Playhub" e a ficha do Omie chamada "LCI TELECOM" são o mesmo cliente, e    │
+ * │ nenhuma regra automática vai adivinhar. Aí quem sabe é a pessoa, e ela      │
+ * │ precisa de um campo de busca — não de uma lista de sugestões.               │
+ * │                                                                            │
+ * │ Duas defesas que a busca automática já tinha e esta mantém:                 │
+ * │  · CNPJ comparado SEM pontuação dos dois lados, com mínimo de 6 dígitos —   │
+ * │    "912" senão casaria com todo documento que contém 912 em qualquer        │
+ * │    posição;                                                                │
+ * │  · diz de quem a ficha já é (`jaVinculadaA`), ANTES de alguém tentar e      │
+ * │    tomar o erro de vínculo ocupado.                                        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export async function buscarNoOmie(
+  db: pg.Pool,
+  termo: string,
+  { limite = 25 }: { limite?: number } = {},
+): Promise<Candidato[]> {
+  const t = termo.trim()
+  if (t.length < 3) return []
+  const { rows } = await db.query<Record<string, unknown>>(
+    `SELECT oc.documento AS chave,
+            oc.razao_social,
+            oc.nome_fantasia,
+            oc.codigo_omie::text AS codigo,
+            oc.inativo,
+            oc.tags,
+            coalesce(f.n, 0)::text     AS titulos,
+            coalesce(f.valor, 0)::text AS valor,
+            (SELECT a.razao_social FROM core.vinculo_cliente v
+               JOIN core.account a ON a.id = v.account_id
+              WHERE v.fonte = 'omie' AND v.chave = oc.documento
+              LIMIT 1) AS ja_de
+       FROM core.omie_cliente oc
+       LEFT JOIN LATERAL (
+         SELECT count(*) n, sum(t.valor_centavos) valor
+           FROM core.omie_titulo t
+          WHERE t.documento = oc.documento AND t.situacao <> 'previsao'
+       ) f ON true
+      WHERE oc.razao_social ILIKE '%' || $1 || '%'
+         OR coalesce(oc.nome_fantasia, '') ILIKE '%' || $1 || '%'
+         -- Mínimo de 6 dígitos: sem ele, buscar "912" traz todo CNPJ que
+         -- contenha 912 em qualquer posição, e a busca deixa de filtrar.
+         OR (length(regexp_replace($1, '\\D', '', 'g')) >= 6
+             AND regexp_replace(oc.documento, '\\D', '', 'g')
+                 LIKE '%' || regexp_replace($1, '\\D', '', 'g') || '%')
+      -- Quem tem título vem primeiro: entre duas fichas do mesmo nome, a que
+      -- fatura é a que a pessoa está procurando.
+      ORDER BY coalesce(f.valor, 0) DESC, oc.inativo, oc.razao_social
+      LIMIT $2`,
+    [t, limite],
+  )
+  return rows.map((r) => {
+    const fantasia = (r['nome_fantasia'] as string | null) ?? null
+    const tags = (r['tags'] as string[] | null) ?? []
+    return {
+      fonte: 'omie' as const,
+      chave: String(r['chave']),
+      rotulo: String(r['razao_social'] ?? r['chave']),
+      inativo: r['inativo'] === true,
+      // A busca é MANUAL, então a evidência é a pessoa: `nome` é o rótulo mais
+      // honesto — não houve regra automática nenhuma aqui.
+      evidencia: 'nome' as const,
+      detalhe: [
+        fantasia && fantasia !== r['razao_social'] ? fantasia : null,
+        `código ${String(r['codigo'])}`,
+        Array.isArray(tags) && tags.length ? tags.join(', ') : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      titulos: Number(r['titulos'] ?? 0),
+      valorCentavos: Number(r['valor'] ?? 0),
+      jaVinculadaA: (r['ja_de'] as string | null) ?? null,
+    }
+  })
+}
