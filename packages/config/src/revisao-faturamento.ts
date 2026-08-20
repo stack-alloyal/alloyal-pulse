@@ -17,6 +17,50 @@
 import type pg from "pg";
 
 /**
+ * O recorte de quem é cliente — por exclusão, e olhando TODOS os cadastros.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ DUAS VERSÕES ERRADAS ANTES DESTA, e as duas erraram para o mesmo lado:      │
+ * │ jogaram cliente real fora, o que é pior que trazer um fornecedor — lista     │
+ * │ curta demais não levanta suspeita.                                          │
+ * │                                                                            │
+ * │ 1ª: exigir a tag `Cliente`. Dos 1.327 vínculos, 77 não a têm, e a maioria    │
+ * │     é cliente: 18 sem tag NENHUMA e 16 "Cliente Hinova", que é o canal.      │
+ * │ 2ª: excluir se ALGUM cadastro fosse Fornecedor. A OAB-MT tem SEIS cadastros  │
+ * │     no mesmo CNPJ — quatro sem tag, um "Fornecedor", um "Garantia Sicoob" —  │
+ * │     e fatura R$ 4.200/mês sem falhar desde janeiro. Um cadastro paralelo     │
+ * │     tirava o cliente inteiro da revisão.                                    │
+ * │                                                                            │
+ * │ A regra que ficou, sobre o CONJUNTO de cadastros do documento:                │
+ * │                                                                            │
+ * │  · fora se QUALQUER cadastro tem `Azul` — é a intermediação de pontos, a     │
+ * │    linha que saltou de R$ 30 mil para R$ 3,2 milhões em março, e não é        │
+ * │    assinatura nossa;                                                        │
+ * │  · dentro se ALGUM cadastro é plausivelmente cliente: tem `Cliente`, tem      │
+ * │    `Cliente Hinova`, ou simplesmente NÃO é fornecedor nem investidor.        │
+ * │                                                                            │
+ * │ Isso derruba a BIZ INVEST, cujo único cadastro é `["Fornecedor",             │
+ * │ "Investidor"]` — o que "parou de faturar" nela foi um pagamento NOSSO —, e   │
+ * │ mantém a OAB-MT. Cadastro sem tag fica: a tag é preenchida à mão no Omie, e   │
+ * │ ausência de tag é ausência de informação, não evidência do contrário.         │
+ * │                                                                            │
+ * │ Quem está vinculado e não tem a tag aparece em `vinculosSemTagDeCliente`,     │
+ * │ que é a fila de correção — o recorte não deve depender de tag para sempre.    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const E_CLIENTE = (coluna: string) => `(
+  NOT EXISTS (
+    SELECT 1 FROM core.omie_cliente az
+     WHERE az.documento = ${coluna} AND az.tags ? 'Azul')
+  AND EXISTS (
+    SELECT 1 FROM core.omie_cliente cl
+     WHERE cl.documento = ${coluna}
+       AND (cl.tags ? 'Cliente'
+            OR cl.tags ? 'Cliente Hinova'
+            OR NOT (cl.tags ? 'Fornecedor' OR cl.tags ? 'Investidor')))
+)`
+
+/**
  * A carência antes de chamar um cliente de "parou de faturar": 2 meses cheios.
  *
  * Não é folga arbitrária. Um cliente que vence dia 20 tem o mês corrente vazio
@@ -57,6 +101,7 @@ export async function contasQuePararamDeFaturar(
          FROM core.vinculo_cliente v
          JOIN core.omie_titulo t ON t.documento = v.chave
         WHERE v.fonte = 'omie' AND t.situacao <> 'previsao' AND t.valor_centavos > 0
+          AND ${E_CLIENTE('v.chave')}
         GROUP BY 1
      ),
      antes AS (
@@ -70,6 +115,7 @@ export async function contasQuePararamDeFaturar(
         WHERE v.fonte = 'omie' AND t.situacao <> 'previsao' AND t.valor_centavos > 0
           AND t.vencimento >= f.ultimo - interval '2 months'
           AND t.vencimento <  f.ultimo + interval '1 month'
+          AND ${E_CLIENTE('v.chave')}
         GROUP BY 1
      )
      SELECT a.id::text AS account_id, a.razao_social, a.cnpj, a.brand_id, a.status_core,
@@ -158,6 +204,30 @@ export interface RevisaoDoReajuste {
   readonly perdaMensal: number;
   readonly mesesDesdeOReajuste: number;
   readonly perdaAcumulada: number;
+  /**
+   * A HIPÓTESE: e se TODOS os que ficaram parados tivessem sido reajustados?
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ Não é a mesma pergunta da perda. A perda conta só quem tinha aniversário  │
+   * │ VENCIDO — é dinheiro a que temos direito contratual e não cobramos. Esta   │
+   * │ conta inclui também os de contrato novo, que corretamente não foram        │
+   * │ reajustados: é o teto do que a correção renderia se valesse para todos,    │
+   * │ não uma cobrança esquecida.                                               │
+   * │                                                                          │
+   * │ As duas ficam lado a lado de propósito. Levar só a maior para uma reunião  │
+   * │ é prometer receita que não existe; levar só a menor é subdimensionar o     │
+   * │ efeito de padronizar a data de reajuste.                                  │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  readonly hipotese: {
+    readonly clientes: number;
+    readonly mrrMensal: number;
+    readonly ganhoMensal: number;
+    readonly ganhoAcumulado: number;
+    /** O mesmo, a 4,00% cravados — a taxa "redonda" de referência. */
+    readonly ganhoMensalA4: number;
+    readonly ganhoAcumuladoA4: number;
+  };
 }
 
 export async function revisaoDoReajuste(db: pg.Pool): Promise<RevisaoDoReajuste> {
@@ -175,6 +245,7 @@ export async function revisaoDoReajuste(db: pg.Pool): Promise<RevisaoDoReajuste>
         FROM core.omie_titulo t
         LEFT JOIN core.omie_categoria c ON c.codigo = t.categoria
        WHERE t.situacao <> 'previsao' AND t.valor_centavos > 0 AND c.descricao = 'MRR'
+         AND ${E_CLIENTE('t.documento')}
        GROUP BY 1
     ),
     var AS (
@@ -229,6 +300,15 @@ export async function revisaoDoReajuste(db: pg.Pool): Promise<RevisaoDoReajuste>
     [...p, TOLERANCIA, j.reajuste],
   );
 
+  // A hipótese: o MRR mensal de TODOS os que ficaram parados, com ou sem
+  // aniversário vencido. É o teto do que a correção renderia.
+  const { rows: todos } = await db.query<{ n: string; mrr: string }>(
+    `${base}
+     SELECT count(*)::text AS n, coalesce(sum(antes), 0)::text AS mrr
+       FROM var WHERE abs(delta) <= $5::numeric`,
+    [...p, TOLERANCIA],
+  );
+
   const { rows: naoDevidos } = await db.query<{ n: string }>(
     `${base},
      ctr AS (SELECT documento, min(vigencia_inicio) AS inicio FROM core.omie_contrato GROUP BY 1)
@@ -258,6 +338,9 @@ export async function revisaoDoReajuste(db: pg.Pool): Promise<RevisaoDoReajuste>
   semReajusteVencidos.sort((x, y) => y.perdaMensal - x.perdaMensal);
   const perdaMensal = semReajusteVencidos.reduce((s, c) => s + c.perdaMensal, 0);
   const meses = mesesDesde(j.reajuste, new Date());
+  const mrrParado = Number(todos[0]?.mrr ?? 0);
+  const ganhoMensal = Math.round((mrrParado * taxaPct) / 100);
+  const ganhoMensalA4 = Math.round(mrrParado * 0.04);
   return {
     taxaPct,
     clientesNaTaxa: Number(naTaxa[0]?.n ?? 0),
@@ -268,6 +351,14 @@ export async function revisaoDoReajuste(db: pg.Pool): Promise<RevisaoDoReajuste>
     perdaMensal,
     mesesDesdeOReajuste: meses,
     perdaAcumulada: perdaMensal * meses,
+    hipotese: {
+      clientes: Number(todos[0]?.n ?? 0),
+      mrrMensal: mrrParado,
+      ganhoMensal,
+      ganhoAcumulado: ganhoMensal * meses,
+      ganhoMensalA4,
+      ganhoAcumuladoA4: ganhoMensalA4 * meses,
+    },
   };
 }
 
@@ -320,10 +411,15 @@ export async function contasSemVinculoComOmie(
        LEFT JOIN core.account_hubspot h ON h.account_id = a.id
        -- Candidato pelo CNPJ limpo dos dois lados: "26.989.697/0001-00" e
        -- "26989697000100" são o mesmo cliente, e a base tem os dois formatos.
+       -- O candidato tem de ser CLIENTE lá. Um cadastro de fornecedor com o mesmo
+       -- CNPJ não é ligação a fazer: ligá-lo traria pagamento nosso como receita.
        LEFT JOIN core.omie_cliente oc
               ON regexp_replace(coalesce(oc.documento, ''), '\\D', '', 'g')
                = regexp_replace(coalesce(a.cnpj, ''), '\\D', '', 'g')
              AND a.cnpj IS NOT NULL
+             AND NOT (oc.tags ? 'Azul')
+             AND (oc.tags ? 'Cliente' OR oc.tags ? 'Cliente Hinova'
+                  OR NOT (oc.tags ? 'Fornecedor' OR oc.tags ? 'Investidor'))
       WHERE a.parent_account_id IS NULL
         AND ($1::boolean IS NOT TRUE OR a.status_core = 'active')
         AND NOT EXISTS (
@@ -352,4 +448,78 @@ export async function contasSemVinculoComOmie(
     });
   }
   return saida;
+}
+
+// ═══ 4. A fila de correção de tag no Omie ════════════════════════════════════
+
+export interface VinculoSemTag {
+  readonly accountId: string;
+  readonly razaoSocial: string;
+  readonly documento: string;
+  /** Todas as tags de todos os cadastros daquele documento, sem repetir. */
+  readonly tags: string[];
+  readonly cadastros: number;
+  /** Faturou nos últimos 12 meses, em centavos — o tamanho do que está em jogo. */
+  readonly faturamento12m: number;
+}
+
+/**
+ * Quem o Pulse trata como cliente e o Omie não marca como tal.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ É A FILA DE CORREÇÃO, e ela existe para o recorte deixar de precisar de      │
+ * │ adivinhação. Hoje `E_CLIENTE` mantém cadastro sem tag porque ausência de tag  │
+ * │ é ausência de informação — mas isso significa que um fornecedor novo, sem     │
+ * │ tag, entraria na revisão como cliente. Enquanto esta lista não zerar, o       │
+ * │ recorte é uma inferência; quando zerar, passa a ser uma leitura.              │
+ * │                                                                            │
+ * │ Ordenada pelo faturamento dos últimos 12 meses: taguear primeiro quem move    │
+ * │ dinheiro é o que reduz o risco mais rápido.                                  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export async function vinculosSemTagDeCliente(
+  db: pg.Pool,
+): Promise<VinculoSemTag[]> {
+  const { rows } = await db.query<Record<string, unknown>>(
+    `WITH lig AS (
+       SELECT DISTINCT v.account_id, v.chave AS documento
+         FROM core.vinculo_cliente v
+        WHERE v.fonte = 'omie'
+     ),
+     fat AS (
+       SELECT documento, sum(valor_centavos) AS total
+         FROM core.omie_titulo
+        WHERE situacao <> 'previsao' AND valor_centavos > 0
+          AND vencimento >= date_trunc('month', current_date) - interval '11 months'
+          AND vencimento <  date_trunc('month', current_date) + interval '1 month'
+        GROUP BY 1
+     )
+     SELECT l.account_id::text AS account_id, a.razao_social, l.documento,
+            coalesce(t.tags, ARRAY[]::text[]) AS tags,
+            coalesce(t.cadastros, 0)::text AS cadastros,
+            coalesce(f.total, 0)::text AS faturamento12m
+       FROM lig l
+       JOIN core.account a ON a.id = l.account_id
+       LEFT JOIN fat f ON f.documento = l.documento
+       LEFT JOIN LATERAL (
+         SELECT count(*) AS cadastros,
+                array_agg(DISTINCT tag) FILTER (WHERE tag IS NOT NULL) AS tags
+           FROM core.omie_cliente oc
+           LEFT JOIN LATERAL jsonb_array_elements_text(oc.tags) AS tag ON true
+          WHERE oc.documento = l.documento
+       ) t ON true
+      WHERE NOT EXISTS (
+        SELECT 1 FROM core.omie_cliente cl
+         WHERE cl.documento = l.documento
+           AND (cl.tags ? 'Cliente' OR cl.tags ? 'Cliente Hinova'))
+      ORDER BY coalesce(f.total, 0) DESC, a.razao_social`,
+  );
+  return rows.map((r) => ({
+    accountId: String(r["account_id"]),
+    razaoSocial: String(r["razao_social"] ?? ""),
+    documento: String(r["documento"] ?? ""),
+    tags: (r["tags"] as string[] | null) ?? [],
+    cadastros: Number(r["cadastros"] ?? 0),
+    faturamento12m: Number(r["faturamento12m"] ?? 0),
+  }));
 }

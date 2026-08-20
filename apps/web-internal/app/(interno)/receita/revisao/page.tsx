@@ -2,6 +2,7 @@ import {
   contasQuePararamDeFaturar,
   contasSemVinculoComOmie,
   revisaoDoReajuste,
+  vinculosSemTagDeCliente,
   JANELA_DO_REAJUSTE,
   MESES_DE_CARENCIA,
 } from '@pulse/config'
@@ -82,10 +83,11 @@ function NoPainel({ cnpj }: { cnpj: string | null }) {
 export default async function RevisaoDeFaturamento() {
   await exigir((p) => temEscopo(p.contas), 'revisão de faturamento')
   const db = pool()
-  const [pararam, reajuste, semVinculo] = await Promise.all([
+  const [pararam, reajuste, semVinculo, semTag] = await Promise.all([
     contasQuePararamDeFaturar(db),
     revisaoDoReajuste(db),
     contasSemVinculoComOmie(db),
+    vinculosSemTagDeCliente(db),
   ])
 
   const mrrQueSumiu = pararam.reduce((s, c) => s + c.mrrAnterior, 0)
@@ -125,6 +127,21 @@ export default async function RevisaoDeFaturamento() {
             nota={`${N(comCandidato)} com CNPJ igual esperando ligação`}
           />
         </KpiGrade>
+
+        <Aviso tom="info">
+          <strong className="font-semibold">
+            Só quem tem a tag Cliente no Omie, e sem a tag Azul.
+          </strong>{' '}
+          O Omie usa a mesma base de cadastro para cliente, fornecedor, investidor e
+          usuário — sem esse recorte a lista trazia a BIZ INVEST no topo, R$ 33 mil/mês
+          &quot;parados desde 2021&quot;, quando as tags dela são{' '}
+          <em>Fornecedor</em> e <em>Investidor</em> e o que parou foi um pagamento
+          nosso a ela. <strong className="font-semibold">Azul</strong> sai junto: são
+          2.439 cadastros da intermediação de pontos, a linha que saltou de R$ 30 mil
+          em fevereiro para R$ 3,2 milhões em março e que não é assinatura. Dos 9.531
+          cadastros do Omie sobram 1.572 — e os 91 que têm as duas tags saem, porque
+          &quot;retirar o azul&quot; vale também para quem é os dois.
+        </Aviso>
 
         <Aviso tom="alerta">
           <strong className="font-semibold">Os três números não se somam, e é de propósito.</strong>{' '}
@@ -225,6 +242,43 @@ export default async function RevisaoDeFaturamento() {
               vazio="Todo contrato com aniversário vencido já foi reajustado."
             />
           </div>
+          {/* ┌───────────────────────────────────────────────────────────────┐
+              │ DUAS CONTAS, LADO A LADO, e não uma.                            │
+              │                                                                 │
+              │ A de cima é o que temos DIREITO contratual de cobrar e não       │
+              │ cobramos — só os de aniversário vencido. A de baixo é o teto: e   │
+              │ se a correção valesse para todos os que ficaram parados,          │
+              │ inclusive os de contrato novo que corretamente não subiram.       │
+              │                                                                 │
+              │ Separadas porque levar só a maior para uma reunião é prometer     │
+              │ receita que não existe, e levar só a menor subdimensiona o efeito │
+              │ de padronizar a data de reajuste.                                │
+              └───────────────────────────────────────────────────────────────┘ */}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border border-line bg-surface-2 p-3">
+              <p className="text-nota uppercase tracking-wide text-ink-3">
+                Direito contratual · {N(reajuste.semReajusteVencidos.length)} com aniversário vencido
+              </p>
+              <p className="mt-1 text-title text-ink">{BRL(reajuste.perdaAcumulada)}</p>
+              <p className="mt-0.5 text-meta text-ink-2">
+                {BRL(reajuste.perdaMensal)}/mês × {reajuste.mesesDesdeOReajuste} meses fechados
+              </p>
+            </div>
+            <div className="rounded-md border border-line bg-surface-2 p-3">
+              <p className="text-nota uppercase tracking-wide text-ink-3">
+                Se TODOS os {N(reajuste.hipotese.clientes)} parados tivessem sido reajustados
+              </p>
+              <p className="mt-1 text-title text-ink">{BRL(reajuste.hipotese.ganhoAcumulado)}</p>
+              <p className="mt-0.5 text-meta text-ink-2">
+                {BRL(reajuste.hipotese.ganhoMensal)}/mês a {reajuste.taxaPct}% sobre{' '}
+                {BRL(reajuste.hipotese.mrrMensal)}/mês de MRR parado
+                <br />
+                a 4,00% cravados: {BRL(reajuste.hipotese.ganhoMensalA4)}/mês ·{' '}
+                {BRL(reajuste.hipotese.ganhoAcumuladoA4)} no período
+              </p>
+            </div>
+          </div>
+
           <p className="mt-3 text-meta leading-relaxed text-ink-3">
             <strong className="font-semibold text-ink">{N(reajuste.clientesSemMudanca)}</strong>{' '}
             clientes não tiveram mudança de MRR entre as duas janelas. Destes,{' '}
@@ -279,6 +333,73 @@ export default async function RevisaoDeFaturamento() {
             {N(comCandidato)} —, enquanto <em>não existe lá</em> é conta que o financeiro nunca
             cadastrou, e aí a pergunta é se ela deveria estar ativa no painel. Sem essa coluna as{' '}
             {N(semVinculo.length)} viram um monte só e ninguém sabe por onde começar.
+          </p>
+        </Card>
+        {/* ── 4 ── */}
+        <Card title={`Vinculados sem tag de cliente no Omie · ${N(semTag.length)}`}>
+          <Aviso tom="info">
+            <strong className="font-semibold">
+              Esta lista é o que falta para o recorte deixar de ser inferência.
+            </strong>{' '}
+            Nenhum dos cadastros destes documentos tem <em>Cliente</em> nem{' '}
+            <em>Cliente Hinova</em>, e o Pulse os trata como cliente por não serem
+            fornecedor nem investidor — o que é a leitura correta hoje, mas significa
+            que um fornecedor NOVO, ainda sem tag, entraria na revisão como cliente.
+            Enquanto esta fila não zerar, o recorte é uma inferência; quando zerar,
+            passa a ser uma leitura.{' '}
+            <strong className="font-semibold">
+              {N(semTag.filter((c) => c.faturamento12m > 0).length)} destes {N(semTag.length)}{' '}
+              faturam
+            </strong>{' '}
+            — são esses que importam primeiro.
+          </Aviso>
+          <div className="mt-4">
+            <Table
+              cols={['Cliente', 'Documento', 'Cadastros no Omie', 'Tags que existem', 'Faturado 12m', '']}
+              rows={semTag.map((c) => [
+                <span key="n" className="block min-w-0 max-w-[26ch] lg:max-w-[34ch]">
+                  <Link
+                    href={`/carteira/base/${c.accountId}`}
+                    className="block truncate font-medium text-ink hover:text-purple-700 hover:underline"
+                  >
+                    {c.razaoSocial}
+                  </Link>
+                </span>,
+                <span key="d" className="whitespace-nowrap tabular-nums text-meta text-ink-2">{DOC(c.documento)}</span>,
+                <span key="c" className="tabular-nums text-ink-2">{c.cadastros}</span>,
+                <span key="t" className="flex flex-wrap gap-1">
+                  {c.tags.length === 0 ? (
+                    <span className="text-meta text-ink-4">nenhuma</span>
+                  ) : (
+                    c.tags.map((t) => (
+                      <Badge key={t} tone={t === 'Fornecedor' || t === 'Investidor' ? 'amber' : 'slate'}>
+                        {t}
+                      </Badge>
+                    ))
+                  )}
+                </span>,
+                <span key="f" className="whitespace-nowrap tabular-nums text-ink">
+                  {c.faturamento12m > 0 ? BRL(c.faturamento12m) : <span className="text-ink-4">—</span>}
+                </span>,
+                <NoPainel key="l" cnpj={c.documento} />,
+              ])}
+              vazio="Todo vínculo tem tag de cliente no Omie."
+            />
+          </div>
+          <p className="mt-3 text-meta leading-relaxed text-ink-3">
+            Tag <strong className="font-semibold text-ink">âmbar</strong> é a que contradiz
+            o vínculo: <em>Fornecedor</em> e <em>Investidor</em>. Onde ela aparece, a
+            pergunta não é só de tag — pode ser vínculo errado. A{' '}
+            <strong className="font-semibold text-ink">BIZ Invest</strong> é o caso: os
+            dois cadastros dela são fornecedor e investidor, ela não fatura nada, e ainda
+            assim está ligada a uma conta nossa. Era ela que aparecia no topo da primeira
+            lista com R$ 33 mil/mês &quot;parados desde 2021&quot; — o que parou foi um
+            pagamento NOSSO a ela.
+            <br />
+            <strong className="font-semibold text-ink">Cadastros no Omie</strong> conta
+            quantos registros existem para o mesmo documento. A OAB-MT tem seis, e um
+            deles é marcado Fornecedor — foi o que fez uma versão anterior deste
+            relatório tirar um cliente que fatura R$ 4.200 por mês sem falhar.
           </p>
         </Card>
       </Corpo>
