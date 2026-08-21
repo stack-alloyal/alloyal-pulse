@@ -492,43 +492,25 @@ export default async function FichaDeCliente({
             </>
           }
         >
-          <Aviso tom="alerta">
-            <strong className="font-semibold">
-              Ativar e inativar daqui depende de um token de escrita no Admin.
-            </strong>{' '}
-            A rota existe — <code className="font-mono text-meta">PATCH /businesses/:id</code>{' '}
-            — e a credencial que o Pulse usa recebe{' '}
-            <strong className="font-semibold">403 &quot;Acesso negado&quot;</strong> nela. Conferido
-            sem alterar nenhuma conta, com um id inexistente: o mesmo id devolve 404 no{' '}
-            <code className="font-mono text-meta">GET</code> e 403 no{' '}
-            <code className="font-mono text-meta">PATCH</code>, o que prova que a permissão é
-            checada antes do registro. Com um token de escrita em{' '}
-            <Link href="/configuracoes/segredos" className="font-semibold text-purple-700 hover:text-purple-500">
-              Segredos
-            </Link>
-            , o botão passa a existir aqui — com confirmação e trilha de quem mudou. Até então, o
-            link acima abre o painel.
-          </Aviso>
-
-            <Campos
-              pares={[
-                ['Razão social', conta.razaoSocial],
-                ['CNPJ', <span className="tabular-nums">{DOC(conta.cnpj)}</span>],
-                ['Business ID', <span className="font-mono text-meta">{conta.brandId}</span>],
-                ['Branch ID', <span className="font-mono text-meta">{conta.branchId}</span>],
-                ['HubSpot ID', <span className="font-mono text-meta">{conta.hubspotCompanyId}</span>],
-                // O CÓDIGO cru, em mono, como Business ID e HubSpot ID: é o valor
-                // que veio da API, e é por ele que se confere no core. A leitura em
-                // português é o selo do cabeçalho — repetir a mesma palavra em prosa
-                // aqui seria dizer duas vezes a mesma coisa.
-                ['Situação', <span className="font-mono text-meta">{conta.statusCore}</span>],
-                ['Porte · setor', [conta.porte, conta.setor].filter(Boolean).join(' · ')],
-                ['CSM', conta.csmEmail],
-                ['Comercial', conta.ownerComercialEmail],
-                ['E-mail de contato', conta.contatoEmail],
-                ['Usuários autorizados', <span className="tabular-nums">{N(conta.usuariosAutorizados)}</span>],
-                ['Usuários cadastrados', <span className="tabular-nums">{N(conta.usuariosCadastrados)}</span>],
-              ]}
+          <Campos
+            pares={[
+              ['Razão social', conta.razaoSocial],
+              ['CNPJ', <span className="tabular-nums">{DOC(conta.cnpj)}</span>],
+              ['Business ID', <span className="font-mono text-meta">{conta.brandId}</span>],
+              ['Branch ID', <span className="font-mono text-meta">{conta.branchId}</span>],
+              ['HubSpot ID', <span className="font-mono text-meta">{conta.hubspotCompanyId}</span>],
+              // O CÓDIGO cru, em mono, como Business ID e HubSpot ID: é o valor
+              // que veio da API, e é por ele que se confere no core. A leitura em
+              // português é o selo do cabeçalho — repetir a mesma palavra em prosa
+              // aqui seria dizer duas vezes a mesma coisa.
+              ['Situação', <span className="font-mono text-meta">{conta.statusCore}</span>],
+              ['Porte · setor', [conta.porte, conta.setor].filter(Boolean).join(' · ')],
+              ['CSM', conta.csmEmail],
+              ['Comercial', conta.ownerComercialEmail],
+              ['E-mail de contato', conta.contatoEmail],
+              ['Usuários autorizados', <span className="tabular-nums">{N(conta.usuariosAutorizados)}</span>],
+              ['Usuários cadastrados', <span className="tabular-nums">{N(conta.usuariosCadastrados)}</span>],
+            ]}
             />
             <p className="mt-3 text-nota text-ink-3">
               Sincronizado do core em {DATA(conta.sincronizadoEm)} · ciclo C18.
