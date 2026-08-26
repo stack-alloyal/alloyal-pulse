@@ -251,6 +251,12 @@ jobs:
           node --test packages/config/dist/hubspot-vinculo.test.js
           node --test packages/config/dist/base-de-clientes.test.js
           node --test packages/config/dist/revisao-faturamento.test.js
+          # Inadimplência: os cortes de faixa vivem em DOIS lugares (coluna gerada no
+          # banco e SELECT da lista de hoje) e o teste recusa que divirjam; e a
+          # apuração dos quatro movimentos roda contra banco de verdade, porque o
+          # caso `prorrogado` — título que sai da carteira por renegociação, não por
+          # baixa — não estava no desenho e só apareceu escrevendo a consulta.
+          node --test --test-concurrency=1 packages/config/dist/inadimplencia.test.js
           node --test packages/config/dist/uso.test.js
           # Credencial de cliente na tela de conferência: a aba "todos os campos"
           # despejava api_secret/api_key/signature_secret da Lecupon em página interna.

@@ -83,6 +83,11 @@ export const MENU: readonly ItemDeMenu[] = [
         rotulo: "Revisão",
         proposito: "Onde o faturamento e o cadastro discordam",
       },
+      {
+        href: "/receita/inadimplencia",
+        rotulo: "Inadimplência",
+        proposito: "Quem está em atraso, e quanto volta",
+      },
     ],
   },
   {

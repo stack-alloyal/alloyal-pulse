@@ -51,6 +51,9 @@ import {
   reconciliarConferencia,
   vincularPeloHubspot,
   sincronizarCadastro,
+  apurarCompetencia,
+  competenciasSemFoto,
+  primeiraCompetenciaPossivel,
 } from "@pulse/config";
 
 import { defineCycle } from "../cycle.js";
@@ -827,6 +830,126 @@ export const c20Omie = defineCycle({
         vinculosAutomaticos: auto,
         conferencia: fila,
       },
+    };
+  },
+});
+
+/**
+ * C21 — a foto da carteira em atraso.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ RODA TODO DIA, E NÃO SÓ NO DIA 1º. E aqui isso é mais forte que no C13.     │
+ * │                                                                            │
+ * │ No C13, rodar todo dia serve para RECALCULAR: evento de MRR chega atrasado,  │
+ * │ e recalcular é barato. Aqui o motivo é outro e é irrecuperável — um cron     │
+ * │ que dispara uma vez por mês perde o mês INTEIRO, para sempre, se a VM        │
+ * │ estiver fora do ar naquela manhã. O que a foto guarda é justamente o que o   │
+ * │ Omie apaga com o tempo: título cancelado desaparece dos dois lados da conta, │
+ * │ e core.omie_titulo não guarda data de cancelamento — só sincronizado_em,     │
+ * │ que é sobrescrito a cada carga.                                            │
+ * │                                                                            │
+ * │ Então o ciclo não pergunta "é dia 1º?". Ele pergunta "que competência        │
+ * │ fechada ainda não tem foto?" e preenche todas — no dia 2 o buraco do dia 1º  │
+ * │ já se fechou sozinho. É o raciocínio do watermark, aplicado a mês.          │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * DEPOIS DO C20, que roda às 04h10 e é quem traz os títulos do Omie. Apurar
+ * antes da carga daria a foto de hoje com os dados de ontem — e no dia 1º, que é
+ * o único dia em que aquela foto ainda pode ser tirada, isso seria o mês errado.
+ *
+ * A origem é `apurado` aqui e `reconstruido` na carga inicial, e a diferença não
+ * é etiqueta: o apurado grava o estado do painel de cada conta NAQUELE dia, que é
+ * informação que não existe em lugar nenhum depois — `core.account` não guarda
+ * histórico de `status_core`.
+ */
+export const c21Inadimplencia = defineCycle({
+  id: "C21",
+  descricao: "Foto mensal da carteira em atraso e fechamento da inadimplência",
+  fonte: "ops",
+  metodo: "consolidacao",
+  agenda: "0 5 * * *",
+  janela: "mes_anterior",
+  chaveNatural: ["competencia", "codigo_titulo"],
+  emFalha: {
+    tentativas: 2,
+    backoff: "fixo",
+    alarmeApos: 1,
+    // ┌───────────────────────────────────────────────────────────────────────┐
+    // │ `reprocessa`, e NÃO `alarme_critico` — que foi a minha primeira escolha  │
+    // │ e o portão do `cycle.test.ts` recusou com razão: perda irrecuperável é   │
+    // │ do ledger de MRR (C5), e não daqui.                                     │
+    // │                                                                        │
+    // │ O que se perde por falhar é gradual, não é um precipício. A CARTEIRA de  │
+    // │ qualquer dia passado continua saindo das datas — reapurar no dia 2 dá o   │
+    // │ mesmo saldo do dia 1º. O que degrada é o estado do painel naquele dia e   │
+    // │ a atribuição de um cancelamento ao mês em que aconteceu, e isso só pesa   │
+    // │ se a falha durar semanas. Reenfileirar e tentar de novo é a resposta      │
+    // │ certa; alarme crítico aqui gastaria o alarme que existe para o C5.        │
+    // └───────────────────────────────────────────────────────────────────────┘
+    degradacao: "reprocessa",
+  },
+  fase: "F1",
+  executar: async (ctx) => {
+    const db = poolDoWorker();
+
+    // O berço da série vem do banco: a carga inicial vai até onde os títulos
+    // chegam, e chumbar uma data faria a série começar no lugar errado no dia em
+    // que a base do Omie fosse recarregada mais para trás.
+    const primeira = await primeiraCompetenciaPossivel(db);
+    if (!primeira) {
+      ctx.log("nenhum título vencido na base — nada a apurar");
+      return { linhasLidas: 0, linhasGravadas: 0, inerte: true };
+    }
+
+    const pendentes = await competenciasSemFoto(db, primeira);
+    if (pendentes.length === 0) {
+      ctx.log("todas as competências fechadas já têm foto");
+      return { linhasLidas: 0, linhasGravadas: 0 };
+    }
+
+    // ┌───────────────────────────────────────────────────────────────────────┐
+    // │ SÓ A FOTO RECENTE É `apurado`. E isto era um defeito real: na primeira  │
+    // │ execução, `competenciasSemFoto` devolve TODAS as competências fechadas   │
+    // │ — 67 delas, até fevereiro de 2021 — e marcá-las como apuradas estamparia │
+    // │ o estado do painel de HOJE sobre 2021. A promessa de `apurado` é          │
+    // │ exatamente essa: o painel daquele dia.                                  │
+    // │                                                                        │
+    // │ Uma semana de folga porque o ciclo roda diariamente: normalmente a foto  │
+    // │ sai no dia 1º. Se uma queda de oito dias empurrar a apuração, a foto      │
+    // │ desce sozinha para `reconstruido` — que é a verdade, e é melhor que uma   │
+    // │ etiqueta otimista que ninguém tem como conferir depois.                  │
+    // └───────────────────────────────────────────────────────────────────────┘
+    const DIAS_PARA_SER_APURADA = 7;
+    const hoje = ctx.agora.toISOString().slice(0, 10);
+    const recente = (competencia: string) =>
+      (Date.parse(hoje) - Date.parse(competencia)) / 86_400_000 <= DIAS_PARA_SER_APURADA;
+
+    let linhas = 0;
+    let congeladas = 0;
+    let reconstruidas = 0;
+    const apuradas: string[] = [];
+    for (const competencia of pendentes) {
+      const origem = recente(competencia) ? "apurado" : "reconstruido";
+      const r = await apurarCompetencia(db, competencia, { origem });
+      if (r.congelada) {
+        congeladas++;
+        continue;
+      }
+      if (origem === "reconstruido") reconstruidas++;
+      linhas += r.linhas;
+      apuradas.push(competencia.slice(0, 7));
+      const reais = (c: string) => (Number(c) / 100).toFixed(0);
+      ctx.log(
+        `${competencia.slice(0, 7)} (${origem}) · saldo ${reais(r.saldoFinalCentavos)} ` +
+          `(${r.titulosFinal} tít) · entrou ${reais(r.entrouCentavos)} · ` +
+          `recuperado ${reais(r.recuperadoCentavos)} · baixado ${reais(r.canceladoCentavos)}`,
+      );
+    }
+
+    return {
+      linhasLidas: linhas,
+      linhasGravadas: linhas,
+      detalhe: { competencias: apuradas, reconstruidas, congeladas },
     };
   },
 });

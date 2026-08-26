@@ -48,7 +48,16 @@ import type pg from "pg";
  * │ que é a fila de correção — o recorte não deve depender de tag para sempre.    │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-const E_CLIENTE = (coluna: string) => `(
+/**
+ * EXPORTADO porque a inadimplência precisa do MESMO recorte.
+ *
+ * Não é conveniência: duplicar estas quinze linhas em `inadimplencia.ts` faria as
+ * duas telas de Receita discordarem sobre quem é cliente no dia em que uma tag
+ * nova aparecer no Omie — e discordarem em silêncio, porque ninguém abre as duas
+ * lado a lado. O histórico deste recorte (duas versões erradas antes desta, ambas
+ * jogando cliente real fora) é exatamente o argumento contra ter duas cópias.
+ */
+export const E_CLIENTE = (coluna: string) => `(
   NOT EXISTS (
     SELECT 1 FROM core.omie_cliente az
      WHERE az.documento = ${coluna} AND az.tags ? 'Azul')
