@@ -23,7 +23,7 @@ import {
 import { Abas, Aviso, Badge, Busca, Card, Chip, Chips, Kpi, KpiGrade, type Tom } from '@pulse/ui'
 import Link from 'next/link'
 
-import { GraficoDoAtraso } from '../grafico-atraso'
+import { GraficoDoAtraso, GraficoDoFluxo } from '../grafico-atraso'
 import { TabelaOrdenavel, type Coluna } from '../revisao/tabela'
 import { Corpo, Topo } from '../../casca'
 import { pool } from '../../../../lib/db'
@@ -677,10 +677,6 @@ function Evolucao({
     )
   }
 
-  const maiorFluxo = Math.max(
-    ...serie.flatMap((m) => [Number(m.entrouCentavos), Number(m.recuperadoCentavos)]),
-    1,
-  )
   const primeiroApurado = serie.findIndex((m) => m.origem === 'apurado')
   const ultimo = serie[serie.length - 1]
   const primeiro = serie[0]
@@ -730,31 +726,9 @@ function Evolucao({
       </Card>
 
       <Card title="Entrou em atraso contra recuperado">
-        <div className="overflow-x-auto">
-          <div className="flex min-w-[600px] items-end gap-2" style={{ height: 140 }}>
-            {serie.map((m) => {
-              const ent = Math.max(Math.round((Number(m.entrouCentavos) / maiorFluxo) * 108), 1)
-              const rec = Math.max(Math.round((Number(m.recuperadoCentavos) / maiorFluxo) * 108), 1)
-              return (
-                <div key={m.competencia} className="flex flex-1 flex-col items-center justify-end gap-1">
-                  <span className="flex w-full items-end justify-center gap-0.5">
-                    <span
-                      title={`${MES(m.competencia)} · entrou ${BRL(m.entrouCentavos)} em ${N(m.entrouTitulos)} títulos`}
-                      className="w-1/2 rounded-t bg-red"
-                      style={{ height: ent }}
-                    />
-                    <span
-                      title={`${MES(m.competencia)} · recuperado ${BRL(m.recuperadoCentavos)} em ${N(m.recuperadoTitulos)} títulos`}
-                      className="w-1/2 rounded-t bg-purple-500"
-                      style={{ height: rec }}
-                    />
-                  </span>
-                  <span className="whitespace-nowrap text-micro text-ink-3">{MES(m.competencia)}</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        {/* Mesmo componente compartilhado com a cascata. Aqui a barra é nomeada
+            pela competência da FOTO, que é o eixo desta tela. */}
+        <GraficoDoFluxo serie={serie} rotulo={(m) => MES(m.competencia)} />
         <p className="mt-3 text-meta leading-relaxed text-ink-3">
           Vermelho é o que <strong className="font-semibold text-ink">entrou</strong> em atraso no
           mês; roxo é o que foi <strong className="font-semibold text-ink">recuperado</strong>. Enquanto

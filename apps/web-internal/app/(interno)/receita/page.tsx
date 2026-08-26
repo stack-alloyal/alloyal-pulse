@@ -8,7 +8,7 @@ import { fonteDoMrr, listarCascatas, type Cascata } from '@pulse/success'
 import { Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
-import { GraficoDoAtraso, competenciaDeReceita } from './grafico-atraso'
+import { GraficoDoAtraso, GraficoDoFluxo, competenciaDeReceita } from './grafico-atraso'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir } from '../../../lib/guarda'
@@ -308,6 +308,33 @@ export default async function Receita({
                 />
               </div>
             )}
+            {/* O SEGUNDO gráfico é o que explica o primeiro: o saldo cresce porque
+                entra mais do que volta, e não porque ninguém paga. Sem ele, a
+                barra de saldo subindo é um fato sem causa — e é a causa que decide
+                se o trabalho é cobrar melhor ou cobrar antes. */}
+            {serieDoAtraso.length > 1 && (
+              <div className="mt-4">
+                <div className="mb-2 flex flex-wrap items-center gap-4 text-nota text-ink-2">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden="true" className="h-2.5 w-2.5 rounded-sm bg-red" />
+                    entrou em atraso
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden="true" className="h-2.5 w-2.5 rounded-sm bg-purple-500" />
+                    recuperado
+                  </span>
+                </div>
+                <GraficoDoFluxo
+                  serie={serieDoAtraso}
+                  rotulo={(m) => MES(competenciaDeReceita(m.competencia) + '-01')}
+                  {...(() => {
+                    const f = atrasoPorMes.get(atual.competencia.slice(0, 7))
+                    return f ? { destacar: f.competencia } : {}
+                  })()}
+                  altura={120}
+                />
+              </div>
+            )}
             <p className="mt-4 text-meta leading-relaxed text-ink-3">
               {Number(atual.mrrFinalCentavos) > 0 && (
                 <>
@@ -321,8 +348,11 @@ export default async function Receita({
                   parados em atraso.{' '}
                 </>
               )}
-              Na barra, o claro é a carteira inteira e o escuro é o que tem até 90 dias — a parte
-              que ainda responde a cobrança. A cascata acima é de{' '}
+              No gráfico de cima, o claro é a carteira inteira e o escuro é o que tem até 90 dias —
+              a parte que ainda responde a cobrança. No de baixo, enquanto o{' '}
+              <strong className="font-semibold text-ink">vermelho</strong> for maior que o{' '}
+              <strong className="font-semibold text-ink">roxo</strong>, a carteira cresce — e a causa
+              é a entrada, não a falta de pagamento. A cascata acima é de{' '}
               <strong className="font-semibold text-ink">competência</strong> —
               o que foi cobrado no mês, tenha entrado ou não. Isto é{' '}
               <strong className="font-semibold text-ink">recebível</strong>: do que foi cobrado, o
