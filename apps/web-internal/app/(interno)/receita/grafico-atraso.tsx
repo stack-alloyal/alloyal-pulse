@@ -1,4 +1,4 @@
-import type { MesDaCarteira } from '@pulse/config'
+import type { CoorteDoVencimento, MesDaCarteira } from '@pulse/config'
 import { cn } from '@pulse/ui'
 
 /**
@@ -180,6 +180,88 @@ export function GraficoDoFluxo({
                 )}
               >
                 {rotulo(m)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A curva de coorte: do que venceu em cada mês, quanto voltou algum dia.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O EIXO DESTE É OUTRO, e é a única diferença que importa em relação aos dois │
+ * │ gráficos acima.                                                            │
+ * │                                                                            │
+ * │ Os outros dois são indexados pela competência da FOTO, e por isso precisam   │
+ * │ do deslocamento de um mês para falar de receita. A coorte é indexada pelo    │
+ * │ mês de VENCIMENTO — "de tudo que venceu em março, quanto voltou" —, que é    │
+ * │ direto o mês de receita. Não há deslocamento aqui, e aplicar um por simetria │
+ * │ apontaria para a coorte errada.                                            │
+ * │                                                                            │
+ * │ Por isso `destacar` recebe o mês no formato `YYYY-MM-DD` da própria coorte,  │
+ * │ e não a competência de uma foto.                                           │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * É a curva de vintage do crédito ao consumo. A barra é a taxa, não o valor: a
+ * pergunta é "que fração volta", e uma coorte pequena com taxa alta importa tanto
+ * quanto uma grande — desenhar por valor esconderia justamente as pequenas.
+ */
+export function GraficoDaCoorte({
+  coorte,
+  rotulo,
+  destacar,
+  altura = 140,
+}: {
+  coorte: readonly CoorteDoVencimento[]
+  rotulo: (c: CoorteDoVencimento) => string
+  /** O mês da coorte, tal como vem em `mes`. Sem deslocamento — ver acima. */
+  destacar?: string
+  altura?: number
+}) {
+  const teto = altura - 44
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex min-w-[600px] items-end gap-1" style={{ height: altura }}>
+        {coorte.map((c) => {
+          const escolhida = destacar === c.mes
+          return (
+            <div key={c.mes} className="flex flex-1 flex-col items-center justify-end gap-1">
+              <span
+                className={cn(
+                  'text-micro tabular-nums',
+                  escolhida ? 'font-semibold text-purple-700' : 'text-ink-3',
+                )}
+              >
+                {c.pagoPct.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+              </span>
+              <span
+                title={
+                  `${rotulo(c)} · ${N(c.titulos)} títulos atrasaram · ${BRL(c.valorCentavos)} · ` +
+                  `${c.pagoPct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% voltou` +
+                  (c.madura ? '' : ' · coorte nova, ainda não deu tempo')
+                }
+                /* Coorte madura é roxo cheio; nova é clara, porque a taxa dela
+                   ainda não decidiu nada — seis meses é o corte, e está em
+                   `coorteDoAtraso`. */
+                className={cn(
+                  'w-full rounded-t',
+                  c.madura ? 'bg-purple-500' : 'bg-purple-100',
+                  escolhida && 'ring-2 ring-purple-500 ring-offset-1 ring-offset-surface',
+                )}
+                style={{ height: Math.max(Math.round((c.pagoPct / 100) * teto), 2) }}
+              />
+              <span
+                className={cn(
+                  'whitespace-nowrap text-micro',
+                  escolhida ? 'font-semibold text-purple-700' : 'text-ink-3',
+                )}
+              >
+                {rotulo(c)}
               </span>
             </div>
           )

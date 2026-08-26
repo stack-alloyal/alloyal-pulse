@@ -1,5 +1,6 @@
 import {
   DIAS_CORRENTE,
+  coorteDoAtraso,
   inadimplenciaDaCompetencia,
   serieDaCarteira,
   type MesDaCarteira,
@@ -8,7 +9,12 @@ import { fonteDoMrr, listarCascatas, type Cascata } from '@pulse/success'
 import { Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
-import { GraficoDoAtraso, GraficoDoFluxo, competenciaDeReceita } from './grafico-atraso'
+import {
+  GraficoDaCoorte,
+  GraficoDoAtraso,
+  GraficoDoFluxo,
+  competenciaDeReceita,
+} from './grafico-atraso'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir } from '../../../lib/guarda'
@@ -110,18 +116,27 @@ export default async function Receita({
      │ `mes` inválido cai no mais recente em vez de devolver vazio: parâmetro   │
      │ de URL é colado por gente, e tela vazia sem explicação parece defeito.   │
      └───────────────────────────────────────────────────────────────────────┘ */
-  const [cascatas, fonte, serieDoAtraso] = await Promise.all([
+  const [cascatas, fonte, serieDoAtraso, coorte] = await Promise.all([
     listarCascatas(pool(), 24),
     fonteDoMrr(pool()),
     // A série do atraso vem junto para a tabela de 24 meses poder mostrar os DOIS
     // eixos na mesma linha. 25 e não 24: a foto que descreve o mês C é a de C+1,
     // então o mês mais antigo da cascata precisa da foto seguinte.
     serieDaCarteira(pool(), 25),
+    // A coorte é indexada pelo mês de VENCIMENTO, que já é o mês de receita — 24
+    // aqui casa com os 24 da cascata sem deslocamento nenhum.
+    coorteDoAtraso(pool(), 24),
   ])
   const escolhido = q.mes ? cascatas.find((c) => c.competencia.slice(0, 7) === q.mes) : undefined
   const atual = escolhido ?? cascatas[0]
 
   const atraso = atual ? await inadimplenciaDaCompetencia(pool(), atual.competencia) : null
+
+  /* A média SÓ das maduras. Incluir as novas puxaria a média para baixo por um
+     motivo que não é recuperação ruim — é que ainda não deu tempo de pagar. */
+  const maduras = coorte.filter((c) => c.madura)
+  const mediaMadura =
+    maduras.length > 0 ? maduras.reduce((s, c) => s + c.pagoPct, 0) / maduras.length : null
 
   /* O atraso indexado pela competência de RECEITA que ele descreve, e não pela
      competência da própria foto: a foto do dia 1º de agosto conta o que aconteceu
@@ -335,6 +350,38 @@ export default async function Receita({
                 />
               </div>
             )}
+            {/* ┌───────────────────────────────────────────────────────────────┐
+                │ A COORTE É O QUE SEPARA ATRASO DE PERDA, e é a razão de ela estar │
+                │ numa tela de receita: os dois gráficos acima mostram a carteira    │
+                │ crescendo, e sozinhos sugerem que o dinheiro sumiu. A coorte diz    │
+                │ que 84% a 93% do que atrasa volta — então o que os outros dois      │
+                │ medem é atraso, e a perda é a fração que não fecha.                │
+                │                                                                   │
+                │ O eixo aqui é o mês de VENCIMENTO, que já é o de receita: o anel    │
+                │ casa direto com a competência escolhida, sem o deslocamento de um   │
+                │ mês que os outros dois precisam.                                   │
+                └───────────────────────────────────────────────────────────────┘ */}
+            {coorte.length > 1 && (
+              <div className="mt-5">
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-nota text-ink-2">
+                    De tudo que venceu no mês e atrasou, quanto por cento do valor já voltou
+                  </span>
+                  {mediaMadura !== null && (
+                    <Badge tone="indigo">
+                      coortes maduras:{' '}
+                      {mediaMadura.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                    </Badge>
+                  )}
+                </div>
+                <GraficoDaCoorte
+                  coorte={coorte}
+                  rotulo={(c) => MES(c.mes)}
+                  destacar={`${atual.competencia.slice(0, 7)}-01`}
+                  altura={130}
+                />
+              </div>
+            )}
             <p className="mt-4 text-meta leading-relaxed text-ink-3">
               {Number(atual.mrrFinalCentavos) > 0 && (
                 <>
@@ -348,11 +395,26 @@ export default async function Receita({
                   parados em atraso.{' '}
                 </>
               )}
-              No gráfico de cima, o claro é a carteira inteira e o escuro é o que tem até 90 dias —
-              a parte que ainda responde a cobrança. No de baixo, enquanto o{' '}
+              No primeiro gráfico, o claro é a carteira inteira e o escuro é o que tem até 90 dias —
+              a parte que ainda responde a cobrança. No segundo, enquanto o{' '}
               <strong className="font-semibold text-ink">vermelho</strong> for maior que o{' '}
               <strong className="font-semibold text-ink">roxo</strong>, a carteira cresce — e a causa
-              é a entrada, não a falta de pagamento. A cascata acima é de{' '}
+              é a entrada, não a falta de pagamento.
+              {mediaMadura !== null && (
+                <>
+                  {' '}
+                  E o terceiro é o que separa atraso de perda: nas coortes maduras volta{' '}
+                  <strong className="font-semibold text-ink">
+                    {mediaMadura.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                  </strong>{' '}
+                  do que atrasou, o que põe a perda estrutural em torno de{' '}
+                  <strong className="font-semibold text-ink">
+                    {(100 - mediaMadura).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                  </strong>
+                  . Barra clara é coorte nova — a taxa baixa ali só diz que ainda não deu tempo.
+                </>
+              )}{' '}
+              A cascata acima é de{' '}
               <strong className="font-semibold text-ink">competência</strong> —
               o que foi cobrado no mês, tenha entrado ou não. Isto é{' '}
               <strong className="font-semibold text-ink">recebível</strong>: do que foi cobrado, o

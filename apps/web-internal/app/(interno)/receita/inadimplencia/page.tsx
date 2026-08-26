@@ -23,7 +23,7 @@ import {
 import { Abas, Aviso, Badge, Busca, Card, Chip, Chips, Kpi, KpiGrade, type Tom } from '@pulse/ui'
 import Link from 'next/link'
 
-import { GraficoDoAtraso, GraficoDoFluxo } from '../grafico-atraso'
+import { GraficoDaCoorte, GraficoDoAtraso, GraficoDoFluxo } from '../grafico-atraso'
 import { TabelaOrdenavel, type Coluna } from '../revisao/tabela'
 import { Corpo, Topo } from '../../casca'
 import { pool } from '../../../../lib/db'
@@ -374,7 +374,11 @@ export default async function Inadimplencia({
       : Promise.resolve([] as ClienteEmAtraso[]),
     aba === 'evolucao' ? serieDaCarteira(db, 24) : Promise.resolve([] as MesDaCarteira[]),
     recuperacaoDeDozeMeses(db),
-    aba === 'evolucao' ? coorteDoAtraso(db, 18) : Promise.resolve([]),
+    // 24 e não 18: a cascata em /receita mostra a MESMA coorte com janela de 24, e
+    // a média das maduras aparece nas duas telas. Com janelas diferentes ela dava
+    // 84,8% aqui e 85,3% lá — o mesmo indicador com dois valores, que é o defeito
+    // que dá mais trabalho para explicar depois.
+    aba === 'evolucao' ? coorteDoAtraso(db, 24) : Promise.resolve([]),
     aba === 'corrente' ? faturandoContaCortada(db) : Promise.resolve([] as CobrancaEmContaCortada[]),
   ])
 
@@ -809,23 +813,8 @@ function Evolucao({
             )
           }
         >
-          <div className="overflow-x-auto">
-            <div className="flex min-w-[600px] items-end gap-1" style={{ height: 140 }}>
-              {coorte.map((c) => (
-                <div key={c.mes} className="flex flex-1 flex-col items-center justify-end gap-1">
-                  <span className="text-micro tabular-nums text-ink-3">
-                    {c.pagoPct.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                  </span>
-                  <span
-                    title={`${MES(c.mes)} · ${N(c.titulos)} títulos atrasaram · ${BRL(c.valorCentavos)} · ${PCT(c.pagoPct)} voltou`}
-                    className={cnDaCoorte(c.madura)}
-                    style={{ height: Math.max(Math.round((c.pagoPct / 100) * 96), 2) }}
-                  />
-                  <span className="whitespace-nowrap text-micro text-ink-3">{MES(c.mes)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Mesmo componente da cascata. Aqui não há mês escolhido, então sem anel. */}
+          <GraficoDaCoorte coorte={coorte} rotulo={(c) => MES(c.mes)} />
           <p className="mt-3 text-meta leading-relaxed text-ink-3">
             É a curva de <strong className="font-semibold text-ink">vintage</strong> do crédito ao
             consumo, aplicada aqui: de tudo que venceu naquele mês e não foi pago no prazo, qual
@@ -845,7 +834,3 @@ function Evolucao({
     </>
   )
 }
-
-/** Coorte madura é roxo cheio; nova é clara, porque a taxa dela ainda não decidiu nada. */
-const cnDaCoorte = (madura: boolean) =>
-  madura ? 'w-full rounded-t bg-purple-500' : 'w-full rounded-t bg-purple-100'
