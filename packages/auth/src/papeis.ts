@@ -55,10 +55,40 @@ export interface Permissoes {
 }
 
 export const PERMISSOES: Record<Papel, Permissoes> = {
+  /**
+   * ┌───────────────────────────────────────────────────────────────────────────┐
+   * │ `receita: 'carteira'` DESDE 26/08/2026, e a razão é a fila de cobrança.     │
+   * │                                                                            │
+   * │ Era `'nenhum'`. O pen test da inadimplência mostrou que a tela dela estava  │
+   * │ exigindo escopo de CONTAS em vez de RECEITA, e ao fechar essa brecha o CSM   │
+   * │ ficou de fora — mas quem liga para o cliente atrasado é ele. Afrouxar a      │
+   * │ tela seria o conserto errado: a decisão é de PAPEL, e é esta linha.          │
+   * │                                                                            │
+   * │ `'carteira'` e não `'base'` de propósito: o CSM vê receita da carteira dele, │
+   * │ não o fechamento da empresa. A cascata em `/receita` continua exigindo       │
+   * │ `receita === 'base'` e segue fora do alcance dele.                          │
+   * │                                                                            │
+   * │ EFEITO COLATERAL A SABER: `renovacoes` e `saidas` decidem mostrar valor com  │
+   * │ `receita !== 'nenhum'`, então o CSM passa a ver dinheiro nas duas QUANDO      │
+   * │ elas tiverem dado. Hoje as duas estão vazias — conferido, zero linhas até     │
+   * │ para o admin —, então nada muda na tela agora. O mecanismo é que mudou, e     │
+   * │ ele é coerente: são as telas da carteira dele. Mas não era o pedido, e vai    │
+   * │ aparecer sozinho no dia em que aquelas telas ganharem conteúdo.               │
+   * │                                                                            │
+   * │ E O QUE ESTA LINHA NÃO CONSEGUE FAZER: `contas: 'carteira'` deveria limitar  │
+   * │ o CSM à carteira dele, e HOJE NÃO LIMITA NADA. `core.account.csm_email` está │
+   * │ vazio nas 1.964 contas — medido —, então o único recorte por dono que existe │
+   * │ no produto (`contratos/calendario`, `cancelamento.ts`) devolve lista VAZIA   │
+   * │ para quem tem escopo de carteira. Filtrar a inadimplência do mesmo jeito     │
+   * │ entregaria uma tela em branco, que é o contrário do pedido. Então o CSM vê a │
+   * │ carteira em atraso INTEIRA até `csm_email` ser preenchido — e aí o recorte   │
+   * │ passa a valer sozinho nas telas que já o implementam.                        │
+   * └───────────────────────────────────────────────────────────────────────────┘
+   */
   'pulse-csm': {
     contas: 'carteira',
     fila: 'carteira',
-    receita: 'nenhum',
+    receita: 'carteira',
     configurar: false,
     aprovaDistrato: 'nao',
     dadoIndividual: false,
