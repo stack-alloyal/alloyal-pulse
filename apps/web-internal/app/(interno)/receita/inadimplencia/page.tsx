@@ -298,7 +298,25 @@ export default async function Inadimplencia({
     q?: string
   }>
 }) {
-  await exigir((p) => temEscopo(p.contas), 'inadimplência')
+  /* ┌──────────────────────────────────────────────────────────────────────┐
+     │ A PERMISSÃO É DE RECEITA, não de contas — e a primeira versão errou isso. │
+     │                                                                          │
+     │ Eu copiei `temEscopo(p.contas)` da revisão de faturamento. O efeito, medido│
+     │ no pen test: CINCO papéis com `receita: 'nenhum'` abriam a carteira em     │
+     │ atraso inteira — `pulse-csm`, `pulse-implantacao`, `pulse-juridico`,       │
+     │ `pulse-marketing` e `pulse-produto`. Marketing e Produto existem no        │
+     │ sistema para conferir uso de marca em contrato; não têm por que ver quanto │
+     │ cada cliente deve.                                                        │
+     │                                                                          │
+     │ O padrão da casa já estava em `renovacoes` e `saidas`, que escondem valor  │
+     │ com exatamente esta expressão, e a cascata em `/receita` é ainda mais      │
+     │ estrita (`receita === 'base'`). A tela solta era esta.                     │
+     │                                                                          │
+     │ CONSEQUÊNCIA A CONFERIR: o CSM deixa de entrar. Se quem liga para o        │
+     │ cliente é ele, o conserto NÃO é afrouxar aqui — é dar `receita: 'carteira'`│
+     │ ao `pulse-csm` em `papeis.ts`, que é decisão de papel e não de tela.        │
+     └──────────────────────────────────────────────────────────────────────┘ */
+  await exigir((p) => temEscopo(p.receita) || p.configurar, 'inadimplência')
   const q = await searchParams
   const aba: Chave = ABAS.find((a) => a === q.aba) ?? 'corrente'
   const dir: 'asc' | 'desc' = q.dir === 'asc' ? 'asc' : 'desc'

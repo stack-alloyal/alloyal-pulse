@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
 import pg from "pg";
 
-import { DIAS_CORRENTE, FAIXAS, apurarCompetencia, serieDaCarteira } from "./inadimplencia.js";
+import { DIAS_CORRENTE, FAIXAS, apurarCompetencia, carteiraDeHoje, serieDaCarteira } from "./inadimplencia.js";
+import { mainBusinesses } from "./base-de-clientes.js";
+import { textoDeBusca } from "./texto.js";
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const MIGRACAO = readFileSync(
@@ -387,4 +389,53 @@ describe("apuração dos quatro movimentos", { skip: !ADMIN }, () => {
       "a apuração precisa usar a constante, não o número 90 escrito à mão",
     );
   });
+});
+
+// ═══ ACHADO DO PEN TEST: `?q=%00` devolvia HTTP 500 ══════════════════════════
+//
+// O byte nulo chega ao Postgres como parâmetro vinculado e ele recusa a
+// codificação: "invalid byte sequence for encoding UTF8: 0x00". Não é vazamento —
+// nada é interpretado como SQL —, mas é 500 que qualquer pessoa com acesso à tela
+// produz montando a URL, e 500 é pista: conta ao curioso que a entrada dele
+// chegou ao banco.
+//
+// Duas telas caíam, a inadimplência e a base de clientes. As outras cinco buscas
+// do produto filtram em memória. O conserto é um lugar só, e estes testes
+// protegem os dois consumidores.
+
+test("o limpador tira controle e preserva o que a busca precisa", () => {
+  assert.equal(textoDeBusca("\u0000"), "");
+  assert.equal(textoDeBusca("\u0001\u0002swile"), "swile");
+  assert.equal(textoDeBusca("  swile  "), "swile");
+  assert.equal(textoDeBusca(undefined), "");
+  assert.equal(textoDeBusca(null), "");
+  // Aspa e porcento FICAM: aspa é parâmetro vinculado e porcento é curinga de
+  // quem busca "50%". Sanitizar além do necessário quebraria a busca de verdade
+  // e daria falsa sensação de defesa onde a defesa é o parâmetro.
+  assert.equal(textoDeBusca("50% O'Brien"), "50% O'Brien");
+  assert.equal(textoDeBusca("' OR 1=1--"), "' OR 1=1--");
+});
+
+describe("busca com byte nulo não derruba a consulta", { skip: !ADMIN }, () => {
+  let db: pg.Pool;
+  before(async () => {
+    const { migrate } = await import("@pulse/db");
+    await migrate(ADMIN as string);
+    db = new pg.Pool({ connectionString: ADMIN });
+  });
+  after(async () => {
+    await db.end();
+  });
+
+  for (const carga of ["\u0000", "\u0000swile", "\uFFFE\u0000", "\u0001\u0002\u0003"]) {
+    const rotulo = JSON.stringify(carga);
+    test(`carteiraDeHoje sobrevive a ${rotulo}`, async () => {
+      const r = await carteiraDeHoje(db, { busca: carga }, 5);
+      assert.ok(Array.isArray(r), "tem de devolver lista, não lançar");
+    });
+    test(`mainBusinesses sobrevive a ${rotulo}`, async () => {
+      const r = await mainBusinesses(db, { busca: carga });
+      assert.ok(r !== null && typeof r === "object", "tem de devolver resultado, não lançar");
+    });
+  }
 });

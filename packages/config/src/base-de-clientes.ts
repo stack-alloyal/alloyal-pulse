@@ -16,6 +16,7 @@
  */
 
 import type pg from "pg";
+import { textoDeBusca } from "./texto.js";
 
 export interface KpisDaCarteira {
   readonly clientesTotal: number;
@@ -210,7 +211,9 @@ export async function mainBusinesses(
   const todas = opcoes.porPagina === 0;
   const porPagina = todas ? 0 : Math.min(Math.max(opcoes.porPagina ?? 50, 1), 200);
   const pagina = todas ? 1 : Math.max(opcoes.pagina ?? 1, 1);
-  const busca = (opcoes.busca ?? "").trim();
+  // Pelo limpador: byte nulo na URL virava HTTP 500 aqui também — o Postgres
+  // recusa 0x00 em texto, e o parâmetro vinculado não protege contra isso.
+  const busca = textoDeBusca(opcoes.busca);
   const somenteAtivos = opcoes.somenteAtivos === true;
   const ordem = opcoes.ordem ?? "usuarios";
 

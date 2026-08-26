@@ -125,7 +125,13 @@ export default async function RevisaoDeFaturamento({
 }: {
   searchParams: Promise<{ aba?: string; ord?: string; dir?: string; af?: string }>
 }) {
-  await exigir((p) => temEscopo(p.contas), 'revisão de faturamento')
+  /* A permissão é de RECEITA. Estava `temEscopo(p.contas)`, e o pen test da
+     inadimplência mostrou o efeito: cinco papéis com `receita: 'nenhum'` liam este
+     relatório — incluindo Marketing e Produto, que entraram no sistema só para
+     conferir uso de marca em contrato. É a mesma classe de dado da cascata ao
+     lado, que exige `receita === 'base'`. Fecha na mesma expressão de
+     `renovacoes` e `saidas`. */
+  await exigir((p) => temEscopo(p.receita) || p.configurar, 'revisão de faturamento')
   const q = await searchParams
   const aba: Chave = ABAS.find((a) => a === q.aba) ?? 'ativos'
   const dir: 'asc' | 'desc' = q.dir === 'asc' ? 'asc' : 'desc'

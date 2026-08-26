@@ -34,6 +34,7 @@
 import type pg from "pg";
 
 import { E_CLIENTE } from "./revisao-faturamento.js";
+import { textoDeBusca } from "./texto.js";
 
 /**
  * O que conta como título vivo da carteira.
@@ -198,9 +199,11 @@ function ondeDaCarteira(f: FiltrosDaCarteira, base: number) {
     cond.push(`conta.status_core = $${base + par.length}`);
   }
   if (f.apenasClientes) cond.push(`alvo.e_cliente`);
-  if (f.busca?.trim()) {
-    const digitos = f.busca.replace(/\D/g, "");
-    par.push(`%${f.busca.trim()}%`);
+  // Passa pelo limpador: byte nulo na URL virava HTTP 500 (ver `texto.ts`).
+  const busca = textoDeBusca(f.busca);
+  if (busca) {
+    const digitos = busca.replace(/\D/g, "");
+    par.push(`%${busca}%`);
     const like = `$${base + par.length}`;
     // O CNPJ só entra na busca com 4 dígitos ou mais: com menos, "12" casaria com
     // metade da base e a tela devolveria tudo como se o filtro não existisse.

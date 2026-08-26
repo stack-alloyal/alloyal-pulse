@@ -24,3 +24,4 @@ export * from './vinculo.js'
 export * from './omie-integracao.js'
 export * from './revisao-faturamento.js';
 export * from './inadimplencia.js';
+export * from './texto.js';

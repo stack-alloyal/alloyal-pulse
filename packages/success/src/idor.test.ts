@@ -151,3 +151,74 @@ export async function ruim(db: pg.Pool, id: Identidade, x: string): Promise<void
   assert.ok(tabelas.some((t) => CONTA.has(t)), 'não reconheceu a tabela de conta')
   assert.equal(RECORTE.test(fns[0]?.corpo ?? ''), false, 'achou recorte onde não há')
 })
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * PORTÃO: tela de RECEITA exige permissão de RECEITA.
+ *
+ * Nasceu de um achado do pen test da inadimplência. A tela foi escrita copiando a
+ * guarda da revisão de faturamento — `temEscopo(p.contas)` — e o efeito é que CINCO
+ * papéis com `receita: 'nenhum'` liam a carteira em atraso inteira:
+ * `pulse-csm`, `pulse-implantacao`, `pulse-juridico`, `pulse-marketing` e
+ * `pulse-produto`. Os dois últimos entraram no sistema só para conferir uso de
+ * marca em contrato.
+ *
+ * É a mesma classe de falha que o portão de cima pega, e pelo mesmo motivo: cada
+ * guarda parece certa sozinha. `temEscopo(p.contas)` é exatamente o que se espera
+ * ver numa tela de operação. O que estava errado só aparece comparando a tela com a
+ * cascata que mora no mesmo menu — e ninguém abre duas telas lado a lado.
+ *
+ * A regra é por DIRETÓRIO e não por lista de arquivos: uma lista não cobre a
+ * próxima tela, que é justamente a que vai errar.
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+function telasDe(dir: string): string[] {
+  const achadas: string[] = []
+  const varrer = (d: string) => {
+    for (const nome of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, nome.name)
+      if (nome.isDirectory()) varrer(p)
+      else if (nome.name === 'page.tsx' || nome.name === 'acoes.ts') achadas.push(p)
+    }
+  }
+  varrer(dir)
+  return achadas
+}
+
+test('toda tela de /receita exige permissão de receita', () => {
+  const raiz = join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'receita')
+  const telas = telasDe(raiz)
+  assert.ok(telas.length >= 2, `achei só ${telas.length} telas em /receita — o caminho mudou?`)
+
+  const frouxas: string[] = []
+  for (const tela of telas) {
+    const texto = readFileSync(tela, 'utf8')
+    // Só os `exigir` que estão em CÓDIGO: o comentário desta correção cita a
+    // expressão antiga para explicá-la, e ler a prosa acusaria o arquivo corrigido.
+    const semComentarios = texto
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    for (const achado of semComentarios.matchAll(/exigir\(\s*\(p\)\s*=>\s*([^,]+),/g)) {
+      const guarda = achado[1] ?? ''
+      if (!/p\.receita|p\.configurar/.test(guarda)) {
+        frouxas.push(`${relative(RAIZ, tela)} — exigir(${guarda.trim().slice(0, 52)})`)
+      }
+    }
+  }
+  assert.deepEqual(
+    frouxas,
+    [],
+    `\ntela de receita sem checar receita:\n${frouxas.join('\n')}\n` +
+      'A expressão da casa é `temEscopo(p.receita) || p.configurar` (ver renovacoes e saidas).\n',
+  )
+})
+
+test('a cascata continua sendo a mais estrita das telas de receita', () => {
+  // Ela mostra o fechamento inteiro do mês, então exige `receita === 'base'` e não
+  // só "tem algum escopo". Se alguém afrouxar isso para uniformizar com as outras,
+  // o portão avisa — uniformizar para baixo é como uma exceção justificada morre.
+  const cascata = readFileSync(
+    join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'receita', 'page.tsx'),
+    'utf8',
+  )
+  assert.match(cascata, /p\.receita === 'base'/, 'a cascata deixou de exigir escopo de base')
+})

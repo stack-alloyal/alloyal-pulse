@@ -266,7 +266,7 @@ export const CORPO = `<div class="folha">
   <div class="carimbo">
     <span>25 de agosto de 2026</span>
     <span>Fonte: core.omie_titulo · core.account · core.vinculo_cliente</span>
-    <span>Nenhuma linha construída</span>
+    <span>Implementado em 26/08/2026 · <a href="/receita/inadimplencia">/receita/inadimplencia</a></span>
   </div>
 
   <dl class="kpis">
@@ -276,6 +276,50 @@ export const CORPO = `<div class="folha">
     <div class="kpi marca-b"><dt>O que dá para cobrar</dt><dd>R$&nbsp;305.004<small>≤ 90 dias, conta ativa, 62 clientes</small></dd></div>
   </dl>
 </header>
+
+<section id="estado" style="padding-top:34px">
+  <div class="rubrica"><span class="marcador">00</span><h2>Estado: implementado, e quatro coisas que este documento errou</h2></div>
+  <div class="regua"></div>
+  <div class="prosa">
+    <p>Construído em <b>26 de agosto de 2026</b>, em <code>/receita/inadimplencia</code> — quatro abas,
+    67 competências reconstruídas e o ciclo C21 rodando às 05h00. As três decisões da seção 03
+    foram tomadas <strong>como recomendado aqui, sem aprovação explícita</strong>: continuam
+    abertas para revisão, e trocar qualquer uma muda o número.</p>
+    <p>O que a implementação e o QA descobriram que esta proposta afirmou errado:</p>
+  </div>
+  <div class="rolo">
+    <table>
+      <caption><b>Correções ao próprio documento</b> · deixadas à vista porque um documento que se
+      corrige em silêncio deixa de servir de registro</caption>
+      <thead><tr><th>O que este documento diz</th><th>O que é</th></tr></thead>
+      <tbody>
+        <tr><td>Três movimentos de saída (pago, cancelado, ausente)</td><td>Falta o quarto e ele é o
+        mais interessante: o Omie pode <b>prorrogar</b> o vencimento, e o título sai da carteira sem
+        pagar nem ser cancelado. Registrar isso como baixa marcaria perda onde houve renegociação</td></tr>
+        <tr><td>“Pagamento parcial não existe. Zero títulos.” (decisão C)</td><td><b>Existe.</b> Medi
+        pela forma errada — o Omie põe a data de pagamento e deixa o aberto maior que zero. São 33
+        títulos e R$ 45.383, o maior deles R$ 11.250 do INTERPROMO, que é o segundo nome da fila. A
+        carteira é valorada pelo que está <b>em aberto</b>, não pelo valor do título</td></tr>
+        <tr><td>“<code>churn_inadimplencia_centavos</code> está vazia; o C21 passa a alimentar”</td>
+        <td>Errado nas duas metades: ela é alimentada pelo fluxo de <b>saídas</b>, via
+        <code>fact.mrr_event</code>, e o C21 não a alimenta nem deveria. Está zerada porque nenhuma
+        saída foi classificada assim ainda</td></tr>
+        <tr><td>Nada sobre permissão</td><td>A tela nasceu exigindo escopo de <b>contas</b> em vez de
+        <b>receita</b>, e cinco papéis com <code>receita: nenhum</code> liam a carteira inteira —
+        incluindo Marketing e Produto. Corrigido, e o portão agora cobre todo o diretório</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prosa"><p>E o que ficou de fora, sabidamente:</p></div>
+  <ul class="limpa">
+    <li class="nao"><b>Congelar um mês pela tela.</b> A coluna <code>estado</code> existe e a
+    apuração respeita, mas não há botão — congelar hoje é por SQL.</li>
+    <li class="nao"><b>Memória de contato na fila.</b> Os mesmos ~85 nomes reaparecem toda semana
+    sem registro de quem já foi cobrado. É o que separa uma fila de uma lista.</li>
+    <li class="nao"><b>O ajuste mistura duas coisas</b> — baixa parcial e edição de valor. Somam
+    −R$ 25.860 em 19 meses; se crescer, vale separar.</li>
+  </ul>
+</section>
 
 <section>
   <div class="rubrica"><span class="marcador">01</span><h2>O banco já responde quase tudo</h2></div>
@@ -603,7 +647,7 @@ saldo em 1º/ago   <b>1.976.433,28</b>   1.178 títulos      resíduo <b>0,00</b
 </section>
 
 <footer>
-  Alloyal Pulse · proposta de estrutura, nenhuma linha construída · medido em 25/08/2026 contra o banco de produção
+  Alloyal Pulse · proposta de 25/08/2026, implementada em 26/08 · as correções ao documento estão na seção 00
 </footer>
 
 </div>`
