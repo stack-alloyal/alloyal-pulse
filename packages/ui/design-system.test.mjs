@@ -923,3 +923,73 @@ test('a base de clientes tem um único construtor de URL', () => {
     'a seta de expandir tem de receber a URL de fora, com todos os filtros',
   )
 })
+
+/**
+ * Os DOCUMENTOS autossuficientes não podem divergir da paleta do produto.
+ *
+ * `app/(documento)/**\/documento.ts` é HTML com CSS próprio, sem Tailwind e sem
+ * `estilo.css` — é o mesmo caso do template de e-mail e da tela do oauth2-proxy, e
+ * pelo mesmo motivo: a peça não passa pelo build de estilo, então hex literal é
+ * inevitável ali. O que não é inevitável é a DIVERGÊNCIA.
+ *
+ * Documento é exatamente onde a paleta desliza sem ninguém ver: ele é escrito uma
+ * vez, lido por semanas e nunca aberto lado a lado com uma tela. Um roxo aproximado
+ * aqui sobrevive a todas as revisões.
+ *
+ * Também recusa VERDE em qualquer forma. A regra do §02 vale mais num documento do
+ * que numa tela: aqui o número está solto na prosa, e verde ao lado de um valor de
+ * inadimplência afirma "saudável" sobre um dado que ninguém classificou.
+ */
+test('as cores dos documentos são as mesmas de estilo.css', () => {
+  const raiz = join(RAIZ, 'apps', 'web-internal', 'app', '(documento)')
+  const estilo = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
+  const tokens = new Set((estilo.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((h) => h.toLowerCase()))
+  assert.ok(tokens.size > 5, 'não li os tokens de estilo.css — o caminho mudou?')
+
+  const docs = []
+  const varrer = (dir) => {
+    for (const nome of readdirSync(dir)) {
+      const p = join(dir, nome)
+      if (statSync(p).isDirectory()) varrer(p)
+      else if (nome === 'documento.ts') docs.push(p)
+    }
+  }
+  varrer(raiz)
+  assert.ok(docs.length > 0, `nenhum documento.ts em ${raiz} — o grupo mudou de nome?`)
+
+  for (const doc of docs) {
+    const onde = relative(RAIZ, doc)
+    // Sem os comentários. O cabeçalho do documento EXPLICA por que não busca fonte
+    // de fora — e citou `fonts.googleapis.com` para dizer que não a usa. A primeira
+    // versão deste portão leu a prosa e acusou o arquivo que estava certo, que é o
+    // mesmo defeito que o portão do ícone já tinha documentado logo acima.
+    const texto = readFileSync(doc, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+
+    // `(?<!&)` porque `&#123;` e `&#8212;` são entidade de HTML, não cor — e foi
+    // esse falso positivo que fez a primeira versão deste portão nascer quebrada.
+    for (const hex of texto.match(/(?<!&)#[0-9a-fA-F]{3,8}\b/g) ?? []) {
+      const h = hex.toLowerCase()
+      assert.ok(
+        tokens.has(h) || h === '#fff',
+        `${onde} usa ${hex}, que não existe em estilo.css — ` +
+          'aproximação em vez de cópia, ou token trocado sem trocar o documento',
+      )
+    }
+
+    assert.doesNotMatch(
+      texto,
+      /green|emerald|#(?:0f0|00ff00|10b981|22c55e|16a34a)\b/i,
+      `${onde} usa verde: no design system verde é "saudável", e estado de dado ` +
+        'não é saúde de negócio',
+    )
+
+    // Fonte externa num documento interno é dependência que não paga o que custa:
+    // o resto do Pulse não carrega webfont nenhum, e a família passaria a divergir
+    // no dia em que o host de fora saísse do ar.
+    assert.doesNotMatch(
+      texto,
+      /fonts\.googleapis\.com|fonts\.gstatic\.com|@import\s+url/i,
+      `${onde} busca fonte de fora; o Pulse declara Inter e cai na pilha do sistema`,
+    )
+  }
+})
