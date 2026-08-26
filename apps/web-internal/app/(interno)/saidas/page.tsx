@@ -1,14 +1,18 @@
 import {
+  coorteDeSaida,
   faltaParaEncerrar,
   listarSaidas,
+  metaVersusRealizado,
+  quadroDeSaida,
   resumoChurn,
   rotuloDoMotivo,
   type Saida,
 } from '@pulse/success'
-import { Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Vazio, cn } from '@pulse/ui'
+import { Abas, Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Vazio, cn } from '@pulse/ui'
 import { Check } from 'lucide-react'
 
 import { acaoConfirmarAviso, acaoConfirmarCobranca, acaoEncerrar, acaoReter } from './acoes'
+import { Coorte, Meta, Quadro } from './visoes'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir, temEscopo } from '../../../lib/guarda'
@@ -242,29 +246,57 @@ function Linha({ s, podeAprovar }: { s: Saida; podeAprovar: boolean }) {
   )
 }
 
+const ABAS = ['quadro', 'lista', 'coorte', 'meta'] as const
+type Aba = (typeof ABAS)[number]
+
 export default async function Saidas({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; erro?: string; competencia?: string }>
+  searchParams: Promise<{ ok?: string; erro?: string; competencia?: string; aba?: string }>
 }) {
   const id = await exigir((p) => temEscopo(p.contas), 'saídas e churn')
   const q = await searchParams
+  const aba: Aba = ABAS.find((a) => a === q.aba) ?? 'quadro'
 
   const hoje = new Date().toISOString().slice(0, 10)
   const comp = q.competencia ? `${q.competencia}-01` : `${hoje.slice(0, 7)}-01`
+  const veReceita = id.permissoes.receita !== 'nenhum' || id.permissoes.configurar
 
-  const [saidas, resumo] = await Promise.all([
+  const [saidas, resumo, pedidos, coorte, metas] = await Promise.all([
     listarSaidas(pool(), id),
     // O resumo lê a base inteira: é número de receita, e receita não tem
     // carteira. Quem não pode ver receita não chega a esta linha.
-    id.permissoes.receita !== 'nenhum' || id.permissoes.configurar
-      ? resumoChurn(pool(), comp)
-      : null,
+    veReceita ? resumoChurn(pool(), comp) : null,
+    quadroDeSaida(pool(), id),
+    // Coorte e meta são número de RECEITA, como o resumo: quem não vê receita
+    // não carrega nem a consulta. A aba também não aparece.
+    veReceita ? coorteDeSaida(pool(), 12) : Promise.resolve([]),
+    veReceita
+      ? metaVersusRealizado(pool(), `${hoje.slice(0, 4)}-01`, hoje.slice(0, 7))
+      : Promise.resolve([]),
   ])
 
-  const abertas = saidas.filter((s) => s.estado === 'anunciado' || s.estado === 'em_aviso')
-  const fechadas = saidas.filter((s) => s.estado === 'retido' || s.estado === 'encerrado')
+  /* As três etapas de trabalho e o aviso correndo contam como ABERTAS: são os
+     pedidos que ainda pedem alguma coisa de alguém. Os quatro desfechos são
+     fechados. Antes a lista só conhecia dois estados de cada lado, e um pedido em
+     `financeiro` ou `reversao` não apareceria em nenhuma das duas listas. */
+  const abertas = saidas.filter(
+    (s) =>
+      s.estado === 'anunciado' ||
+      s.estado === 'financeiro' ||
+      s.estado === 'reversao' ||
+      s.estado === 'em_aviso',
+  )
+  const fechadas = saidas.filter(
+    (s) =>
+      s.estado === 'retido' ||
+      s.estado === 'desconto' ||
+      s.estado === 'renegociado' ||
+      s.estado === 'encerrado',
+  )
   const podeAprovar = id.permissoes.aprovaDistrato !== 'nao' || id.permissoes.configurar
+  const link = (a: Aba) =>
+    `/saidas?aba=${a}${q.competencia ? `&competencia=${q.competencia}` : ''}`
 
   return (
     <>
@@ -318,6 +350,52 @@ export default async function Saidas({
           </>
         )}
 
+        {/* ┌───────────────────────────────────────────────────────────────────┐
+            │ AS ABAS VÊM DEPOIS DOS KPI, e os KPI ficam em todas.                 │
+            │                                                                     │
+            │ Churn de contas, churn de receita, comprometido e retido são o        │
+            │ cabeçalho da ferramenta inteira — trocar de aba não deve fazer o      │
+            │ número do mês desaparecer. É a mesma decisão da base de clientes: o   │
+            │ painel some justamente quando a pessoa está olhando um pedaço.        │
+            │                                                                     │
+            │ Coorte e meta só aparecem para quem vê receita: são número de         │
+            │ receita, e a consulta delas nem é carregada para os outros.           │
+            └───────────────────────────────────────────────────────────────────┘ */}
+        <Abas
+          abas={[
+            { chave: 'quadro', rotulo: 'Quadro', conta: pedidos.length },
+            { chave: 'lista', rotulo: 'Em andamento', conta: abertas.length },
+            ...(veReceita
+              ? [
+                  { chave: 'coorte', rotulo: 'Coorte' },
+                  { chave: 'meta', rotulo: 'Meta' },
+                ]
+              : []),
+          ]}
+          atual={aba}
+          href={(k) => link(k as Aba)}
+          iguais
+        />
+
+        {aba === 'quadro' && (
+          <>
+            <Quadro pedidos={pedidos} />
+            {pedidos.length === 0 && (
+              <Vazio
+                titulo="Nenhum pedido registrado."
+                porque="O quadro se preenche a partir do primeiro pedido de cancelamento ou desconto cadastrado. Até então, a coorte mostra o churn derivado do faturamento — que sabe quando a receita parou, e não quando o cliente avisou."
+                acao={{ texto: 'Ver a coorte', href: '/saidas?aba=coorte' }}
+              />
+            )}
+          </>
+        )}
+
+        {aba === 'coorte' && veReceita && <Coorte meses={coorte} />}
+        {aba === 'meta' && veReceita && (
+          <Meta linhas={metas} podeDefinir={id.permissoes.configurar} />
+        )}
+
+        {aba === 'lista' && (
         <Card title={`Em andamento (${abertas.length})`}>
           {abertas.length === 0 ? (
             <Vazio
@@ -334,11 +412,12 @@ export default async function Saidas({
             </ul>
           )}
         </Card>
+        )}
 
-        {fechadas.length > 0 && (
+        {aba === 'lista' && fechadas.length > 0 && (
           <details>
             <summary className="cursor-pointer select-none text-corpo font-semibold text-ink-2 hover:text-ink">
-              {fechadas.length} encerradas ou revertidas
+              {fechadas.length} com desfecho
             </summary>
             <ul className="mt-3 grid gap-3 opacity-75">
               {fechadas.map((s) => (

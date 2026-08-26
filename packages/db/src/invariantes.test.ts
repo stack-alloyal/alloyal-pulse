@@ -118,11 +118,16 @@ describe('invariantes de domínio', { skip: !ADMIN }, () => {
          (account_id, origem, estado, data_levantada, mrr_centavos_na_levantada,
           aviso_previo_dias, aviso_confirmado_por, aviso_confirmado_em, data_fim_aviso,
           competencia_ultima_cobranca, cobranca_confirmada_por, cobranca_confirmada_em,
-          competencia_efeito_receita, aprovado_por, aprovado_em)
+          competencia_efeito_receita, aprovado_por, aprovado_em,
+          -- Desde a 0052, encerrado exige motivo CONFIRMADO: e o dado que
+          -- sustenta toda a análise de churn, e é na hora de encerrar que alguém
+          -- ainda lembra o que aconteceu. Sem ele o INSERT é recusado.
+          criado_por, motivo, motivo_confirmado_por, motivo_confirmado_em)
        VALUES ($1, 'cliente', 'encerrado', '2026-07-15', 2480000,
                90, 'juridico@alloyal.com.br', now(), '2026-10-13',
                '2026-10-01', 'financeiro@alloyal.com.br', now(),
-               '2026-11-01', 'financeiro@alloyal.com.br', now())`,
+               '2026-11-01', 'financeiro@alloyal.com.br', now(),
+               'csm@alloyal.com.br', 'custo', 'financeiro@alloyal.com.br', now())`,
       [CONTA],
     )
     const { rows } = await db.query<{ conta: string; receita: string }>(
@@ -133,6 +138,46 @@ describe('invariantes de domínio', { skip: !ADMIN }, () => {
     // Os dois relógios: a conta é perdida em julho, a receita sai em novembro.
     assert.equal(rows[0]?.conta, '2026-07-15')
     assert.equal(rows[0]?.receita, '2026-11-01')
+  })
+
+  test('encerrado sem motivo confirmado é recusado pelo banco', async () => {
+    // O motivo é o campo de que TODA a análise de churn depende, e o momento de
+    // encerrar é o único em que alguém ainda lembra o que aconteceu. Deixar isso
+    // como combinado de processo é o que faz a coluna chegar vazia em 40% dos
+    // casos seis meses depois.
+    await assert.rejects(
+      () =>
+        db.query(
+          `INSERT INTO success.cancellation
+             (account_id, origem, estado, data_levantada, mrr_centavos_na_levantada,
+              aviso_confirmado_por, aviso_confirmado_em, competencia_ultima_cobranca,
+              cobranca_confirmada_por, cobranca_confirmada_em,
+              competencia_efeito_receita, aprovado_por, aprovado_em)
+           VALUES ($1, 'cliente', 'encerrado', '2026-07-15', 100000,
+                   'a@alloyal.com.br', now(), '2026-08-01',
+                   'b@alloyal.com.br', now(), '2026-09-01', 'b@alloyal.com.br', now())`,
+          [CONTA],
+        ),
+      /encerrado_tem_motivo_confirmado/,
+    )
+  })
+
+  test('o motivo não pode ser confirmado por quem registrou', async () => {
+    // Vem da prática de win/loss de vendas: quem conduziu o caso tem viés, e
+    // "custo" é o motivo mais confortável de escrever. A garantia é do BANCO
+    // porque combinado de processo é o que se rompe na semana corrida.
+    await assert.rejects(
+      () =>
+        db.query(
+          `INSERT INTO success.cancellation
+             (account_id, origem, estado, data_levantada, mrr_centavos_na_levantada,
+              criado_por, motivo, motivo_confirmado_por, motivo_confirmado_em)
+           VALUES ($1, 'cliente', 'anunciado', '2026-07-15', 100000,
+                   'mesma@alloyal.com.br', 'custo', 'mesma@alloyal.com.br', now())`,
+          [CONTA],
+        ),
+      /motivo_confirmado_por_outra_pessoa/,
+    )
   })
 
   test('saída pedida pelo cliente exige data da levantada e MRR congelado', async () => {

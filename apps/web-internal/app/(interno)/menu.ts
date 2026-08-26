@@ -69,7 +69,7 @@ export const MENU: readonly ItemDeMenu[] = [
     href: "/saidas",
     rotulo: "Saídas",
     icone: DoorOpen,
-    proposito: "Churn real, com as quatro datas",
+    proposito: "O pipeline do churn, da levantada de mão ao desfecho",
   },
   {
     href: "/receita",

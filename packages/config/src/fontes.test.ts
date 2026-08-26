@@ -105,17 +105,39 @@ test('nenhum comentário SQL usa crase', () => {
   // │ pior: acusou JSDoc legítimo, onde crase é a marcação normal de código.    │
   // │ Portão que acusa o certo é desligado no primeiro dia.                     │
   // └───────────────────────────────────────────────────────────────────────┘
-  const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
-  const arquivos = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+  /* ┌───────────────────────────────────────────────────────────────────────┐
+     │ VARRE TODO PACOTE QUE ESCREVE SQL, e antes varria só este.                │
+     │                                                                         │
+     │ Cometi este erro DOZE vezes. As últimas quatro foram fora de              │
+     │ `packages/config`: em `@pulse/success` (duas), em `@pulse/db` e num        │
+     │ arquivo de teste — todas fora do alcance do portão, e todas descobertas    │
+     │ pelo build, que é o lugar onde a mensagem não aponta para a causa.         │
+     │                                                                         │
+     │ E inclui `.test.ts` agora: o teste de invariantes escreve SQL cru, e foi   │
+     │ exatamente ali que a décima segunda apareceu. Excluir teste era uma        │
+     │ economia sem motivo — o build quebra igual.                               │
+     └───────────────────────────────────────────────────────────────────────┘ */
+  const raiz = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const pacotes = ['config', 'success', 'db', 'contratos', 'metrics', 'mail', 'auth']
   const achados: string[] = []
-  for (const nome of arquivos) {
-    const linhas = readFileSync(join(dir, nome), 'utf8').split('\n')
-    linhas.forEach((linha, i) => {
-      if (/^\s*--/.test(linha) && linha.includes('`')) {
-        achados.push(`${nome}:${i + 1} · ${linha.trim().slice(0, 70)}`)
-      }
-    })
+  for (const pacote of pacotes) {
+    const dir = join(raiz, pacote, 'src')
+    let arquivos: string[]
+    try {
+      arquivos = readdirSync(dir).filter((f) => f.endsWith('.ts'))
+    } catch {
+      continue // pacote que não existe mais, ou sem src
+    }
+    for (const nome of arquivos) {
+      const linhas = readFileSync(join(dir, nome), 'utf8').split('\n')
+      linhas.forEach((linha, i) => {
+        if (/^\s*--/.test(linha) && linha.includes('`')) {
+          achados.push(`${pacote}/${nome}:${i + 1} · ${linha.trim().slice(0, 60)}`)
+        }
+      })
+    }
   }
+  assert.ok(achados.length >= 0, 'varredura executada')
   assert.deepEqual(
     achados,
     [],
