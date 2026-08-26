@@ -168,7 +168,22 @@ const COLUNAS_TITULOS: readonly Coluna<TituloEmAtraso>[] = [
   {
     id: 'valor',
     rotulo: 'Em aberto',
-    celula: (t) => <Num>{BRL(t.valorCentavos)}</Num>,
+    /* ┌───────────────────────────────────────────────────────────────────────┐
+       │ O VALOR CHEIO APARECE quando houve baixa parcial, e não é enfeite: sem │
+       │ ele, um título de R$ 45.000 com R$ 33.750 pagos mostra "R$ 11.250" e   │
+       │ quem confere contra o Omie acha que a tela errou. O INTERPROMO é       │
+       │ exatamente esse caso, e é o segundo nome da fila.                      │
+       └───────────────────────────────────────────────────────────────────────┘ */
+    celula: (t) => (
+      <span className="block whitespace-nowrap">
+        <Num>{BRL(t.valorCentavos)}</Num>
+        {Number(t.pagoCentavos) > 0 && (
+          <span className="block text-nota tabular-nums text-ink-3">
+            de {BRL(t.valorDoTituloCentavos)} · pagou {BRL(t.pagoCentavos)}
+          </span>
+        )}
+      </span>
+    ),
     chave: (t) => Number(t.valorCentavos),
     inicial: 'desc',
     alinhar: 'direita',
@@ -215,7 +230,16 @@ const COLUNAS_CLIENTES: readonly Coluna<ClienteEmAtraso>[] = [
   {
     id: 'valor',
     rotulo: 'Total em atraso',
-    celula: (c) => <Num>{BRL(c.valorCentavos)}</Num>,
+    celula: (c) => (
+      <span className="block whitespace-nowrap">
+        <Num>{BRL(c.valorCentavos)}</Num>
+        {Number(c.pagoCentavos) > 0 && (
+          <span className="block text-nota tabular-nums text-ink-3">
+            já pagou {BRL(c.pagoCentavos)} em parte
+          </span>
+        )}
+      </span>
+    ),
     chave: (c) => Number(c.valorCentavos),
     inicial: 'desc',
     alinhar: 'direita',
@@ -785,7 +809,10 @@ function Evolucao({
           cuidado de quem escreve a consulta: um mês que não feche não chega a ser gravado.{' '}
           <strong className="font-semibold text-ink">Baixado</strong> é o que saiu sem pagamento —
           cancelado, prorrogado ou ausente da base —, e fica em branco nas competências
-          reconstruídas porque o Omie não guarda data de cancelamento.
+          reconstruídas porque o Omie não guarda data de cancelamento.{' '}
+          <strong className="font-semibold text-ink">Ajuste</strong> é mudança de valor de título
+          que <em>continuou</em> na carteira: quase todo ele é baixa parcial, o cliente pagando um
+          pedaço e o resto seguindo devido. Não entra em recuperado, que é só o título quitado.
         </p>
       </Card>
 

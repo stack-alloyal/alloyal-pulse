@@ -104,6 +104,66 @@ test("o worker não pode apagar fechamento mensal", () => {
   assert.doesNotMatch(MIGRACAO, /GRANT[^;]*DELETE[^;]*analytics\.inadimplencia_mes/);
 });
 
+// ═══ QUEM ESTÁ NA CARTEIRA E QUANTO VALE: uma escrita só ══════════════════════
+//
+// Este portão nasceu de um defeito de produção. A lista de hoje e a apuração da
+// foto tinham cada uma a sua condição escrita à mão, e as duas diziam
+// `pagamento IS NULL` — o que EXCLUI o título com baixa parcial, porque o Omie
+// registra parcial pondo a data de pagamento e deixando `aberto_centavos > 0`.
+//
+// Resultado: R$ 45.383 de dívida real não apareciam em lugar nenhum, e o segundo
+// nome da fila de cobrança (INTERPROMO, R$ 11.250 de resíduo num título de
+// R$ 45.000) aparecia zerado.
+//
+// Duas escritas da mesma regra divergem; uma escrita não tem como divergir.
+
+test("só existe uma definição de estar na carteira, e uma de quanto se deve", () => {
+  const chamadas = (nome: string) =>
+    [...MODULO.matchAll(new RegExp(`\\$\\{${nome}\\(`, "g"))].length;
+  const definicoes = (nome: string) =>
+    [...MODULO.matchAll(new RegExp(`^const ${nome} = `, "gm"))].length;
+
+  assert.equal(definicoes("NA_CARTEIRA"), 1, "a regra de pertencer à carteira tem de ter UM lugar");
+  assert.equal(definicoes("EM_ABERTO"), 1, "a regra de quanto se deve tem de ter UM lugar");
+  assert.ok(chamadas("NA_CARTEIRA") >= 2, "a lista de hoje e a apuração precisam usar a MESMA regra");
+  assert.ok(chamadas("EM_ABERTO") >= 2, "a lista de hoje e a apuração precisam usar a MESMA valoração");
+
+  // ┌───────────────────────────────────────────────────────────────────────┐
+  // │ AS DUAS CONSULTAS DA CARTEIRA NÃO PODEM TER CONDIÇÃO DE PAGAMENTO         │
+  // │ PRÓPRIA. Elas DELEGAM, e é só isso que este portão exige.                 │
+  // │                                                                          │
+  // │ A primeira versão da regra era mais larga — proibia `pagamento IS NULL`   │
+  // │ em qualquer lugar do arquivo — e acusou três usos corretos: a própria     │
+  // │ definição, o numerador do DSO e a coorte, que pergunta outra coisa ("foi  │
+  // │ pago DEPOIS de vencer?"). Portão que acusa o certo é desligado no         │
+  // │ primeiro dia, então ele olha só as duas consultas que quebraram.          │
+  // └───────────────────────────────────────────────────────────────────────┘
+  for (const nome of ["CARTEIRA_DE_HOJE", "CARTEIRA_EM"]) {
+    const corpo =
+      MODULO.match(new RegExp(`const ${nome} = (?:\\(corte: string\\) => )?\`([\\s\\S]*?)\`;`))?.[1] ?? "";
+    assert.ok(corpo.length > 20, `não li o corpo de ${nome}`);
+    assert.doesNotMatch(
+      corpo,
+      /pagamento\s+IS\s+NULL|aberto_centavos/,
+      `${nome} escreve a própria condição de pagamento em vez de delegar — ` +
+        "foi exatamente assim que a baixa parcial ficou de fora da carteira",
+    );
+  }
+});
+
+test("o comentário da 0045 sobre pagamento parcial está corrigido em migração posterior", () => {
+  // A 0045 está aplicada e o guarda de checksum a torna imutável. Ela afirma que
+  // pagamento parcial não existe, o que é falso. A correção só pode vir por outra
+  // migração — e este portão garante que ela continue existindo.
+  const correcao = readFileSync(
+    join(RAIZ, "packages", "db", "migrations", "0047_pagamento_parcial_existe.sql"),
+    "utf8",
+  );
+  assert.match(MIGRACAO, /pagamento parcial NÃO EXISTE/, "a 0045 mudou; conferir se a 0047 ainda faz sentido");
+  assert.match(correcao, /COMMENT ON COLUMN fact\.inadimplencia_titulo\.valor_centavos/);
+  assert.match(correcao, /COMMENT ON COLUMN analytics\.inadimplencia_mes\.ajuste_centavos/);
+});
+
 test("o módulo de inadimplência não escreve em lugar nenhum além das próprias tabelas", () => {
   const escritas = [
     ...MODULO.matchAll(/\b(INSERT INTO|UPDATE|DELETE FROM)\s+([a-z_]+\.[a-z_]+)/gi),
@@ -274,6 +334,47 @@ describe("apuração dos quatro movimentos", { skip: !ADMIN }, () => {
         WHERE competencia = $1`,
       [M2],
     );
+  });
+
+  test("baixa parcial FICA na carteira pelo resíduo, e não sai como recuperada", async () => {
+    // O defeito que este teste protege: o Omie marca o título como pago (data
+    // preenchida) mas deixa `aberto_centavos > 0`. A primeira versão do módulo
+    // usava `pagamento IS NULL` e jogava o título inteiro fora — R$ 45.383 de
+    // dívida real invisíveis, sendo o maior caso o segundo nome da fila.
+    const P = "2019-09-01";
+    await db.query(
+      `INSERT INTO core.omie_titulo
+         (codigo_titulo, documento, status, vencimento, pagamento,
+          valor_centavos, pago_centavos, aberto_centavos, liquidado)
+       VALUES (9900107, $1, 'RECEBIDO', '2019-06-14'::date, '2019-08-20'::date,
+               1000_00, 700_00, 300_00, 'N')`,
+      [DOC],
+    );
+    // Na foto de agosto o título ainda não tinha pagamento nenhum: vale cheio.
+    await apurarCompetencia(db, M2, { origem: "reconstruido" });
+    const { rows: emAgosto } = await db.query(
+      `SELECT valor_centavos, movimento FROM fact.inadimplencia_titulo
+        WHERE competencia = $1 AND codigo_titulo = 9900107`,
+      [M2],
+    );
+    assert.equal(String(emAgosto[0]?.["valor_centavos"]), String(1000_00), "em 1º/ago nada havia sido pago");
+
+    // Em setembro a baixa parcial já ocorreu (20/ago): fica na carteira pelos 300.
+    const r = await apurarCompetencia(db, P, { origem: "reconstruido" });
+    const { rows } = await db.query(
+      `SELECT valor_centavos, movimento, ajuste_centavos
+         FROM fact.inadimplencia_titulo WHERE competencia = $1 AND codigo_titulo = 9900107`,
+      [P],
+    );
+    assert.equal(rows[0]?.["movimento"], "permaneceu", "quem pagou PARTE não sai da carteira");
+    assert.equal(String(rows[0]?.["valor_centavos"]), String(300_00), "e fica pelo que ainda se deve");
+    assert.equal(String(rows[0]?.["ajuste_centavos"]), String(-700_00), "os 700 recebidos são ajuste, não recuperação");
+    assert.ok(Number(r.ajusteCentavos) <= -700_00, "o fechamento do mês carrega o ajuste");
+
+    await db.query("DELETE FROM fact.inadimplencia_titulo WHERE competencia = $1", [P]);
+    await db.query("DELETE FROM analytics.inadimplencia_mes WHERE competencia = $1", [P]);
+    await db.query("DELETE FROM core.omie_titulo WHERE codigo_titulo = 9900107");
+    await apurarCompetencia(db, M2, { origem: "reconstruido" });
   });
 
   test("a fronteira do corrente é a mesma constante da tela", () => {

@@ -46,6 +46,54 @@ import { E_CLIENTE } from "./revisao-faturamento.js";
 const TITULO_VIVO = `t.valor_centavos > 0 AND t.situacao NOT IN ('previsao', 'cancelado')`;
 
 /**
+ * ESTÁ NA CARTEIRA naquele instante — e o terceiro caso foi achado no QA.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ PAGAMENTO PARCIAL EXISTE, e a primeira versão deste módulo jurava que não.  │
+ * │                                                                            │
+ * │ Eu tinha medido pela forma errada: procurei `pagamento IS NULL AND           │
+ * │ pago_centavos > 0` e achei zero. O Omie NÃO registra parcial assim — ele     │
+ * │ põe a DATA de pagamento e deixa `aberto_centavos` maior que zero. A forma    │
+ * │ certa é `pagamento IS NOT NULL AND aberto_centavos > 0`, e aí são 33         │
+ * │ títulos com R$ 45.383 ainda em aberto, 29 deles com resíduo acima de 5%.     │
+ * │                                                                            │
+ * │ O maior é do INTERPROMO: título de R$ 45.000 marcado "recebido", com         │
+ * │ R$ 33.750 pagos e R$ 11.250 em aberto — e o INTERPROMO é o SEGUNDO nome da   │
+ * │ fila de cobrança. A versão anterior mostrava zero para ele. Numa tela cujo   │
+ * │ trabalho é dizer quanto o cliente deve, alguém ligaria com o número errado.  │
+ * │                                                                            │
+ * │ Tentei antes reconstruir o aberto por data a partir de `core.omie_baixa`,    │
+ * │ que tem valor e data de cada baixa. NÃO DÁ: 3.390 das 25.037 baixas estão    │
+ * │ sem data (13,5%) e em 2.958 títulos a soma das baixas não fecha com          │
+ * │ `pago_centavos` (13,7%). Trocaria uma falha de 2% por uma incerteza de 14%.  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * DOIS CORTES e não um, porque as duas perguntas são diferentes: até quando o
+ * título tinha de ter vencido, e até quando um pagamento conta como feito. Na
+ * foto do dia 1º os dois são a mesma data. Na lista de HOJE não: vence "antes de
+ * hoje" (um título que vence hoje não está atrasado) e é pago "até hoje
+ * inclusive" — senão quem pagou esta manhã apareceria devendo à tarde.
+ */
+const NA_CARTEIRA = (venceuAntesDe: string, pagoAntesDe: string) => `
+  ${TITULO_VIVO}
+  AND t.vencimento < ${venceuAntesDe}
+  AND (t.pagamento IS NULL OR t.pagamento >= ${pagoAntesDe} OR t.aberto_centavos > 0)`;
+
+/**
+ * QUANTO ainda se deve daquele título naquele instante.
+ *
+ * Se nada havia sido pago até o corte, é o valor cheio. Se houve baixa parcial
+ * antes do corte, é o resíduo — e aí mora a única aproximação do módulo:
+ * `aberto_centavos` é o resíduo de HOJE, não o daquela data. Ela atinge só o
+ * título que estava vencido no corte E foi parcialmente pago depois: 33 títulos
+ * hoje, R$ 45.383. O caminho exato exigiria a baixa por data, que a base não
+ * sustenta (ver acima).
+ */
+const EM_ABERTO = (pagoAntesDe: string) => `
+  CASE WHEN t.pagamento IS NULL OR t.pagamento >= ${pagoAntesDe}
+       THEN t.valor_centavos ELSE t.aberto_centavos END`;
+
+/**
  * A conta do painel de um documento, quando há mais de uma.
  *
  * 42 documentos têm identidade dupla — o mesmo CNPJ com duas contas. A escolha é
@@ -121,7 +169,12 @@ export interface TituloEmAtraso {
   readonly razaoSocial: string | null;
   readonly accountId: string | null;
   readonly statusPainel: string | null;
+  /** O que ainda se deve. Com baixa parcial é menor que o valor do título. */
   readonly valorCentavos: string;
+  /** O valor cheio emitido. Diferente de `valorCentavos` só em baixa parcial. */
+  readonly valorDoTituloCentavos: string;
+  /** Quanto já entrou deste título. Zero na esmagadora maioria. */
+  readonly pagoCentavos: string;
   readonly vencimento: string;
   readonly emissao: string | null;
   readonly diasAtraso: number;
@@ -171,8 +224,12 @@ function ondeDaCarteira(f: FiltrosDaCarteira, base: number) {
  * e o histórico contam faixas diferentes. Há portão comparando as duas.
  */
 const CARTEIRA_DE_HOJE = `
-  SELECT t.codigo_titulo, t.documento, t.valor_centavos, t.vencimento, t.emissao,
-         t.categoria,
+  SELECT t.codigo_titulo, t.documento, t.vencimento, t.emissao, t.categoria,
+         ${EM_ABERTO("current_date + 1")} AS valor_centavos,
+         -- O valor cheio ao lado do que resta: a linha precisa dizer que o
+         -- cliente pagou parte, senão o número menor parece erro de leitura.
+         t.valor_centavos AS valor_do_titulo,
+         t.pago_centavos,
          (current_date - t.vencimento)::int AS dias_atraso,
          CASE
            WHEN current_date - t.vencimento <=  30 THEN '1_30'
@@ -187,9 +244,7 @@ const CARTEIRA_DE_HOJE = `
            WHERE c.documento = t.documento
            ORDER BY c.razao_social LIMIT 1) AS razao_omie
     FROM core.omie_titulo t
-   WHERE ${TITULO_VIVO}
-     AND t.pagamento IS NULL
-     AND t.vencimento < current_date`;
+   WHERE ${NA_CARTEIRA("current_date", "current_date + 1")}`;
 
 export async function carteiraDeHoje(
   db: pg.Pool,
@@ -218,6 +273,8 @@ export async function carteiraDeHoje(
     accountId: (r["account_id"] as string | null) ?? null,
     statusPainel: (r["status_core"] as string | null) ?? null,
     valorCentavos: String(r["valor_centavos"]),
+    valorDoTituloCentavos: String(r["valor_do_titulo"]),
+    pagoCentavos: String(r["pago_centavos"]),
     vencimento: String(r["vencimento_txt"]),
     emissao: (r["emissao_txt"] as string | null) ?? null,
     diasAtraso: Number(r["dias_atraso"]),
@@ -238,6 +295,8 @@ export interface ClienteEmAtraso {
   readonly diasMax: number;
   readonly diasMin: number;
   readonly eCliente: boolean;
+  /** Quanto já entrou dos títulos ainda em aberto — baixa parcial. */
+  readonly pagoCentavos: string;
 }
 
 export async function clientesEmAtraso(
@@ -260,7 +319,8 @@ export async function clientesEmAtraso(
             sum(valor_centavos)::text AS valor,
             coalesce(sum(valor_centavos) FILTER (WHERE dias_atraso <= ${DIAS_CORRENTE}), 0)::text AS corrente,
             max(dias_atraso)::int AS dias_max, min(dias_atraso)::int AS dias_min,
-            bool_or(e_cliente) AS e_cliente
+            bool_or(e_cliente) AS e_cliente,
+            sum(pago_centavos)::text AS pago
        FROM com_conta
       GROUP BY documento
       ORDER BY sum(valor_centavos) DESC`,
@@ -277,6 +337,7 @@ export async function clientesEmAtraso(
     diasMax: Number(r["dias_max"]),
     diasMin: Number(r["dias_min"]),
     eCliente: Boolean(r["e_cliente"]),
+    pagoCentavos: String(r["pago"] ?? "0"),
   }));
 }
 
@@ -342,7 +403,10 @@ export async function resumoDaCarteira(
          coalesce(sum(t.valor_centavos) FILTER (
            WHERE t.vencimento >= date_trunc('month', current_date) - interval '12 months'
              AND t.vencimento <  date_trunc('month', current_date)), 0) AS faturado_12m,
-         coalesce(sum(t.valor_centavos) FILTER (WHERE t.pagamento IS NULL), 0) AS aberto
+         -- Em aberto e não valor do título: com baixa parcial os dois divergem,
+         -- e o numerador do DSO é o que ainda se deve.
+         coalesce(sum(${EM_ABERTO("current_date + 1")}) FILTER (
+           WHERE t.pagamento IS NULL OR t.aberto_centavos > 0), 0) AS aberto
          FROM core.omie_titulo t
         WHERE ${TITULO_VIVO} AND ${E_CLIENTE("t.documento")}
      )
@@ -447,11 +511,10 @@ export interface ResultadoDaApuracao {
  * devolve o passado em vez do presente.
  */
 const CARTEIRA_EM = (corte: string) => `
-  SELECT t.codigo_titulo, t.documento, t.valor_centavos, t.vencimento
+  SELECT t.codigo_titulo, t.documento, t.vencimento,
+         ${EM_ABERTO(corte)} AS valor_centavos
     FROM core.omie_titulo t
-   WHERE ${TITULO_VIVO}
-     AND t.vencimento < ${corte}
-     AND (t.pagamento IS NULL OR t.pagamento >= ${corte})`;
+   WHERE ${NA_CARTEIRA(corte, corte)}`;
 
 /**
  * Apura UMA competência: a foto do dia 1º e o fechamento do mês que acabou.
@@ -525,9 +588,14 @@ export async function apurarCompetencia(
           WHERE NOT EXISTS (SELECT 1 FROM anterior_gravada)
        ),
        anterior AS (
-         SELECT * FROM anterior_gravada
+         -- Colunas NOMEADAS e nao SELECT estrela: o UNION casa por POSICAO, e no dia
+         -- em que a ordem de uma das duas consultas mudou o Postgres tentou unir
+         -- bigint com date. Erro 42804, e a mensagem não diz qual das duas mudou.
+         SELECT codigo_titulo, documento, valor_centavos, vencimento
+           FROM anterior_gravada
          UNION ALL
-         SELECT * FROM anterior_das_datas
+         SELECT codigo_titulo, documento, valor_centavos, vencimento
+           FROM anterior_das_datas
        ),
        juntos AS (
          SELECT
