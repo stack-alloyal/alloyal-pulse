@@ -23,6 +23,7 @@ import {
 import { Abas, Aviso, Badge, Busca, Card, Chip, Chips, Kpi, KpiGrade, type Tom } from '@pulse/ui'
 import Link from 'next/link'
 
+import { GraficoDoAtraso } from '../grafico-atraso'
 import { TabelaOrdenavel, type Coluna } from '../revisao/tabela'
 import { Corpo, Topo } from '../../casca'
 import { pool } from '../../../../lib/db'
@@ -676,7 +677,6 @@ function Evolucao({
     )
   }
 
-  const maiorSaldo = Math.max(...serie.map((m) => Number(m.saldoFinalCentavos)), 1)
   const maiorFluxo = Math.max(
     ...serie.flatMap((m) => [Number(m.entrouCentavos), Number(m.recuperadoCentavos)]),
     1,
@@ -696,38 +696,13 @@ function Evolucao({
           </span>
         }
       >
-        <div className="overflow-x-auto">
-          <div className="flex min-w-[600px] items-end gap-1" style={{ height: 160 }}>
-            {serie.map((m) => {
-              const alt = Math.max(Math.round((Number(m.saldoFinalCentavos) / maiorSaldo) * 128), 2)
-              const recente =
-                Number(m.saldoFinalCentavos) > 0
-                  ? Math.min(Number(m.recenteCentavos) / Number(m.saldoFinalCentavos), 1)
-                  : 0
-              const titulo =
-                `${MES(m.competencia)} · saldo ${BRL(m.saldoFinalCentavos)} · ${N(m.titulosFinal)} títulos · ` +
-                `até ${DIAS_CORRENTE} d ${BRL(m.recenteCentavos)} · foto ${m.origem}`
-              return (
-                <div key={m.competencia} className="flex flex-1 flex-col items-center justify-end gap-1">
-                  {/* A barra clara é a carteira toda; a escura, a parte de até 90
-                      dias. Ver as duas juntas é o que mostra que o saldo cresce
-                      pelo passivo antigo e não pela cobrança recente. */}
-                  <span
-                    title={titulo}
-                    className="relative w-full rounded-t bg-purple-100"
-                    style={{ height: alt }}
-                  >
-                    <span
-                      className="absolute inset-x-0 bottom-0 rounded-t bg-purple-500"
-                      style={{ height: `${Math.round(recente * 100)}%` }}
-                    />
-                  </span>
-                  <span className="whitespace-nowrap text-micro text-ink-3">{MES(m.competencia)}</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        {/* O gráfico mora em `../grafico-atraso`, e a cascata usa o mesmo. Aqui a
+            barra é nomeada pela competência da FOTO — que é o eixo desta tela. */}
+        <GraficoDoAtraso
+          serie={serie}
+          rotulo={(m) => MES(m.competencia)}
+          diasCorrente={DIAS_CORRENTE}
+        />
         <p className="mt-3 text-meta leading-relaxed text-ink-3">
           A barra inteira é a carteira; a parte escura é o que tem até{' '}
           <strong className="font-semibold text-ink">{DIAS_CORRENTE} dias</strong>.{' '}

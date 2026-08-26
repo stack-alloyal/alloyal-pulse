@@ -1,8 +1,14 @@
-import { inadimplenciaDaCompetencia, serieDaCarteira, type MesDaCarteira } from '@pulse/config'
+import {
+  DIAS_CORRENTE,
+  inadimplenciaDaCompetencia,
+  serieDaCarteira,
+  type MesDaCarteira,
+} from '@pulse/config'
 import { fonteDoMrr, listarCascatas, type Cascata } from '@pulse/success'
 import { Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
+import { GraficoDoAtraso, competenciaDeReceita } from './grafico-atraso'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir } from '../../../lib/guarda'
@@ -123,11 +129,7 @@ export default async function Receita({
      ele é repetido no índice do mapa por um motivo só — a tabela precisa cruzar as
      duas séries sem chamar o banco 24 vezes. */
   const atrasoPorMes = new Map<string, MesDaCarteira>(
-    serieDoAtraso.map((m) => {
-      const [ano, mes] = m.competencia.split('-')
-      const anterior = Number(mes) === 1 ? `${Number(ano) - 1}-12` : `${ano}-${String(Number(mes) - 1).padStart(2, '0')}`
-      return [anterior, m]
-    }),
+    serieDoAtraso.map((m) => [competenciaDeReceita(m.competencia), m]),
   )
 
   if (!atual) {
@@ -284,6 +286,28 @@ export default async function Receita({
                 {...(Number(atraso.deltaCentavos) > 0 ? { tom: 'red' as const } : {})}
               />
             </KpiGrade>
+            {/* O MESMO gráfico da inadimplência, nomeado pelo eixo desta tela: a
+                barra é o saldo no FIM de cada competência de receita, e a do mês
+                escolhido no filtro ganha o anel. É o que responde "o mês que estou
+                olhando é fora da curva ou é a curva?" — pergunta que só existe
+                numa tela que tem filtro de mês. */}
+            {serieDoAtraso.length > 1 && (
+              <div className="mt-5">
+                <GraficoDoAtraso
+                  serie={serieDoAtraso}
+                  rotulo={(m) => MES(competenciaDeReceita(m.competencia) + '-01')}
+                  /* A competência da FOTO, achada pelo mapa: passar a de receita
+                     destacaria a barra do mês seguinte — que é exatamente o erro
+                     de um mês que `competenciaDeReceita` existe para evitar. */
+                  {...(() => {
+                    const f = atrasoPorMes.get(atual.competencia.slice(0, 7))
+                    return f ? { destacar: f.competencia } : {}
+                  })()}
+                  diasCorrente={DIAS_CORRENTE}
+                  altura={140}
+                />
+              </div>
+            )}
             <p className="mt-4 text-meta leading-relaxed text-ink-3">
               {Number(atual.mrrFinalCentavos) > 0 && (
                 <>
@@ -297,7 +321,9 @@ export default async function Receita({
                   parados em atraso.{' '}
                 </>
               )}
-              A cascata acima é de <strong className="font-semibold text-ink">competência</strong> —
+              Na barra, o claro é a carteira inteira e o escuro é o que tem até 90 dias — a parte
+              que ainda responde a cobrança. A cascata acima é de{' '}
+              <strong className="font-semibold text-ink">competência</strong> —
               o que foi cobrado no mês, tenha entrado ou não. Isto é{' '}
               <strong className="font-semibold text-ink">recebível</strong>: do que foi cobrado, o
               que não entrou. Os dois números não se somam, e o que os liga é a razão entre eles.
