@@ -28,6 +28,10 @@ const MODULO = readFileSync(
   join(RAIZ, "packages", "config", "src", "inadimplencia.ts"),
   "utf8",
 );
+const MODULO_REVISAO = readFileSync(
+  join(RAIZ, "packages", "config", "src", "revisao-faturamento.ts"),
+  "utf8",
+);
 
 // ═══ A REGRA DA FAIXA VIVE EM DOIS LUGARES, e eles têm de concordar ═══════════
 //
@@ -547,4 +551,41 @@ describe("carência em dias úteis", { skip: !ADMIN }, () => {
       `há título vencido depois do corte ${corte} na carteira — a carência furou`,
     );
   });
+});
+
+// ═══ O RECORTE DE CLIENTE VIVE EM DOIS LUGARES, e o segundo é SQL ═════════════
+//
+// `E_CLIENTE` mora em TypeScript e é usado pela revisão de faturamento e pela
+// inadimplência. A view `analytics.mrr_faturado_mes` precisa do MESMO recorte e é
+// SQL puro — não há como importar. São duas cópias, e cópia divergente é o defeito
+// que este arquivo inteiro existe para pegar.
+//
+// Se divergirem, a cascata e a inadimplência passam a discordar sobre QUEM é
+// cliente, e o MRR de um cliente aparece numa tela e não na outra.
+
+test("a view de MRR usa o mesmo recorte de cliente que o TypeScript", () => {
+  const view = readFileSync(
+    join(RAIZ, "packages", "db", "migrations", "0050_mrr_mes_dobrado.sql"),
+    "utf8",
+  );
+  // As três condições do recorte, na ordem em que importam: fora quem tem Azul,
+  // dentro quem tem Cliente, Cliente Hinova, ou não é fornecedor nem investidor.
+  for (const pedaco of [
+    "az.tags ? 'Azul'",
+    "cl.tags ? 'Cliente'",
+    "cl.tags ? 'Cliente Hinova'",
+    "NOT (cl.tags ? 'Fornecedor' OR cl.tags ? 'Investidor')",
+  ]) {
+    assert.ok(
+      view.includes(pedaco),
+      `a view de MRR não tem "${pedaco}" — divergiu do E_CLIENTE do TypeScript`,
+    );
+    assert.ok(
+      MODULO_REVISAO.includes(pedaco),
+      `o E_CLIENTE do TypeScript não tem "${pedaco}" — mudou de um lado só`,
+    );
+  }
+  // E o NOT EXISTS do Azul tem de estar nos dois: sem ele a intermediação de
+  // pontos entra como MRR, e foi ela que saltou de R$ 30 mil para R$ 3,2 milhões.
+  assert.match(view, /NOT EXISTS \(\s*SELECT 1 FROM core\.omie_cliente az/);
 });

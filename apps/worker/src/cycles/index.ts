@@ -23,7 +23,9 @@ import {
   abrirJanela,
   competenciaAnterior,
   CompetenciaCongeladaError,
+  competenciasSemEventos,
   fechar,
+  gerarEventosDeMrr,
 } from "@pulse/success";
 
 import { vencerObrigacoes } from "@pulse/contratos";
@@ -950,6 +952,96 @@ export const c21Inadimplencia = defineCycle({
       linhasLidas: linhas,
       linhasGravadas: linhas,
       detalhe: { competencias: apuradas, reconstruidas, congeladas },
+    };
+  },
+});
+
+/**
+ * C22 — o ledger de MRR derivado do faturamento.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ EXISTE PORQUE A CASCATA ESTAVA VAZIA, e não por elegância de arquitetura.   │
+ * │                                                                            │
+ * │ Medido em 26/08/2026: `fact.mrr_event` com ZERO linhas e uma única           │
+ * │ competência fechada, com todos os valores em R$ 0,00. O ledger só recebia    │
+ * │ evento do fluxo de saídas, e o ciclo que traria os eventos do HubSpot (C5)   │
+ * │ está declarado e não implementado. A tela de receita mostrava zero em toda   │
+ * │ linha, e a coluna de MRR da carteira vinha em branco.                       │
+ * │                                                                            │
+ * │ Este ciclo deriva os eventos do faturamento do Omie, que é a única fonte de  │
+ * │ MRR que corresponde ao que entra. Quando o C5 ligar, os eventos de lá        │
+ * │ convivem com estes: os derivados têm `reconstruido = true` e chave natural   │
+ * │ começando em `faturamento:`, e são os únicos que este ciclo apaga.           │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ANTES DO C13, que fecha às 07h30. O fechamento LÊ o ledger; gerar depois dele
+ * daria uma cascata sempre com um dia de atraso em relação ao ledger — e no dia 1º,
+ * que é quando a competência nova aparece, daria o mês inteiro errado.
+ *
+ * E DEPOIS DO C20 das 04h10, que traz os títulos. A ordem C20 → C22 → C13 é a
+ * cadeia inteira: faturamento, ledger, cascata.
+ */
+export const c22LedgerDeMrr = defineCycle({
+  id: "C22",
+  descricao: "Ledger de MRR derivado do faturamento do Omie",
+  fonte: "ops",
+  metodo: "consolidacao",
+  agenda: "20 7 * * *",
+  janela: "mes_anterior",
+  chaveNatural: ["competencia", "account_id", "tipo"],
+  emFalha: {
+    tentativas: 2,
+    backoff: "fixo",
+    alarmeApos: 1,
+    // Derivado do faturamento, que continua no banco: falhar hoje e rodar amanhã
+    // dá o mesmo resultado. O que degrada é a cascata ficar um dia velha.
+    degradacao: "reprocessa",
+  },
+  fase: "F1",
+  executar: async (ctx) => {
+    const db = poolDoWorker();
+
+    // Mesma ideia do C21: pergunta "que mês fechado está sem evento?" em vez de
+    // "é dia 1º?". Um cron mensal perde o mês se a máquina estiver fora do ar.
+    const pendentes = await competenciasSemEventos(db);
+    if (pendentes.length === 0) {
+      ctx.log("todas as competências fechadas já têm evento derivado");
+      return { linhasLidas: 0, linhasGravadas: 0 };
+    }
+
+    let eventos = 0;
+    const fechadas: string[] = [];
+    for (const competencia of pendentes) {
+      const r = await gerarEventosDeMrr(db, competencia);
+      eventos += r.total;
+      ctx.log(
+        `${competencia.slice(0, 7)} · ${r.total} eventos · novo ${r.novo} · ` +
+          `expansão ${r.expansao} · contração ${r.contracao} · churn ${r.churn} · ` +
+          `reativação ${r.reativacao}`,
+      );
+
+      // Fecha a competência na MESMA passada. O C13 continua sendo a autoridade
+      // do mês anterior — ele recalcula todo dia enquanto está aberto —, mas sem
+      // isto os meses de trás ficariam com evento e sem cascata, e a tela de
+      // receita mostraria história pela metade.
+      try {
+        const c = await fechar(db, competencia);
+        fechadas.push(competencia.slice(0, 7));
+        ctx.log(
+          `${competencia.slice(0, 7)} fechada · MRR final ` +
+            `${(Number(c.mrrFinalCentavos) / 100).toFixed(0)} · NRR ${c.nrr ?? "—"}`,
+        );
+      } catch (erro) {
+        if (erro instanceof CompetenciaCongeladaError) {
+          ctx.log(`${competencia.slice(0, 7)} congelada — cascata preservada`);
+        } else throw erro;
+      }
+    }
+
+    return {
+      linhasLidas: eventos,
+      linhasGravadas: eventos,
+      detalhe: { competencias: pendentes.length, fechadas },
     };
   },
 });

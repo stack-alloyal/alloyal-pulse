@@ -34,6 +34,8 @@ export interface Cascata {
   naoAtribuidoCentavos: string
   mrrFinalCentavos: string
   contasIniciais: number
+  /** Observado no fim do mês. Nulo em competência fechada antes da 0051. */
+  contasFinais: number | null
   contasNovas: number
   contasPerdidas: number
   nrr: number | null
@@ -132,10 +134,38 @@ export async function fechar(
     )
     const { rows: base } = await cliente.query<{ mrr: string; contas: string }>(
       // Contratos vigentes no ÚLTIMO DIA do mês anterior — o retrato de abertura.
-      `SELECT COALESCE(sum(mrr_centavos),0)::text mrr, count(*)::text contas
-         FROM core.contract
-        WHERE inicio <= ($1::date - 1)
-          AND COALESCE(encerrado_em, vigencia_fim, 'infinity'::date) >= ($1::date - 1)`,
+      //
+      // ┌───────────────────────────────────────────────────────────────────────┐
+      // │ CAI PARA O FATURADO quando `core.contract` está VAZIA, e ela está.      │
+      // │                                                                        │
+      // │ Medido em 26/08/2026: zero linhas, e nada a alimenta — o ciclo C5, que  │
+      // │ traria os contratos do HubSpot, está declarado e não implementado. Com  │
+      // │ a tabela vazia, esta consulta devolvia 0 e a cascata inteira era zero.  │
+      // │                                                                        │
+      // │ A preferência é do CONTRATO, e é deliberada: quando o C5 ligar, a       │
+      // │ cascata volta a se apoiar na base contratual sem que ninguém mexa aqui, │
+      // │ e os testes que inserem contrato continuam medindo o que mediam.        │
+      // │                                                                        │
+      // │ O CUSTO de cair para o faturado: o resíduo "não atribuído" perde metade │
+      // │ do sentido. Ele existe para comparar DUAS fontes independentes — ledger │
+      // │ contra base de contratos. Com as duas saindo do faturamento, ele passa  │
+      // │ a checar só a aritmética dos meus deltas, o que ainda vale (pega bug de │
+      // │ derivação) mas não é conferência de negócio. Está dito na tela.          │
+      // └───────────────────────────────────────────────────────────────────────┘
+      `SELECT CASE WHEN EXISTS (SELECT 1 FROM core.contract)
+                   THEN (SELECT COALESCE(sum(mrr_centavos),0) FROM core.contract
+                          WHERE inicio <= ($1::date - 1)
+                            AND COALESCE(encerrado_em, vigencia_fim, 'infinity'::date) >= ($1::date - 1))
+                   ELSE (SELECT COALESCE(sum(mrr_centavos),0) FROM analytics.mrr_faturado_mes
+                          WHERE competencia = ($1::date - interval '1 month')::date)
+              END::text mrr,
+              CASE WHEN EXISTS (SELECT 1 FROM core.contract)
+                   THEN (SELECT count(*) FROM core.contract
+                          WHERE inicio <= ($1::date - 1)
+                            AND COALESCE(encerrado_em, vigencia_fim, 'infinity'::date) >= ($1::date - 1))
+                   ELSE (SELECT count(*) FROM analytics.mrr_faturado_mes
+                          WHERE competencia = ($1::date - interval '1 month')::date)
+              END::text contas`,
       [comp],
     )
     const mrrInicial = Number(ant[0]?.mrr ?? base[0]?.mrr ?? 0)
@@ -171,15 +201,47 @@ export async function fechar(
     //
     // `encerrado_em` vem antes de `vigencia_fim` porque saída antecipada é a
     // regra e não a exceção: o contrato ia até 2028 e a receita parou em agosto.
+    // Mesma queda para o faturado da abertura, e pelo mesmo motivo: ver o bloco
+    // acima. Sem ela o observado era 0 e o resíduo virava o MRR inteiro negativo.
     const { rows: fim } = await cliente.query<{ mrr: string }>(
-      `SELECT COALESCE(sum(mrr_centavos),0)::text mrr
-         FROM core.contract
-        WHERE inicio <= ($1::date + INTERVAL '1 month - 1 day')
-          AND COALESCE(encerrado_em, vigencia_fim, 'infinity'::date)
-              >= ($1::date + INTERVAL '1 month - 1 day')`,
+      `SELECT CASE WHEN EXISTS (SELECT 1 FROM core.contract)
+                   THEN (SELECT COALESCE(sum(mrr_centavos),0) FROM core.contract
+                          WHERE inicio <= ($1::date + INTERVAL '1 month - 1 day')
+                            AND COALESCE(encerrado_em, vigencia_fim, 'infinity'::date)
+                                >= ($1::date + INTERVAL '1 month - 1 day'))
+                   ELSE (SELECT COALESCE(sum(mrr_centavos),0) FROM analytics.mrr_faturado_mes
+                          WHERE competencia = $1::date)
+              END::text mrr`,
       [comp],
     )
     const mrrFinal = Number(fim[0]?.mrr ?? 0)
+
+    /* ┌─────────────────────────────────────────────────────────────────────┐
+       │ A CONTAGEM DE CONTAS É OBSERVADA, e não somada dos movimentos.        │
+       │                                                                      │
+       │ `contas_iniciais + contas_novas − contas_perdidas` ignora REATIVAÇÃO,  │
+       │ porque `contas_novas` conta só o tipo `novo`. Cada par churn →         │
+       │ reativação decrementa para sempre, e em 67 competências a tela chegou  │
+       │ a mostrar 161 contas onde havia 348. O valor em reais estava certo —    │
+       │ reativação soma no MRR —, e é por isso que ninguém viu: o número        │
+       │ grande fechava e o pequeno, ao lado, mentia.                           │
+       │                                                                      │
+       │ Mesma fonte do MRR final observado, pela mesma razão: as duas          │
+       │ respondem "o que havia no fim do mês" olhando a base, em vez de somar  │
+       │ movimento. Ver a migração 0051.                                        │
+       └─────────────────────────────────────────────────────────────────────┘ */
+    const { rows: nf } = await cliente.query<{ n: string }>(
+      `SELECT CASE WHEN EXISTS (SELECT 1 FROM core.contract)
+                   THEN (SELECT count(*) FROM core.contract
+                          WHERE inicio <= ($1::date + INTERVAL '1 month - 1 day')
+                            AND COALESCE(encerrado_em, vigencia_fim, 'infinity'::date)
+                                >= ($1::date + INTERVAL '1 month - 1 day'))
+                   ELSE (SELECT count(*) FROM analytics.mrr_faturado_mes
+                          WHERE competencia = $1::date)
+              END::text n`,
+      [comp],
+    )
+    const contasFinais = Number(nf[0]?.n ?? 0)
 
     const explicado =
       mrrInicial + n('novo') + n('expansao') + n('reativacao') + n('ajuste') -
@@ -201,8 +263,8 @@ export async function fechar(
           contracao_centavos, churn_pedido_centavos, churn_inadimplencia_centavos,
           reativacao_centavos, ajuste_centavos, nao_atribuido_centavos,
           mrr_final_centavos, contas_iniciais, contas_novas, contas_perdidas,
-          nrr, grr, gerado_em)
-       VALUES ($1::date,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now())
+          contas_finais, nrr, grr, gerado_em)
+       VALUES ($1::date,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$17,$15,$16,now())
        ON CONFLICT (competencia) DO UPDATE SET
          mrr_inicial_centavos = EXCLUDED.mrr_inicial_centavos,
          novo_centavos = EXCLUDED.novo_centavos,
@@ -217,13 +279,14 @@ export async function fechar(
          contas_iniciais = EXCLUDED.contas_iniciais,
          contas_novas = EXCLUDED.contas_novas,
          contas_perdidas = EXCLUDED.contas_perdidas,
+         contas_finais = EXCLUDED.contas_finais,
          nrr = EXCLUDED.nrr, grr = EXCLUDED.grr, gerado_em = now()
        RETURNING ${COLUNAS}`,
       [
         comp, mrrInicial, n('novo'), n('expansao'), n('contracao'),
         n('churn_pedido'), n('churn_inadimplencia'), n('reativacao'), n('ajuste'),
         naoAtribuido, mrrFinal, contasIniciais, n('contas_novas'), n('contas_perdidas'),
-        nrr, grr,
+        nrr, grr, contasFinais,
       ],
     )
     await cliente.query('COMMIT')
@@ -251,6 +314,7 @@ const COLUNAS = `
   contas_iniciais                              AS "contasIniciais",
   contas_novas                                 AS "contasNovas",
   contas_perdidas                              AS "contasPerdidas",
+  contas_finais                                AS "contasFinais",
   nrr, grr, estado,
   congelado_por AS "congeladoPor", congelado_em AS "congeladoEm",
   gerado_em AS "geradoEm"`
@@ -301,4 +365,23 @@ export async function listarCascatas(db: pg.Pool, meses = 12): Promise<Cascata[]
     [meses],
   )
   return rows.map(normalizar)
+}
+
+/**
+ * De onde o MRR observado está saindo hoje.
+ *
+ * Existe para a TELA não afirmar o que não é. O texto da cascata dizia "o MRR
+ * final é observado na base de contratos; os movimentos vêm do ledger — são duas
+ * fontes independentes", e isso deixou de ser verdade no dia em que o observado
+ * passou a cair para o faturado: com as duas pontas saindo do faturamento, o
+ * resíduo confere a minha aritmética e não o negócio.
+ *
+ * Uma frase errada numa tela de receita é pior que uma tela sem frase: ela ensina
+ * a confiar num número por um motivo que não existe.
+ */
+export async function fonteDoMrr(db: pg.Pool): Promise<'contrato' | 'faturamento'> {
+  const { rows } = await db.query<{ tem: boolean }>(
+    'SELECT EXISTS (SELECT 1 FROM core.contract) AS tem',
+  )
+  return rows[0]?.tem ? 'contrato' : 'faturamento'
 }

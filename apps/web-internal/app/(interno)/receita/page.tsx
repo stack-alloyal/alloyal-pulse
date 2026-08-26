@@ -1,9 +1,17 @@
-import { listarCascatas, type Cascata } from '@pulse/success'
-import { Badge, Card, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
+import { fonteDoMrr, listarCascatas, type Cascata } from '@pulse/success'
+import { Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
+import Link from 'next/link'
 
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir } from '../../../lib/guarda'
+
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+/** "2026-03-01" → "mar/26". O chip precisa caber; a competência inteira não cabe. */
+const MES = (iso: string) => {
+  const [a, m] = iso.split('-')
+  return `${MESES[Number(m) - 1] ?? m}/${a?.slice(2)}`
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -74,12 +82,30 @@ function Passo({
   )
 }
 
-export default async function Receita() {
+export default async function Receita({
+  searchParams,
+}: {
+  searchParams: Promise<{ mes?: string }>
+}) {
   // Receita não tem carteira: quem vê, vê a base inteira. A identidade não é
   // usada depois — o recorte desta tela é tudo ou nada.
   await exigir((p) => p.receita === 'base' || p.configurar, 'cascata de receita')
-  const cascatas = await listarCascatas(pool(), 12)
-  const atual = cascatas[0]
+  const q = await searchParams
+
+  /* ┌───────────────────────────────────────────────────────────────────────┐
+     │ 24 MESES E NÃO 12, e a tela ESCOLHE qual mostrar.                       │
+     │                                                                        │
+     │ Antes eram 12 carregados e UM renderizado: os outros onze iam para uma  │
+     │ tabela de resumo e o detalhe deles não existia em lugar nenhum. Quem     │
+     │ quisesse a cascata de março tinha de acreditar no MRR final e no NRR da  │
+     │ linha, sem ver de onde vieram.                                          │
+     │                                                                        │
+     │ `mes` inválido cai no mais recente em vez de devolver vazio: parâmetro   │
+     │ de URL é colado por gente, e tela vazia sem explicação parece defeito.   │
+     └───────────────────────────────────────────────────────────────────────┘ */
+  const [cascatas, fonte] = await Promise.all([listarCascatas(pool(), 24), fonteDoMrr(pool())])
+  const escolhido = q.mes ? cascatas.find((c) => c.competencia.slice(0, 7) === q.mes) : undefined
+  const atual = escolhido ?? cascatas[0]
 
   if (!atual) {
     return (
@@ -113,7 +139,11 @@ export default async function Receita() {
           <Kpi
             rotulo="MRR final"
             valor={REAIS(atual.mrrFinalCentavos)}
-            nota={`${atual.contasIniciais + atual.contasNovas - atual.contasPerdidas} contas · ${atual.competencia.slice(0, 7)}`}
+            /* A contagem OBSERVADA, não a somada dos movimentos: a soma ignora
+               reativação e derivava para baixo um par churn/reativação por vez —
+               chegou a dizer 161 contas onde havia 348. Ver a migração 0051. O
+               `??` cobre competência fechada antes dela. */
+            nota={`${atual.contasFinais ?? atual.contasIniciais + atual.contasNovas - atual.contasPerdidas} contas · ${atual.competencia.slice(0, 7)}`}
           />
           <Kpi
             rotulo="NRR"
@@ -133,6 +163,18 @@ export default async function Receita() {
             {...(residuoPreocupa(atual) ? { tom: 'red' as const } : {})}
           />
         </KpiGrade>
+
+        <Chips rotulo="competência:">
+          {cascatas.map((c) => (
+            <Chip
+              key={c.competencia}
+              rotulo={MES(c.competencia)}
+              href={`/receita?mes=${c.competencia.slice(0, 7)}`}
+              ativo={c.competencia === atual.competencia}
+              fixo
+            />
+          ))}
+        </Chips>
 
         <Card title={`Cascata de ${atual.competencia.slice(0, 7)}`} className="max-w-[36em]">
           <table className="w-full text-corpo">
@@ -162,13 +204,34 @@ export default async function Receita() {
           </table>
         </Card>
 
-        <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
-          O MRR final é observado na base de contratos; os movimentos vêm do ledger. São duas
-          fontes independentes, e o <strong className="font-semibold">não atribuído</strong> é a
-          diferença entre elas — ele existe para aparecer. Empurrá-lo para churn faria a cascata
-          fechar sempre, e um número que fecha por construção é um número que ninguém consegue
-          auditar. Resíduo grande é sinal de captação faltando, não de churn escondido.
-        </p>
+        {/* ┌─────────────────────────────────────────────────────────────────┐
+            │ A FRASE DEPENDE DA FONTE, e antes não dependia — ela afirmava      │
+            │ "duas fontes independentes" mesmo quando as duas pontas saem do    │
+            │ mesmo faturamento. Frase errada numa tela de receita é pior que    │
+            │ tela sem frase: ensina a confiar num número por um motivo que não  │
+            │ existe.                                                            │
+            └─────────────────────────────────────────────────────────────────┘ */}
+        {fonte === 'contrato' ? (
+          <p className="max-w-[80ch] text-corpo leading-relaxed text-ink-2">
+            O MRR final é observado na base de contratos; os movimentos vêm do ledger. São duas
+            fontes independentes, e o <strong className="font-semibold">não atribuído</strong> é a
+            diferença entre elas — ele existe para aparecer. Empurrá-lo para churn faria a cascata
+            fechar sempre, e um número que fecha por construção é um número que ninguém consegue
+            auditar. Resíduo grande é sinal de captação faltando, não de churn escondido.
+          </p>
+        ) : (
+          <Aviso tom="alerta">
+            <strong className="font-semibold">Este MRR é o FATURADO, não o contratado.</strong>{' '}
+            <code className="rounded bg-surface-2 px-1">core.contract</code> está vazia — o ciclo
+            que a alimentaria (C5, do HubSpot) não está ligado —, então tanto os movimentos quanto o
+            MRR final saem do faturamento do Omie, que é a única fonte que corresponde ao que
+            entra. Duas consequências: o <strong className="font-semibold">não atribuído</strong>{' '}
+            fica em R$ 0,00 por construção e confere só a aritmética dos deltas, não o negócio; e
+            um cliente que renegociou para pagar trimestralmente aparece como churn e reativação. A
+            view corrige as duas distorções de <em>cobrança</em> que dariam eventos falsos — mês em
+            branco e mês dobrado —, e nada além disso.
+          </Aviso>
+        )}
 
         {cascatas.length > 1 && (
           <>
@@ -176,7 +239,15 @@ export default async function Receita() {
               <Table
                 cols={['Competência', 'MRR final', 'NRR', 'GRR', 'Churn', 'Não atribuído', 'Estado']}
                 rows={cascatas.map((c) => [
-                  <span className="tabular-nums font-semibold">{c.competencia.slice(0, 7)}</span>,
+                  // A linha do histórico agora ABRE o detalhe daquele mês. Antes
+                  // era texto morto: a tabela mostrava NRR e resíduo de onze meses
+                  // cujos movimentos não existiam em tela nenhuma.
+                  <Link
+                    href={`/receita?mes=${c.competencia.slice(0, 7)}`}
+                    className="tabular-nums font-semibold hover:text-purple-700 hover:underline"
+                  >
+                    {c.competencia.slice(0, 7)}
+                  </Link>,
                   <span className="tabular-nums">{REAIS(c.mrrFinalCentavos)}</span>,
                   <span className="tabular-nums">{PCT(c.nrr)}</span>,
                   <span className="tabular-nums">{PCT(c.grr)}</span>,

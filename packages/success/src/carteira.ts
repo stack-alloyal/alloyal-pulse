@@ -83,7 +83,23 @@ export async function carregarCarteira(
   const { rows } = await db.query<Record<string, unknown>>(
     `WITH ultima AS (SELECT max(competencia) c FROM metrics.daily_snapshot)
      SELECT a.id, a.razao_social, a.porte, a.setor, a.csm_email,
-            ct.mrr_centavos::text                   AS mrr,
+            /* ┌───────────────────────────────────────────────────────────────┐
+               │ O MRR CAI PARA O FATURADO quando não há contrato, e a coluna     │
+               │ inteira vivia em branco por isso: core.contract tem ZERO linhas  │
+               │ — o ciclo C5, que a alimentaria do HubSpot, não está ligado.      │
+               │                                                                  │
+               │ analytics.mrr_faturado_mes e a mesma fonte que a cascata usa, e  │
+               │ é isso que importa: a carteira e a cascata precisam concordar     │
+               │ sobre o MRR do mesmo cliente, senão a pessoa abre as duas e não   │
+               │ sabe em qual acreditar. Ver as migrações 0049 e 0050.             │
+               └───────────────────────────────────────────────────────────────┘ */
+            coalesce(ct.mrr_centavos, fm.mrr_centavos)::text AS mrr,
+            (ct.mrr_centavos IS NULL AND fm.mrr_centavos IS NOT NULL) AS mrr_faturado,
+            /* O atraso vem da inadimplência, que é apurada. A daily_snapshot
+               também está vazia — depende dos ciclos C2/C3/C8, declarados e não
+               implementados —, então estas duas colunas nunca tiveram valor. */
+            coalesce(s.dias_atraso_max, ina.dias_atraso)::int AS dias_atraso_max_efetivo,
+            ina.aberto_centavos::text               AS aberto_centavos,
             sg.faixa_final, sg.score_composto, sg.parcial AS score_parcial,
             to_char(s.competencia,'YYYY-MM-DD')     AS competencia,
             s.completo,
@@ -100,6 +116,29 @@ export async function carregarCarteira(
        ) ct ON true
        LEFT JOIN metrics.daily_snapshot s
               ON s.account_id = a.id AND s.competencia = (SELECT c FROM ultima)
+       /* O MRR faturado do último mês com movimento DENTRO DA CARÊNCIA.
+          A primeira versão pegava o último mês de qualquer época, e o somatório
+          da carteira deu R$ 3,56 mi contra R$ 1,37 mi de faturamento real: ela
+          estava mostrando o MRR de 2022 de quem parou em 2022. Cliente que parou
+          não tem MRR — tem histórico.
+          Três meses porque um cliente que vence dia 25 tem o mês corrente ainda
+          vazio, e dois meses fechados é a mesma carência que a revisão de
+          faturamento usa para dizer que alguém parou (MESES_DE_CARENCIA = 2). */
+       LEFT JOIN LATERAL (
+         SELECT mrr_centavos FROM analytics.mrr_faturado_mes
+          WHERE account_id = a.id
+            AND competencia >= date_trunc('month', $3::date) - interval '2 months'
+          ORDER BY competencia DESC LIMIT 1
+       ) fm ON true
+       -- O atraso de hoje, da foto mais recente da inadimplência.
+       LEFT JOIN LATERAL (
+         SELECT max(f.dias_atraso) AS dias_atraso,
+                sum(f.valor_centavos) AS aberto_centavos
+           FROM fact.inadimplencia_titulo f
+          WHERE f.account_id = a.id
+            AND f.movimento IN ('permaneceu', 'entrou')
+            AND f.competencia = (SELECT max(competencia) FROM fact.inadimplencia_titulo)
+       ) ina ON true
        LEFT JOIN metrics.signal sg
               ON sg.account_id = a.id AND sg.competencia = (SELECT c FROM ultima)
        -- Itens VISÍVEIS: o de modo sombra não é trabalho de ninguém, e contá-lo
@@ -140,7 +179,7 @@ export async function carregarCarteira(
       adesao30d: elegiveis && elegiveis > 0 && ativas !== null ? ativas / elegiveis : null,
       coberturaCadastral:
         contratadas && contratadas > 0 && elegiveis !== null ? elegiveis / contratadas : null,
-      diasAtrasoMax: num(r, 'dias_atraso_max'),
+      diasAtrasoMax: num(r, 'dias_atraso_max_efetivo'),
       diasDesdeUltimoContato: num(r, 'dias_desde_ultimo_contato'),
       competencia: r['competencia'] === null ? null : String(r['competencia']),
       completo: r['completo'] === true,
