@@ -133,6 +133,12 @@ h3{font-size:16.5px; font-weight:600; letter-spacing:-.008em; margin:30px 0 8px}
 .regua{height:3px; width:52px; background:var(--purple-500); border-radius:2px; margin:16px 0 20px}
 
 /* ── Tabelas ───────────────────────────────────────────────────────────────── */
+table.bench{min-width:820px}
+table.bench :is(th,td):nth-child(1){width:13%}
+table.bench :is(th,td):nth-child(2){width:15%}
+table.bench :is(th,td):nth-child(3){width:24%}
+.pastilha.tracejada{width:17px; height:0; border-radius:0; background:none;
+  border-top:2px dashed var(--purple-500)}
 .rolo{overflow-x:auto; margin:20px 0; border:1px solid var(--line); border-radius:10px; background:var(--surface)}
 table{width:100%; border-collapse:collapse; font-size:13.5px; min-width:560px}
 caption{
@@ -350,11 +356,11 @@ export const CORPO = `<div class="folha">
       <h4>Saldo em atraso no dia 1º de cada mês</h4>
       <div class="legenda">
         <span><i class="pastilha" style="background:var(--purple-500)"></i> saldo apurado</span>
-        <span><i class="pastilha" style="background:var(--purple-100)"></i> mês em curso</span>
+        <span><i class="pastilha tracejada"></i> agosto ainda corre</span>
       </div>
     </div>
     <svg viewBox="0 0 980 240" class="g" role="img" aria-label="Saldo em atraso no dia 1º de cada mês, de agosto de 2025 a agosto de 2026: cresce de R$ 1.182.495 para R$ 1.976.433">
-  <g class="grade"><line x1="74" y1="214.0" x2="966" y2="214.0"/><line x1="74" y1="167.3" x2="966" y2="167.3"/><line x1="74" y1="120.7" x2="966" y2="120.7"/><line x1="74" y1="74.0" x2="966" y2="74.0"/><line x1="74" y1="27.3" x2="966" y2="27.3"/></g><text x="66" y="217.5" text-anchor="end" class="ey">0</text><text x="66" y="170.8" text-anchor="end" class="ey">500 mil</text><text x="66" y="124.2" text-anchor="end" class="ey">1.000 mil</text><text x="66" y="77.5" text-anchor="end" class="ey">1.500 mil</text><text x="66" y="30.8" text-anchor="end" class="ey">2.000 mil</text>
+  <g class="grade"><line x1="74" y1="214.0" x2="966" y2="214.0"/><line x1="74" y1="167.3" x2="966" y2="167.3"/><line x1="74" y1="120.7" x2="966" y2="120.7"/><line x1="74" y1="74.0" x2="966" y2="74.0"/><line x1="74" y1="27.3" x2="966" y2="27.3"/></g><text x="66" y="217.5" text-anchor="end" class="ey">0</text><text x="66" y="170.8" text-anchor="end" class="ey">500 mil</text><text x="66" y="124.2" text-anchor="end" class="ey">1 mi</text><text x="66" y="77.5" text-anchor="end" class="ey">1,5 mi</text><text x="66" y="30.8" text-anchor="end" class="ey">2 mi</text>
   <path d="M74.0,103.6 L148.3,98.3 L222.7,96.2 L297.0,89.3 L371.3,78.8 L445.7,74.5 L520.0,69.1 L594.3,63.9 L668.7,49.3 L743.0,49.1 L817.3,46.1 L891.7,43.1 L891.7,214.0 L74.0,214.0 Z" class="area"/><path d="M74.0,103.6 L148.3,98.3 L222.7,96.2 L297.0,89.3 L371.3,78.8 L445.7,74.5 L520.0,69.1 L594.3,63.9 L668.7,49.3 L743.0,49.1 L817.3,46.1 L891.7,43.1" class="linha"/>
   <path d="M891.7,43.1 L966.0,29.5" class="linha linha-parcial"/><circle cx="74.0" cy="103.6" r="3.2" class="pt"/><circle cx="148.3" cy="98.3" r="3.2" class="pt"/><circle cx="222.7" cy="96.2" r="3.2" class="pt"/><circle cx="297.0" cy="89.3" r="3.2" class="pt"/><circle cx="371.3" cy="78.8" r="3.2" class="pt"/><circle cx="445.7" cy="74.5" r="3.2" class="pt"/><circle cx="520.0" cy="69.1" r="3.2" class="pt"/><circle cx="594.3" cy="63.9" r="3.2" class="pt"/><circle cx="668.7" cy="49.3" r="3.2" class="pt"/><circle cx="743.0" cy="49.1" r="3.2" class="pt"/><circle cx="817.3" cy="46.1" r="3.2" class="pt"/><circle cx="891.7" cy="43.1" r="3.2" class="pt"/><circle cx="966.0" cy="29.5" r="3.6" class="pt-parcial"/><text x="74.0" y="232" text-anchor="middle" class="ex">ago/25</text><text x="222.7" y="232" text-anchor="middle" class="ex">out/25</text><text x="371.3" y="232" text-anchor="middle" class="ex">dez/25</text><text x="520.0" y="232" text-anchor="middle" class="ex">fev/26</text><text x="668.7" y="232" text-anchor="middle" class="ex">abr/26</text><text x="817.3" y="232" text-anchor="middle" class="ex">jun/26</text><text x="966.0" y="232" text-anchor="middle" class="ex">ago/26</text>
 </svg>
@@ -539,7 +545,7 @@ saldo em 1º/ago   <b>1.976.433,28</b>   1.178 títulos      resíduo <b>0,00</b
     Fui olhar oito delas.</p>
   </div>
   <div class="rolo">
-    <table>
+    <table class="bench">
       <thead><tr><th>Prática</th><th>Onde</th><th>O que faz</th><th>Decisão</th></tr></thead>
       <tbody>
         <tr><td>Aging report</td><td>SAP FI-AR, Oracle AR, Omie, Conta Azul</td><td>Faixas 1–30 / 31–60 / 61–90 / 90+ como visão canônica</td><td><span class="selo r">levamos</span> com duas faixas extras: 181–365 e 365+, porque metade da nossa carteira mora acima de um ano e 90+ viraria um balde só</td></tr>
