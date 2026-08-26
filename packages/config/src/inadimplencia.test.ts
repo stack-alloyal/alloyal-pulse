@@ -589,3 +589,34 @@ test("a view de MRR usa o mesmo recorte de cliente que o TypeScript", () => {
   // pontos entra como MRR, e foi ela que saltou de R$ 30 mil para R$ 3,2 milhões.
   assert.match(view, /NOT EXISTS \(\s*SELECT 1 FROM core\.omie_cliente az/);
 });
+
+// ═══ O CORTE DE 90 DIAS VIVE EM DOIS PACOTES ══════════════════════════════════
+//
+// `DIAS_CORRENTE` mora em @pulse/config. O resumo da carteira, em @pulse/success,
+// precisa do mesmo corte para o KPI "em atraso até 90 dias" — e @pulse/success NÃO
+// depende de @pulse/config, então lá o número está escrito à mão.
+//
+// Se divergirem, a carteira e a inadimplência passam a chamar de "recente" coisas
+// diferentes, e o KPI de uma não fecha com a fila da outra. Portão em vez de
+// dependência nova entre pacotes: a dependência custaria mais que a duplicação de
+// um inteiro, e o que a duplicação precisa é de amarra, não de sumir.
+
+test("o corte de 90 dias da carteira é o mesmo da inadimplência", () => {
+  const carteira = readFileSync(
+    join(RAIZ, "packages", "success", "src", "carteira.ts"),
+    "utf8",
+  );
+  // O corte mora no SQL da CTE `atraso`, e não mais num filtro em TypeScript: o
+  // valor recente é somado POR TÍTULO, porque filtrar contas pelo pior atraso
+  // sub-contava a própria fila da inadimplência (34 contra 53, medido).
+  const usos = [...carteira.matchAll(/dias_atraso <= (\d+)/g)].map(([, n]) => Number(n));
+  assert.ok(usos.length > 0, "não achei o corte de dias no resumo da carteira");
+  for (const n of usos) {
+    assert.equal(
+      n,
+      DIAS_CORRENTE,
+      `a carteira corta em ${n} dias e a inadimplência em ${DIAS_CORRENTE} — ` +
+        'o KPI de uma deixaria de fechar com a fila da outra',
+    );
+  }
+});

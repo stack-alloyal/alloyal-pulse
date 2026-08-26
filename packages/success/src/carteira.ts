@@ -37,6 +37,16 @@ export interface ContaDaCarteira {
   adesao30d: number | null
   coberturaCadastral: number | null
   diasAtrasoMax: number | null
+  /**
+   * Quanto a conta deve em títulos vencidos, da foto mais recente da
+   * inadimplência. Nulo é "nada em atraso", e não "não sei": a foto cobre a base
+   * inteira, então ausência ali é ausência de dívida.
+   */
+  abertoCentavos: string | null
+  /** Desse aberto, o que tem até 90 dias — a parte que responde a cobrança. */
+  abertoRecenteCentavos: string | null
+  /** A competência da foto de onde o atraso desta conta veio. */
+  fotoDoAtraso: string | null
   diasDesdeUltimoContato: number | null
   competencia: string | null
   /** Falso quando o snapshot saiu com fonte faltando. */
@@ -81,7 +91,50 @@ export async function carregarCarteira(
   const hoje = opts.hoje ?? new Date().toISOString().slice(0, 10)
 
   const { rows } = await db.query<Record<string, unknown>>(
-    `WITH ultima AS (SELECT max(competencia) c FROM metrics.daily_snapshot)
+    `WITH ultima AS (SELECT max(competencia) c FROM metrics.daily_snapshot),
+     /* ┌───────────────────────────────────────────────────────────────────────┐
+        │ CTE E NÃO LATERAL, e a diferença medida foi de 4,3 SEGUNDOS.            │
+        │                                                                       │
+        │ A primeira versão buscava o MRR com um LEFT JOIN LATERAL na view por    │
+        │ conta. A view analytics.mrr_faturado_mes nao e materializada: varre 90  │
+        │ mil títulos e monta a grade de meses —, então o LATERAL a reavaliava     │
+        │ para cada uma das 1.964 contas raiz. EXPLAIN ANALYZE: 4.319 ms só nisso. │
+        │                                                                       │
+        │ DISTINCT ON (account_id) com ORDER BY competencia DESC da o mesmo       │
+        │ "ultimo mes de cada conta" avaliando a view UMA vez.                    │
+        └───────────────────────────────────────────────────────────────────────┘ */
+     mrr_recente AS (
+       SELECT DISTINCT ON (account_id) account_id, mrr_centavos
+         FROM analytics.mrr_faturado_mes
+        WHERE competencia >= date_trunc('month', $3::date) - interval '2 months'
+        ORDER BY account_id, competencia DESC
+     ),
+     -- Mesmo motivo: uma agregação em vez de uma por linha.
+     -- A competência da foto, para a TELA poder dizer de quando é o número.
+     foto AS (SELECT max(competencia) c FROM fact.inadimplencia_titulo),
+     atraso AS (
+       SELECT account_id,
+              max(dias_atraso)     AS dias_atraso,
+              sum(valor_centavos)  AS aberto_centavos,
+              /* ┌─────────────────────────────────────────────────────────────┐
+                 │ O RECENTE POR TÍTULO, e não por conta. A primeira versão do   │
+                 │ KPI filtrava pelo PIOR atraso da conta, e as duas coisas são  │
+                 │ perguntas diferentes: uma conta com um título de 20 dias e    │
+                 │ outro de 400 tem pior atraso de 400, e ainda assim deve       │
+                 │ dinheiro recente e cobrável.                                  │
+                 │                                                              │
+                 │ Medido: dava 34 contas contra as 53 da fila da inadimplência.  │
+                 │ Um KPI que sub-conta a própria fila da tela vizinha é pior     │
+                 │ que KPI nenhum — ele faz duvidar da fila.                      │
+                 └─────────────────────────────────────────────────────────────┘ */
+              coalesce(sum(valor_centavos) FILTER (WHERE dias_atraso <= 90), 0)
+                                   AS aberto_recente_centavos
+         FROM fact.inadimplencia_titulo
+        WHERE movimento IN ('permaneceu', 'entrou')
+          AND account_id IS NOT NULL
+          AND competencia = (SELECT c FROM foto)
+        GROUP BY 1
+     )
      SELECT a.id, a.razao_social, a.porte, a.setor, a.csm_email,
             /* ┌───────────────────────────────────────────────────────────────┐
                │ O MRR CAI PARA O FATURADO quando não há contrato, e a coluna     │
@@ -100,6 +153,8 @@ export async function carregarCarteira(
                implementados —, então estas duas colunas nunca tiveram valor. */
             coalesce(s.dias_atraso_max, ina.dias_atraso)::int AS dias_atraso_max_efetivo,
             ina.aberto_centavos::text               AS aberto_centavos,
+            ina.aberto_recente_centavos::text       AS aberto_recente_centavos,
+            to_char((SELECT c FROM foto), 'YYYY-MM-DD') AS foto_do_atraso,
             sg.faixa_final, sg.score_composto, sg.parcial AS score_parcial,
             to_char(s.competencia,'YYYY-MM-DD')     AS competencia,
             s.completo,
@@ -116,29 +171,14 @@ export async function carregarCarteira(
        ) ct ON true
        LEFT JOIN metrics.daily_snapshot s
               ON s.account_id = a.id AND s.competencia = (SELECT c FROM ultima)
-       /* O MRR faturado do último mês com movimento DENTRO DA CARÊNCIA.
-          A primeira versão pegava o último mês de qualquer época, e o somatório
-          da carteira deu R$ 3,56 mi contra R$ 1,37 mi de faturamento real: ela
-          estava mostrando o MRR de 2022 de quem parou em 2022. Cliente que parou
-          não tem MRR — tem histórico.
-          Três meses porque um cliente que vence dia 25 tem o mês corrente ainda
-          vazio, e dois meses fechados é a mesma carência que a revisão de
-          faturamento usa para dizer que alguém parou (MESES_DE_CARENCIA = 2). */
-       LEFT JOIN LATERAL (
-         SELECT mrr_centavos FROM analytics.mrr_faturado_mes
-          WHERE account_id = a.id
-            AND competencia >= date_trunc('month', $3::date) - interval '2 months'
-          ORDER BY competencia DESC LIMIT 1
-       ) fm ON true
-       -- O atraso de hoje, da foto mais recente da inadimplência.
-       LEFT JOIN LATERAL (
-         SELECT max(f.dias_atraso) AS dias_atraso,
-                sum(f.valor_centavos) AS aberto_centavos
-           FROM fact.inadimplencia_titulo f
-          WHERE f.account_id = a.id
-            AND f.movimento IN ('permaneceu', 'entrou')
-            AND f.competencia = (SELECT max(competencia) FROM fact.inadimplencia_titulo)
-       ) ina ON true
+       /* O MRR faturado do último mês com movimento DENTRO DA CARÊNCIA (a janela
+          está na CTE mrr_recente, acima). Sem a carência, o somatório da
+          carteira deu R$ 3,56 mi contra R$ 1,37 mi de faturamento real: mostrava
+          o MRR de 2022 de quem parou em 2022. Cliente que parou não tem MRR — tem
+          histórico. Três meses porque quem vence dia 25 tem o mês corrente ainda
+          vazio, e dois fechados é a carência da revisão (MESES_DE_CARENCIA = 2). */
+       LEFT JOIN mrr_recente fm ON fm.account_id = a.id
+       LEFT JOIN atraso ina ON ina.account_id = a.id
        LEFT JOIN metrics.signal sg
               ON sg.account_id = a.id AND sg.competencia = (SELECT c FROM ultima)
        -- Itens VISÍVEIS: o de modo sombra não é trabalho de ninguém, e contá-lo
@@ -180,6 +220,10 @@ export async function carregarCarteira(
       coberturaCadastral:
         contratadas && contratadas > 0 && elegiveis !== null ? elegiveis / contratadas : null,
       diasAtrasoMax: num(r, 'dias_atraso_max_efetivo'),
+      abertoCentavos: r['aberto_centavos'] === null ? null : String(r['aberto_centavos']),
+      abertoRecenteCentavos:
+        r['aberto_recente_centavos'] === null ? null : String(r['aberto_recente_centavos']),
+      fotoDoAtraso: r['foto_do_atraso'] === null ? null : String(r['foto_do_atraso']),
       diasDesdeUltimoContato: num(r, 'dias_desde_ultimo_contato'),
       competencia: r['competencia'] === null ? null : String(r['competencia']),
       completo: r['completo'] === true,
@@ -205,6 +249,35 @@ export interface ResumoCarteira {
   total: number
   mrrTotalCentavos: string
   porFaixa: Array<{ faixa: string; contas: number; mrrCentavos: string }>
+  /**
+   * A competência da foto de inadimplência que estes números descrevem.
+   *
+   * ┌───────────────────────────────────────────────────────────────────────────┐
+   * │ EXISTE PORQUE A CARTEIRA E A INADIMPLÊNCIA DÃO NÚMEROS DIFERENTES, e as     │
+   * │ duas estão certas — só respondem em datas diferentes.                       │
+   * │                                                                            │
+   * │ Aqui o atraso vem da FOTO mensal, como todo o resto desta tela (adesão,      │
+   * │ cobertura e sinal saem de `metrics.daily_snapshot`). A tela de inadimplência │
+   * │ calcula HOJE, do faturamento cru. Medido em 26/08: R$ 304.726 na foto de     │
+   * │ 1º/ago contra R$ 391.924 hoje — 25 dias de vencimento novo no meio.         │
+   * │                                                                            │
+   * │ Some daí uma segunda diferença: esta tela conta por CONTA e a inadimplência  │
+   * │ por CNPJ, e 21 CNPJ em atraso não têm vínculo com conta nenhuma.             │
+   * │                                                                            │
+   * │ A tela mostra a data ao lado do número. O conserto de verdade seria uma      │
+   * │ view de inadimplência de HOJE que as duas lessem — está anotado, e é         │
+   * │ trabalho de outro dia.                                                     │
+   * └───────────────────────────────────────────────────────────────────────────┘
+   */
+  fotoDoAtraso: string | null
+  /** Contas com título vencido em aberto. */
+  contasEmAtraso: number
+  abertoTotalCentavos: string
+  /** Das em atraso, as com até 90 dias — a parte que responde a cobrança. */
+  contasEmAtrasoRecente: number
+  abertoRecenteCentavos: string
+  /** O pior atraso da carteira, em dias. Zero quando não há nenhum. */
+  maiorAtrasoDias: number
   /** Contas sem nenhum item aberto — o trabalho que ainda não virou urgente. */
   semItem: number
   /** Contas com dado parcial: o número delas não é comparável ao das outras. */
@@ -232,12 +305,37 @@ export function resumir(carteira: Carteira): ResumoCarteira {
   }
 
   const ordem = ['critico', 'risco', 'atencao', 'saudavel', 'sem_sinal']
+  const emAtraso = carteira.contas.filter((c) => Number(c.abertoCentavos ?? 0) > 0)
+  // Quem tem QUALQUER valor com até 90 dias, e não quem tem o pior atraso abaixo
+  // de 90: a segunda leitura perde a conta que deve recente E antigo, que é
+  // justamente a que mais precisa de ligação.
+  const recentes = emAtraso.filter((c) => Number(c.abertoRecenteCentavos ?? 0) > 0)
   return {
     total: carteira.contas.length,
     mrrTotalCentavos: String(mrrTotal),
     porFaixa: [...porFaixa.entries()]
       .sort(([a], [b]) => ordem.indexOf(a) - ordem.indexOf(b))
       .map(([faixa, v]) => ({ faixa, contas: v.contas, mrrCentavos: String(v.mrr) })),
+    /* ┌───────────────────────────────────────────────────────────────────────┐
+       │ OS AGREGADOS DE ATRASO SAEM DAS MESMAS LINHAS que a lista mostra, e não  │
+       │ de uma consulta própria.                                                 │
+       │                                                                         │
+       │ É o que garante que o KPI e a tabela concordem: numa tela onde o KPI vem  │
+       │ de um SELECT e a lista de outro, filtrar por faixa faz os dois            │
+       │ divergirem — e quem lê não tem como saber qual dos dois está certo.      │
+       │                                                                         │
+       │ `<= 90` é o mesmo corte da inadimplência (DIAS_CORRENTE), repetido aqui   │
+       │ como número porque `@pulse/success` não depende de `@pulse/config`. Há    │
+       │ portão comparando os dois.                                              │
+       └───────────────────────────────────────────────────────────────────────┘ */
+    fotoDoAtraso: carteira.contas.find((c) => c.fotoDoAtraso)?.fotoDoAtraso ?? null,
+    contasEmAtraso: emAtraso.length,
+    abertoTotalCentavos: String(emAtraso.reduce((s, c) => s + Number(c.abertoCentavos ?? 0), 0)),
+    contasEmAtrasoRecente: recentes.length,
+    abertoRecenteCentavos: String(
+      recentes.reduce((s, c) => s + Number(c.abertoRecenteCentavos ?? 0), 0),
+    ),
+    maiorAtrasoDias: emAtraso.reduce((m, c) => Math.max(m, c.diasAtrasoMax ?? 0), 0),
     semItem: carteira.contas.filter((c) => c.itensAbertos === 0).length,
     parciais: carteira.contas.filter((c) => c.competencia !== null && !c.completo).length,
     comClausulaProposta: carteira.contas.filter((c) => c.clausulasPropostas > 0).length,

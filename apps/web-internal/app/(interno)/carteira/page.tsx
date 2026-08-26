@@ -28,6 +28,13 @@ const REAIS = (c: string | null) =>
         currency: 'BRL',
       })
 
+const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+/** "2026-08-01" → "1º/ago". A data da foto tem de caber na nota de um KPI. */
+const MES_CURTO = (iso: string) => {
+  const [, m] = iso.split('-')
+  return `1º/${MESES_CURTOS[Number(m) - 1] ?? m}`
+}
+
 const PCT = (v: number | null) =>
   v === null ? '—' : `${(v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`
 
@@ -132,6 +139,69 @@ export default async function Carteira({
           })}
         </KpiGrade>
 
+        {/* ┌───────────────────────────────────────────────────────────────────┐
+            │ SEGUNDA FILEIRA, e não mais quatro KPI na primeira.                  │
+            │                                                                     │
+            │ A de cima é a faixa de SAÚDE — cinco estados de um mesmo eixo, e a   │
+            │ leitura dela é a distribuição. Misturar atraso ali faria oito caixas  │
+            │ onde três respondem a outra pergunta, e a distribuição deixaria de    │
+            │ ser legível de uma vez.                                             │
+            │                                                                     │
+            │ E hoje há um motivo a mais: as cinco de cima estão quase todas em     │
+            │ zero, porque `metrics.signal` está vazia — o sinal depende dos ciclos │
+            │ C2/C3/C8, declarados e não implementados. Estes três são, por           │
+            │ enquanto, os únicos KPI desta tela com dado. Empilhá-los junto        │
+            │ esconderia essa diferença.                                          │
+            └───────────────────────────────────────────────────────────────────┘ */}
+        {rTodos.contasEmAtraso > 0 && (
+          <>
+            <KpiGrade colunas={3}>
+            <Kpi
+              rotulo="Contas em atraso"
+              valor={rTodos.contasEmAtraso}
+              /* A DATA DA FOTO no rótulo, e não é detalhe: a tela de inadimplência
+                 calcula HOJE e dá outro número. As duas estão certas — medido em
+                 26/08, R$ 304.726 na foto de 1º/ago contra R$ 391.924 hoje, que são
+                 25 dias de vencimento novo. Sem a data, a diferença parece defeito. */
+              nota={`${REAIS(rTodos.abertoTotalCentavos)} em títulos vencidos${
+                rTodos.fotoDoAtraso ? ` · foto de ${MES_CURTO(rTodos.fotoDoAtraso)}` : ''
+              }`}
+              tom="red"
+            />
+            <Kpi
+              rotulo="Em atraso até 90 dias"
+              valor={REAIS(rTodos.abertoRecenteCentavos)}
+              nota={`${rTodos.contasEmAtrasoRecente} conta(s) — a parte que responde a cobrança`}
+              {...(Number(rTodos.abertoRecenteCentavos) > 0 ? { tom: 'amber' as const } : {})}
+            />
+            {/* A razão, e não mais um valor absoluto: é ela que diz o tamanho do
+                atraso PARA ESTA carteira. R$ 200 mil numa carteira de R$ 1 milhão
+                é outra conversa que os mesmos R$ 200 mil numa de R$ 50 mil. */}
+            <Kpi
+              rotulo="Atraso sobre o MRR da carteira"
+              valor={
+                Number(rTodos.mrrTotalCentavos) > 0
+                  ? `${(
+                      Number(rTodos.abertoTotalCentavos) / Number(rTodos.mrrTotalCentavos)
+                    ).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}×`
+                  : '—'
+              }
+              nota={`meses de MRR parados · maior atraso ${rTodos.maiorAtrasoDias} dias`}
+            />
+            </KpiGrade>
+            <p className="text-meta leading-relaxed text-ink-3">
+              O atraso vem da <strong className="font-semibold text-ink">foto mensal</strong>, como
+              adesão, cobertura e sinal — é o modelo desta tela. A{' '}
+              <Link href="/receita/inadimplencia" className="text-purple-700 hover:underline">
+                inadimplência
+              </Link>{' '}
+              calcula <strong className="font-semibold text-ink">hoje</strong> e conta por CNPJ, então
+              dá outro número: 21 CNPJ em atraso não têm vínculo com conta nenhuma, e o vencimento
+              novo do mês corrente ainda não está na foto. As duas estão certas em datas diferentes.
+            </p>
+          </>
+        )}
+
         <div className="flex flex-wrap items-center gap-3">
           <Chips rotulo="Filtrar:">
             <Chip rotulo="todas" href="/carteira" ativo={!q.faixa} conta={rTodos.total} fixo />
@@ -221,6 +291,14 @@ export default async function Carteira({
                     )}
                   >
                     {FAIXA_ATRASO(c.diasAtrasoMax)}
+                    {/* O valor sob os dias: "90+ d" diz que é antigo e não diz se
+                        são R$ 300 ou R$ 30 mil, e é o valor que decide se vale a
+                        ligação. O dado já vinha carregado e era descartado aqui. */}
+                    {Number(c.abertoCentavos ?? 0) > 0 && (
+                      <span className="mt-0.5 block text-nota tabular-nums text-ink-3">
+                        {REAIS(c.abertoCentavos)}
+                      </span>
+                    )}
                   </span>,
                   <span
                     className={cn(
