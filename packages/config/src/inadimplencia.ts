@@ -1077,3 +1077,67 @@ export async function faturandoContaCortada(
     ultimoVencimento: String(r["ultimo"]),
   }));
 }
+
+/**
+ * A inadimplência atribuível a UMA competência de receita.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O DESLOCAMENTO DE UM MÊS, e ele é a única coisa difícil desta função.       │
+ * │                                                                            │
+ * │ A linha de `analytics.inadimplencia_mes` com competência M é a foto do dia   │
+ * │ 1º de M: ela descreve o saldo NAQUELE instante e os movimentos do mês que    │
+ * │ ACABOU de fechar, isto é, de M-1.                                          │
+ * │                                                                            │
+ * │ Então a inadimplência "de julho" — o que entrou em atraso em julho, o que    │
+ * │ foi recuperado em julho e o saldo no fim de julho — está na linha de AGOSTO. │
+ * │                                                                            │
+ * │ Ler a linha de julho para falar de julho é o erro natural aqui, e ele não se │
+ * │ anuncia: os números são plausíveis, só pertencem ao mês anterior. Esta       │
+ * │ função existe para que esse deslocamento seja resolvido UMA vez, com o       │
+ * │ motivo escrito, em vez de em cada tela que cruzar receita com atraso.        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export interface InadimplenciaDaCompetencia {
+  readonly competencia: string;
+  /** Saldo em atraso no ÚLTIMO dia da competência. */
+  readonly saldoFimCentavos: string;
+  readonly entrouCentavos: string;
+  readonly recuperadoCentavos: string;
+  readonly canceladoCentavos: string;
+  /** Entrou menos recuperado: acima de zero, a carteira cresceu no mês. */
+  readonly deltaCentavos: string;
+  readonly titulosFim: number;
+  readonly origem: OrigemDaFoto;
+}
+
+export async function inadimplenciaDaCompetencia(
+  db: pg.Pool,
+  competencia: string,
+): Promise<InadimplenciaDaCompetencia | null> {
+  const { rows } = await db.query(
+    // +1 mês: ver o cabeçalho. A foto que descreve o mês C é a de C+1.
+    `SELECT to_char(competencia, 'YYYY-MM-DD')      AS competencia,
+            saldo_final_centavos::text             AS saldo,
+            entrou_centavos::text                  AS entrou,
+            recuperado_centavos::text              AS recuperado,
+            cancelado_centavos::text               AS cancelado,
+            (entrou_centavos - recuperado_centavos)::text AS delta,
+            titulos_final                          AS titulos,
+            origem
+       FROM analytics.inadimplencia_mes
+      WHERE competencia = (date_trunc('month', $1::date) + interval '1 month')::date`,
+    [competencia],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    competencia,
+    saldoFimCentavos: String(r["saldo"]),
+    entrouCentavos: String(r["entrou"]),
+    recuperadoCentavos: String(r["recuperado"]),
+    canceladoCentavos: String(r["cancelado"]),
+    deltaCentavos: String(r["delta"]),
+    titulosFim: Number(r["titulos"]),
+    origem: String(r["origem"]) as OrigemDaFoto,
+  };
+}

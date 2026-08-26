@@ -1,3 +1,4 @@
+import { inadimplenciaDaCompetencia, serieDaCarteira, type MesDaCarteira } from '@pulse/config'
 import { fonteDoMrr, listarCascatas, type Cascata } from '@pulse/success'
 import { Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
@@ -103,9 +104,31 @@ export default async function Receita({
      │ `mes` inválido cai no mais recente em vez de devolver vazio: parâmetro   │
      │ de URL é colado por gente, e tela vazia sem explicação parece defeito.   │
      └───────────────────────────────────────────────────────────────────────┘ */
-  const [cascatas, fonte] = await Promise.all([listarCascatas(pool(), 24), fonteDoMrr(pool())])
+  const [cascatas, fonte, serieDoAtraso] = await Promise.all([
+    listarCascatas(pool(), 24),
+    fonteDoMrr(pool()),
+    // A série do atraso vem junto para a tabela de 24 meses poder mostrar os DOIS
+    // eixos na mesma linha. 25 e não 24: a foto que descreve o mês C é a de C+1,
+    // então o mês mais antigo da cascata precisa da foto seguinte.
+    serieDaCarteira(pool(), 25),
+  ])
   const escolhido = q.mes ? cascatas.find((c) => c.competencia.slice(0, 7) === q.mes) : undefined
   const atual = escolhido ?? cascatas[0]
+
+  const atraso = atual ? await inadimplenciaDaCompetencia(pool(), atual.competencia) : null
+
+  /* O atraso indexado pela competência de RECEITA que ele descreve, e não pela
+     competência da própria foto: a foto do dia 1º de agosto conta o que aconteceu
+     em julho. O deslocamento é resolvido em `inadimplenciaDaCompetencia`, e aqui
+     ele é repetido no índice do mapa por um motivo só — a tabela precisa cruzar as
+     duas séries sem chamar o banco 24 vezes. */
+  const atrasoPorMes = new Map<string, MesDaCarteira>(
+    serieDoAtraso.map((m) => {
+      const [ano, mes] = m.competencia.split('-')
+      const anterior = Number(mes) === 1 ? `${Number(ano) - 1}-12` : `${ano}-${String(Number(mes) - 1).padStart(2, '0')}`
+      return [anterior, m]
+    }),
+  )
 
   if (!atual) {
     return (
@@ -204,6 +227,92 @@ export default async function Receita({
           </table>
         </Card>
 
+        {/* ┌───────────────────────────────────────────────────────────────────┐
+            │ O ATRASO NÃO É UM PASSO DA CASCATA, e por isso está num card à parte.│
+            │                                                                     │
+            │ A cascata é COMPETÊNCIA: ela conta o que foi contratado e cobrado no  │
+            │ mês, tenha entrado ou não. A inadimplência é RECEBÍVEL: o que foi     │
+            │ cobrado e não entrou. Somar um no outro daria um MRR que já desconta  │
+            │ inadimplência — e aí o churn e o atraso passariam a contar o mesmo    │
+            │ cliente duas vezes, uma como receita perdida e outra como receita     │
+            │ atrasada.                                                            │
+            │                                                                     │
+            │ O que junta os dois é a RAZÃO, não a soma: quantos meses de MRR estão │
+            │ parados em atraso. É a única frase que precisa das duas telas.        │
+            └───────────────────────────────────────────────────────────────────┘ */}
+        {atraso && (
+          <Card
+            title={`Inadimplência e recuperação em ${atual.competencia.slice(0, 7)}`}
+            /* SEM `max-w`: com 52em e quatro colunas, cada KPI ficava com ~170px e
+               "R$ 1.971.571,80" aparecia como "R$ 1.971.571,8" — o card recorta e
+               o número perde o último dígito sem avisar. A grade de KPI do topo da
+               página é de largura cheia e cabe; esta passa a ser também. */
+            actions={
+              <Link
+                href="/receita/inadimplencia"
+                className="text-nota text-purple-700 hover:underline"
+              >
+                ver a carteira em atraso
+              </Link>
+            }
+          >
+            <KpiGrade colunas={4}>
+              <Kpi
+                rotulo="Em atraso no fim do mês"
+                valor={REAIS(atraso.saldoFimCentavos)}
+                nota={`${atraso.titulosFim.toLocaleString('pt-BR')} títulos`}
+                tom="red"
+              />
+              <Kpi
+                rotulo="Entrou em atraso"
+                valor={REAIS(atraso.entrouCentavos)}
+                nota="venceu no mês e não foi pago"
+              />
+              <Kpi
+                rotulo="Recuperado"
+                valor={REAIS(atraso.recuperadoCentavos)}
+                nota="título antigo que foi quitado"
+              />
+              <Kpi
+                rotulo="Delta"
+                valor={REAIS(atraso.deltaCentavos)}
+                nota={
+                  Number(atraso.deltaCentavos) > 0
+                    ? 'entrou mais do que voltou — a carteira cresceu'
+                    : 'voltou mais do que entrou — a carteira encolheu'
+                }
+                {...(Number(atraso.deltaCentavos) > 0 ? { tom: 'red' as const } : {})}
+              />
+            </KpiGrade>
+            <p className="mt-4 text-meta leading-relaxed text-ink-3">
+              {Number(atual.mrrFinalCentavos) > 0 && (
+                <>
+                  São{' '}
+                  <strong className="font-semibold text-ink">
+                    {(
+                      Number(atraso.saldoFimCentavos) / Number(atual.mrrFinalCentavos)
+                    ).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}{' '}
+                    meses de MRR
+                  </strong>{' '}
+                  parados em atraso.{' '}
+                </>
+              )}
+              A cascata acima é de <strong className="font-semibold text-ink">competência</strong> —
+              o que foi cobrado no mês, tenha entrado ou não. Isto é{' '}
+              <strong className="font-semibold text-ink">recebível</strong>: do que foi cobrado, o
+              que não entrou. Os dois números não se somam, e o que os liga é a razão entre eles.
+              {atraso.origem === 'reconstruido' && (
+                <>
+                  {' '}
+                  Esta foto é <strong className="font-semibold text-ink">reconstruída</strong> das
+                  datas de vencimento e pagamento: o saldo está certo, mas ela não sabe o estado do
+                  painel de então nem em que mês um título foi cancelado.
+                </>
+              )}
+            </p>
+          </Card>
+        )}
+
         {/* ┌─────────────────────────────────────────────────────────────────┐
             │ A FRASE DEPENDE DA FONTE, e antes não dependia — ela afirmava      │
             │ "duas fontes independentes" mesmo quando as duas pontas saem do    │
@@ -237,7 +346,19 @@ export default async function Receita({
           <>
             <Card title={`Últimos ${cascatas.length} meses`}>
               <Table
-                cols={['Competência', 'MRR final', 'NRR', 'GRR', 'Churn', 'Não atribuído', 'Estado']}
+                cols={[
+                  'Competência',
+                  'MRR final',
+                  'NRR',
+                  'GRR',
+                  'Churn',
+                  'Não atribuído',
+                  // Os dois eixos na mesma linha: o mês em que a receita foi
+                  // reconhecida, e quanto dela ficou em atraso no fim dele.
+                  'Em atraso',
+                  'Recuperado',
+                  'Estado',
+                ]}
                 rows={cascatas.map((c) => [
                   // A linha do histórico agora ABRE o detalhe daquele mês. Antes
                   // era texto morto: a tabela mostrava NRR e resíduo de onze meses
@@ -268,6 +389,32 @@ export default async function Receita({
                   >
                     {REAIS(c.naoAtribuidoCentavos)}
                   </span>,
+                  (() => {
+                    const a = atrasoPorMes.get(c.competencia.slice(0, 7))
+                    return a ? (
+                      <>
+                        <span className="tabular-nums">{REAIS(a.saldoFinalCentavos)}</span>
+                        <span className="mt-0.5 block text-nota text-ink-3">
+                          {a.titulosFinal} título(s)
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-ink-4">—</span>
+                    )
+                  })(),
+                  (() => {
+                    const a = atrasoPorMes.get(c.competencia.slice(0, 7))
+                    return a ? (
+                      <>
+                        <span className="tabular-nums">{REAIS(a.recuperadoCentavos)}</span>
+                        <span className="mt-0.5 block text-nota text-ink-3">
+                          entrou {REAIS(a.entrouCentavos)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-ink-4">—</span>
+                    )
+                  })(),
                   c.estado === 'congelada' ? (
                     <Badge tone="green">congelada</Badge>
                   ) : (
