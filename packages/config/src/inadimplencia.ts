@@ -75,9 +75,35 @@ const TITULO_VIVO = `t.valor_centavos > 0 AND t.situacao NOT IN ('previsao', 'ca
  * hoje" (um título que vence hoje não está atrasado) e é pago "até hoje
  * inclusive" — senão quem pagou esta manhã apareceria devendo à tarde.
  */
+/**
+ * Quantos dias úteis o pagamento leva para aparecer no Omie.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ É POR ISSO QUE D+1 NÃO É INADIMPLÊNCIA.                                    │
+ * │                                                                            │
+ * │ Quem paga no dia do vencimento só é visível no Omie no dia útil seguinte, e │
+ * │ a nossa carga (C20) roda às 04h10 — antes de esse dia acontecer. Então      │
+ * │ quem pagou em dia aparecia devendo, e aparecia no TOPO: medido na tela, a   │
+ * │ SWILE era a maior devedora da fila com R$ 59.625 e UM dia de atraso.        │
+ * │                                                                            │
+ * │ Eu tinha posto um rótulo "em trânsito?" ao lado dos casos de 1 e 2 dias, o  │
+ * │ que é admitir na interface que a lista está errada em vez de consertá-la.   │
+ * │                                                                            │
+ * │ A COBRANÇA COMEÇA EM `+ 1`, e o segundo dia não é folga: o primeiro é o que │
+ * │ o pagamento leva para aparecer, e o segundo é o que permite CONCLUIR que    │
+ * │ ele não apareceu. Com um só, a fila continuaria contendo quem pagou no dia. │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * Dias ÚTEIS e não corridos, e a sexta-feira é o motivo: dois dias corridos
+ * ainda poriam na fila, no domingo, quem venceu e pagou na sexta — que é o
+ * vencimento mais comum de boleto mensal. Fim de semana conta; feriado não, e a
+ * lacuna está anotada em `core.dia_util_antes` (migração 0048).
+ */
+export const DIAS_UTEIS_PARA_APARECER = 1;
+
 const NA_CARTEIRA = (venceuAntesDe: string, pagoAntesDe: string) => `
   ${TITULO_VIVO}
-  AND t.vencimento < ${venceuAntesDe}
+  AND t.vencimento <= core.dia_util_antes(${venceuAntesDe}, ${DIAS_UTEIS_PARA_APARECER + 1})
   AND (t.pagamento IS NULL OR t.pagamento >= ${pagoAntesDe} OR t.aberto_centavos > 0)`;
 
 /**

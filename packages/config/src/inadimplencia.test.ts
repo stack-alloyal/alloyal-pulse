@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
 import pg from "pg";
 
-import { DIAS_CORRENTE, FAIXAS, apurarCompetencia, carteiraDeHoje, serieDaCarteira } from "./inadimplencia.js";
+import {
+  DIAS_CORRENTE,
+  DIAS_UTEIS_PARA_APARECER,
+  FAIXAS,
+  apurarCompetencia,
+  carteiraDeHoje,
+  serieDaCarteira,
+} from "./inadimplencia.js";
 import { mainBusinesses } from "./base-de-clientes.js";
 import { textoDeBusca } from "./texto.js";
 
@@ -438,4 +445,106 @@ describe("busca com byte nulo não derruba a consulta", { skip: !ADMIN }, () => 
       assert.ok(r !== null && typeof r === "object", "tem de devolver resultado, não lançar");
     });
   }
+});
+
+// ═══ D+1 NÃO É INADIMPLÊNCIA ═════════════════════════════════════════════════
+//
+// O pagamento leva um dia útil para aparecer no Omie, e a carga roda às 04h10 —
+// antes de esse dia acontecer. Sem carência, quem pagava no dia do vencimento
+// aparecia na fila, e aparecia no TOPO: medido na tela, a SWILE era a maior
+// devedora com R$ 59.625 e UM dia de atraso.
+//
+// Dias ÚTEIS e não corridos, e a sexta-feira é o teste que separa as duas
+// implementações: quem vence na sexta e paga na sexta só aparece na terça.
+
+test("a carência é de dias úteis, e o segundo dia não é folga", () => {
+  // O primeiro dia é o que o pagamento leva para aparecer; o segundo é o que
+  // permite CONCLUIR que ele não apareceu. Com um só, a fila conteria quem pagou.
+  assert.equal(DIAS_UTEIS_PARA_APARECER, 1);
+});
+
+describe("carência em dias úteis", { skip: !ADMIN }, () => {
+  let db: pg.Pool;
+  before(async () => {
+    const { migrate } = await import("@pulse/db");
+    await migrate(ADMIN as string);
+    db = new pg.Pool({ connectionString: ADMIN });
+  });
+  after(async () => {
+    await db.end();
+  });
+
+  test("dia_util_antes pula o fim de semana", async () => {
+    const { rows } = await db.query(
+      `SELECT to_char(core.dia_util_antes($1::date, 2), 'YYYY-MM-DD') AS corte,
+              to_char(core.dia_util_antes($2::date, 2), 'YYYY-MM-DD') AS corte_segunda,
+              to_char(core.dia_util_antes($3::date, 1), 'YYYY-MM-DD') AS um_dia`,
+      // 26/08/2026 é quarta; 31/08/2026 é segunda; 30/08/2026 é domingo.
+      ["2026-08-26", "2026-08-31", "2026-08-30"],
+    );
+    // Quarta menos dois dias úteis: segunda.
+    assert.equal(rows[0]?.["corte"], "2026-08-24");
+    // SEGUNDA menos dois dias úteis: QUINTA. Uma conta de dias corridos daria
+    // sábado, e aí quem venceu e pagou na sexta entraria na fila no domingo.
+    assert.equal(rows[0]?.["corte_segunda"], "2026-08-27");
+    // Domingo menos um dia útil: sexta.
+    assert.equal(rows[0]?.["um_dia"], "2026-08-28");
+  });
+
+  test("título recente NÃO entra na carteira, e o de dois dias úteis entra", async () => {
+    const DOC = "99000000000272";
+    // Competência 01/07/2019 é uma SEGUNDA. Dois dias úteis antes: quinta 27/06.
+    // Então 27/06 entra e 28/06 (sexta) não — e é justamente aqui que a conta de
+    // dias corridos erraria: 01/07 menos 2 dias é 29/06, e 28/06 passaria.
+    const M = "2019-07-01";
+    await db.query(
+      `INSERT INTO core.omie_cliente (codigo_omie, documento, razao_social, tags)
+       VALUES (9900201, $1, 'CARENCIA DE TESTE', '["Cliente"]'::jsonb)
+       ON CONFLICT (codigo_omie) DO NOTHING`,
+      [DOC],
+    );
+    const titulo = (codigo: number, vencimento: string) =>
+      db.query(
+        `INSERT INTO core.omie_titulo
+           (codigo_titulo, documento, status, vencimento, valor_centavos, aberto_centavos)
+         VALUES ($1, $2, 'ATRASADO', $3::date, 100_00, 100_00)`,
+        [codigo, DOC, vencimento],
+      );
+    await titulo(9900301, "2019-06-27"); // quinta: dois dias úteis atrás — entra
+    await titulo(9900302, "2019-06-28"); // sexta: um dia útil atrás — fica fora
+    try {
+      await apurarCompetencia(db, M, { origem: "reconstruido" });
+      const { rows } = await db.query(
+        `SELECT codigo_titulo FROM fact.inadimplencia_titulo
+          WHERE competencia = $1 AND codigo_titulo IN (9900301, 9900302)
+          ORDER BY codigo_titulo`,
+        [M],
+      );
+      assert.deepEqual(
+        rows.map((r) => Number(r["codigo_titulo"])),
+        [9900301],
+        "só o de dois dias úteis pode estar na carteira",
+      );
+    } finally {
+      await db.query("DELETE FROM fact.inadimplencia_titulo WHERE competencia = $1", [M]);
+      await db.query("DELETE FROM analytics.inadimplencia_mes WHERE competencia = $1", [M]);
+      await db.query("DELETE FROM core.omie_titulo WHERE documento = $1", [DOC]);
+      await db.query("DELETE FROM core.omie_cliente WHERE documento = $1", [DOC]);
+    }
+  });
+
+  test("nada com menos de dois dias úteis aparece na lista de hoje", async () => {
+    const r = await carteiraDeHoje(db, {}, 1000);
+    const { rows } = await db.query(
+      `SELECT to_char(core.dia_util_antes(current_date, $1::int), 'YYYY-MM-DD') AS corte`,
+      [DIAS_UTEIS_PARA_APARECER + 1],
+    );
+    const corte = String(rows[0]?.["corte"]);
+    const cedo = r.filter((t) => t.vencimento > corte);
+    assert.deepEqual(
+      cedo.map((t) => `${t.documento} venceu ${t.vencimento}`),
+      [],
+      `há título vencido depois do corte ${corte} na carteira — a carência furou`,
+    );
+  });
 });

@@ -304,6 +304,13 @@ export const CORPO = `<div class="folha">
         <td>Errado nas duas metades: ela é alimentada pelo fluxo de <b>saídas</b>, via
         <code>fact.mrr_event</code>, e o C21 não a alimenta nem deveria. Está zerada porque nenhuma
         saída foi classificada assim ainda</td></tr>
+        <tr><td>“Um dia após o vencimento” (decisão A)</td><td>Um dia é <b>pouco</b>. O pagamento
+        leva um dia útil para ser processado e aparecer no Omie, e a nossa carga roda às 04h10 —
+        antes de esse dia acontecer. Sem carência, quem pagava em dia entrava na fila e entrava no
+        <b>topo</b>: a SWILE apareceu como maior devedora com R$ 59.625 e UM dia. Agora a cobrança
+        começa depois de <b>dois dias úteis</b> — um para o pagamento aparecer, outro para poder
+        concluir que não apareceu. Dias úteis e não corridos por causa da sexta-feira, que é o
+        vencimento mais comum de boleto. Saíram da fila 37 títulos e R$ 155.085</td></tr>
         <tr><td>Nada sobre permissão</td><td>A tela nasceu exigindo escopo de <b>contas</b> em vez de
         <b>receita</b>, e cinco papéis com <code>receita: nenhum</code> liam a carteira inteira —
         incluindo Marketing e Produto. Corrigido, e o portão agora cobre todo o diretório</td></tr>

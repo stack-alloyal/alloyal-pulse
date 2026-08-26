@@ -1,6 +1,7 @@
 import {
   DIAS_CORRENTE,
   DIAS_MORTA,
+  DIAS_UTEIS_PARA_APARECER,
   FAIXAS,
   ESTADOS_DO_PAINEL,
   type ClienteEmAtraso,
@@ -105,14 +106,24 @@ const SeloDoPainel = ({ estado }: { estado: string | null }) => (
 /**
  * A idade do atraso, com a faixa dita por extenso quando ela muda a leitura.
  *
- * Um título de 1 dia e um de 800 dias são a mesma coluna e coisas diferentes: o
- * primeiro é boleto em trânsito, o segundo é perda. O número sozinho obriga quem
- * lê a fazer essa conta de cabeça em cada linha.
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ AQUI HAVIA UM RÓTULO "em trânsito?" nos títulos de um e dois dias, e ele    │
+ * │ era um remendo: eu estava usando a interface para avisar que a lista        │
+ * │ continha quem tinha pagado em dia, em vez de tirar essas linhas da lista.   │
+ * │                                                                            │
+ * │ O conserto de verdade é a carência em dias úteis (`DIAS_UTEIS_PARA_APARECER`│
+ * │ em `inadimplencia.ts`): o pagamento leva um dia útil para aparecer no Omie, │
+ * │ então nada com menos de dois dias úteis entra na carteira. Com a causa      │
+ * │ resolvida, o aviso deixa de ter o que avisar — e um aviso que sobra depois  │
+ * │ do conserto ensina a desconfiar da lista inteira.                          │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * O que ficou é o rótulo da faixa morta: um título de 800 dias é outra conversa,
+ * e o número sozinho obriga quem lê a fazer essa conta de cabeça em cada linha.
  */
 const Idade = ({ dias }: { dias: number }) => (
   <span className="whitespace-nowrap tabular-nums">
     <span className={dias > DIAS_MORTA ? 'text-ink-3' : 'text-ink'}>{N(dias)} d</span>
-    {dias <= 2 && <span className="ml-1.5 text-nota text-ink-3">em trânsito?</span>}
     {dias > DIAS_MORTA && <span className="ml-1.5 text-nota text-ink-3">morta</span>}
   </span>
 )
@@ -536,7 +547,13 @@ export default async function Inadimplencia({
               <p className="mt-3 text-meta leading-relaxed text-ink-3">
                 Até <strong className="font-semibold text-ink">{DIAS_CORRENTE} dias</strong> de
                 atraso E conta <strong className="font-semibold text-ink">ativa</strong> no painel —
-                as duas condições. Só a idade não serve:{' '}
+                as duas condições. O atraso só começa a contar depois de{' '}
+                <strong className="font-semibold text-ink">
+                  {DIAS_UTEIS_PARA_APARECER + 1} dias úteis
+                </strong>{' '}
+                do vencimento: o pagamento leva um dia útil para aparecer no Omie, e o segundo dia é
+                o que permite concluir que ele não apareceu. Sem essa carência, quem pagava em dia
+                entrava na fila — e entrava no topo. Só a idade também não serve:{' '}
                 {BRL(
                   resumo.porEstado
                     .filter((e) => e.estado !== 'active')
