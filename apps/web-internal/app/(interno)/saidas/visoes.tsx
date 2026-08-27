@@ -1,14 +1,16 @@
 import {
   DIAS_PARA_ESTAGNAR,
+  MOTIVOS_SAIDA,
   POSICOES,
+  type ContaParaSaida,
   type LinhaDaMeta,
   type MesDaCoorte,
   type PedidoNoQuadro,
 } from '@pulse/success'
-import { Badge, Btn, Card, Field, Table, cn } from '@pulse/ui'
+import { Badge, Btn, Card, Field, Select, Table, cn } from '@pulse/ui'
 import Link from 'next/link'
 
-import { acaoAvancarEtapa, acaoDefinirMeta } from './acoes'
+import { acaoAvancarEtapa, acaoDefinirMeta, registrarPedido } from './acoes'
 
 /**
  * As três visões do fluxo de saída: o quadro, a coorte e a meta.
@@ -25,6 +27,157 @@ const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'o
 const MES = (iso: string) => {
   const [a, m] = iso.split('-')
   return `${MESES[Number(m) - 1] ?? m}/${a?.slice(2)}`
+}
+
+/* ─── Cadastro da levantada de mão ──────────────────────────────────────────── */
+
+/**
+ * O formulário que abre um pedido de saída — a porta de entrada do fluxo todo.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ESTE FORMULÁRIO NÃO EXISTIA, e é por isso que a tela estava zerada.         │
+ * │                                                                            │
+ * │ A ação de servidor `registrarPedido` foi escrita, testada e publicada sem    │
+ * │ nada que a chamasse: nenhum `<form>` na app apontava para ela. Com a única   │
+ * │ porta de entrada ausente, `success.cancellation` ficou em zero linha, e daí  │
+ * │ saíram TODOS os zeros da tela — os quatro KPI, o quadro, a lista e o lado    │
+ * │ do anúncio na coorte. Ação sem formulário é função morta, e função morta     │
+ * │ passa em todo teste de unidade.                                            │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A DATA DA LEVANTADA É OBRIGATÓRIA e o MRR não é.                            │
+ * │                                                                            │
+ * │ `anunciar` recusa origem `cliente` sem data, porque a data do anúncio É o    │
+ * │ churn de contas — sem ela a coorte não tem em que mês pendurar o pedido. O   │
+ * │ MRR, ao contrário, ele resolve sozinho: contrato, depois faturado dos dois   │
+ * │ últimos meses. O campo só aparece pedindo valor quando as duas fontes não    │
+ * │ têm resposta, e aí ele é obrigatório — sem MRR congelado não há churn de     │
+ * │ receita, só uma linha no quadro.                                           │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export function Registrar({
+  contas,
+  hoje,
+}: {
+  contas: readonly ContaParaSaida[]
+  hoje: string
+}) {
+  const semMrr = contas.filter((c) => c.mrrCentavos === null).length
+  return (
+    <Card title="Registrar levantada de mão">
+      {contas.length === 0 ? (
+        <p className="text-corpo leading-relaxed text-ink-2">
+          Nenhuma conta disponível para abrir pedido. A lista traz as contas ativas que faturaram
+          nos últimos doze meses e ainda não têm saída em andamento — se está vazia, ou todas já
+          estão no quadro, ou o faturamento não foi carregado.
+        </p>
+      ) : (
+        <>
+          <form action={registrarPedido} className="grid gap-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[22em] flex-1">
+                <Select label="Cliente" name="accountId" required defaultValue="">
+                  <option value="" disabled>
+                    escolha o cliente…
+                  </option>
+                  {contas.map((c) => (
+                    <option key={c.accountId} value={c.accountId}>
+                      {c.razaoSocial}
+                      {c.mrrCentavos === null ? ' · MRR a informar' : ` · ${BRL(c.mrrCentavos)}/mês`}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Select label="Pedido" name="pedido" defaultValue="cancelar" className="w-44">
+                <option value="cancelar">Cancelamento</option>
+                <option value="desconto">Desconto</option>
+              </Select>
+              <Select label="Origem" name="origem" defaultValue="cliente" className="w-40">
+                <option value="cliente">O cliente pediu</option>
+                <option value="alloyal">Alloyal (PDD)</option>
+              </Select>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <Field
+                label="Data da levantada"
+                name="dataLevantada"
+                type="date"
+                required
+                max={hoje}
+                defaultValue={hoje}
+                className="w-44"
+              />
+              <Field
+                label="Aviso prévio (dias)"
+                name="avisoPrevioDias"
+                type="number"
+                min={0}
+                max={365}
+                placeholder="30"
+                className="w-40"
+              />
+              <Field
+                label="MRR (R$, se a lista pedir)"
+                name="mrr"
+                type="text"
+                inputMode="decimal"
+                placeholder="4.500,00"
+                className="w-48"
+              />
+              <Select label="Canal" name="canal" defaultValue="" className="w-40">
+                <option value="">não informado</option>
+                <option value="email">E-mail</option>
+                <option value="reuniao">Reunião</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="telefone">Telefone</option>
+                <option value="formulario">Formulário</option>
+              </Select>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <Select label="Motivo" name="motivo" defaultValue="" className="w-56">
+                <option value="">a classificar</option>
+                {MOTIVOS_SAIDA.map((m) => (
+                  <option key={m.valor} value={m.valor}>
+                    {m.rotulo}
+                  </option>
+                ))}
+              </Select>
+              <div className="min-w-[14em] flex-1">
+                <Field
+                  label="Quem comunicou"
+                  name="quemComunicou"
+                  type="text"
+                  placeholder="nome de quem avisou, do lado do cliente"
+                />
+              </div>
+              <div className="min-w-[14em] flex-1">
+                <Field label="Detalhe do motivo" name="motivoDetalhe" type="text" placeholder="obrigatório em Outro" />
+              </div>
+              <Btn type="submit">Registrar</Btn>
+            </div>
+          </form>
+
+          <p className="mt-3 max-w-[80ch] text-meta leading-relaxed text-ink-3">
+            O <strong className="font-semibold text-ink">aviso prévio</strong> é digitado porque nem o
+            Omie nem o cadastro guardam prazo de aviso — e é ele que decide em que mês a receita
+            para. Sem ele, o pedido entra no quadro e fica sem data de fim.
+            {semMrr > 0 && (
+              <>
+                {' '}
+                {semMrr === 1 ? 'Uma conta da lista' : `${N(semMrr)} contas da lista`} não faturaram
+                nos últimos dois meses e aparecem como{' '}
+                <strong className="font-semibold text-ink">MRR a informar</strong>: para essas, o
+                valor tem de ser digitado, senão não há o que congelar.
+              </>
+            )}
+          </p>
+        </>
+      )}
+    </Card>
+  )
 }
 
 /* ─── O quadro ──────────────────────────────────────────────────────────────── */

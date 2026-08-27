@@ -1,4 +1,6 @@
 import {
+  MOTIVOS_SAIDA,
+  contasParaSaida,
   coorteDeSaida,
   faltaParaEncerrar,
   listarSaidas,
@@ -8,11 +10,19 @@ import {
   rotuloDoMotivo,
   type Saida,
 } from '@pulse/success'
-import { Abas, Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Vazio, cn } from '@pulse/ui'
+import { Abas, Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Select, Vazio, cn } from '@pulse/ui'
 import { Check } from 'lucide-react'
 
-import { acaoConfirmarAviso, acaoConfirmarCobranca, acaoEncerrar, acaoReter } from './acoes'
-import { Coorte, Meta, Quadro } from './visoes'
+import {
+  acaoConfirmarAviso,
+  acaoConfirmarCobranca,
+  acaoConfirmarMotivo,
+  acaoDesconto,
+  acaoEncerrar,
+  acaoRenegociar,
+  acaoReter,
+} from './acoes'
+import { Coorte, Meta, Quadro, Registrar } from './visoes'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir, temEscopo } from '../../../lib/guarda'
@@ -214,6 +224,87 @@ function Linha({ s, podeAprovar }: { s: Saida; podeAprovar: boolean }) {
             </Btn>
           </form>
 
+          {/* ┌──────────────────────────────────────────────────────────────┐
+              │ OS DOIS DESFECHOS QUE SALVAM O CLIENTE PAGANDO MENOS.         │
+              │                                                               │
+              │ Ficam aqui, e não no quadro: os cartões do quadro têm largura  │
+              │ de coluna, e estes precisam de valor em reais e competência —  │
+              │ dois campos que decidem quanto e quando entra no ledger. Sem   │
+              │ formulário eles não existiam na tela, e as posições 5 e 6 do   │
+              │ pipeline eram inalcançáveis: o pedido só podia ser retido ou   │
+              │ encerrado, que é o mundo de dois desfechos que este fluxo veio │
+              │ substituir.                                                   │
+              └──────────────────────────────────────────────────────────────┘ */}
+          <form action={acaoDesconto} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="id" value={s.id} />
+            <Field
+              label="Novo MRR (desconto)"
+              name="mrrNovo"
+              type="text"
+              inputMode="decimal"
+              placeholder="3.200,00"
+              required
+              className="w-40"
+            />
+            <Field label="Vale a partir de" name="competencia" type="month" required className="w-40" />
+            <div className="min-w-[14em] flex-1">
+              <Field label="Nota" name="nota" type="text" placeholder="o que foi combinado (opcional)" maxLength={500} />
+            </div>
+            <Btn type="submit" variant="ghost">
+              Conceder desconto
+            </Btn>
+          </form>
+
+          <form action={acaoRenegociar} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="id" value={s.id} />
+            {/* MRR VAZIO é o caso comum: parcelar dívida muda quando o dinheiro
+                entra, não quanto entra por mês — e aí nada vai para o ledger de
+                receita. O campo é opcional por isso, e o placeholder diz. */}
+            <Field
+              label="Novo MRR (se mudou)"
+              name="mrrNovo"
+              type="text"
+              inputMode="decimal"
+              placeholder="vazio = mensal igual"
+              className="w-40"
+            />
+            <Field label="Vale a partir de" name="competencia" type="month" className="w-40" />
+            <div className="min-w-[14em] flex-1">
+              <Field label="Nota" name="nota" type="text" placeholder="prazo, parcelas, garantia" maxLength={500} />
+            </div>
+            <Btn type="submit" variant="ghost">
+              Renegociar
+            </Btn>
+          </form>
+
+          {/* O motivo confirmado é o que sustenta a análise, e o banco exige que
+              venha de OUTRA pessoa que não a que abriu o pedido. */}
+          <form action={acaoConfirmarMotivo} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="id" value={s.id} />
+            <Select
+              label={s.motivoConfirmadoPor ? 'Motivo (confirmado)' : 'Confirmar motivo'}
+              name="motivo"
+              required
+              defaultValue={s.motivo ?? ''}
+              className="w-56"
+            >
+              <option value="" disabled>
+                escolha o motivo…
+              </option>
+              {MOTIVOS_SAIDA.map((m) => (
+                <option key={m.valor} value={m.valor}>
+                  {m.rotulo}
+                </option>
+              ))}
+            </Select>
+            <div className="min-w-[14em] flex-1">
+              <Field label="Detalhe" name="detalhe" type="text" placeholder="obrigatório em Outro" maxLength={500} />
+            </div>
+            <Btn type="submit" variant="ghost">
+              {s.motivoConfirmadoPor ? 'Corrigir motivo' : 'Confirmar motivo'}
+            </Btn>
+          </form>
+
           {falta.length === 1 && falta[0]?.startsWith('aprovação') ? (
             podeAprovar ? (
               <form action={acaoEncerrar} className="flex flex-wrap items-center gap-3">
@@ -261,8 +352,13 @@ export default async function Saidas({
   const hoje = new Date().toISOString().slice(0, 10)
   const comp = q.competencia ? `${q.competencia}-01` : `${hoje.slice(0, 7)}-01`
   const veReceita = id.permissoes.receita !== 'nenhum' || id.permissoes.configurar
+  /* A MESMA regra que `anunciar` aplica lá dentro, e não a do `exigir` da página:
+     ver saídas pede escopo de contas, ABRIR uma pede acesso à fila. Mostrar o
+     formulário a quem só vê contas (o Comercial) faria a pessoa preencher oito
+     campos para receber "registrar saída exige acesso à fila de trabalho". */
+  const podeRegistrar = id.permissoes.fila !== 'nenhum' || id.permissoes.configurar
 
-  const [saidas, resumo, pedidos, coorte, metas] = await Promise.all([
+  const [saidas, resumo, pedidos, coorte, metas, contas] = await Promise.all([
     listarSaidas(pool(), id),
     // O resumo lê a base inteira: é número de receita, e receita não tem
     // carteira. Quem não pode ver receita não chega a esta linha.
@@ -273,6 +369,11 @@ export default async function Saidas({
     veReceita ? coorteDeSaida(pool(), 12) : Promise.resolve([]),
     veReceita
       ? metaVersusRealizado(pool(), `${hoje.slice(0, 4)}-01`, hoje.slice(0, 7))
+      : Promise.resolve([]),
+    // Só na aba do quadro, que é a única que mostra o formulário: são ~426 linhas
+    // de select, e carregá-las na aba de coorte é consulta que ninguém lê.
+    podeRegistrar && aba === 'quadro'
+      ? contasParaSaida(pool(), id)
       : Promise.resolve([]),
   ])
 
@@ -383,10 +484,15 @@ export default async function Saidas({
             {pedidos.length === 0 && (
               <Vazio
                 titulo="Nenhum pedido registrado."
-                porque="O quadro se preenche a partir do primeiro pedido de cancelamento ou desconto cadastrado. Até então, a coorte mostra o churn derivado do faturamento — que sabe quando a receita parou, e não quando o cliente avisou."
+                porque="O quadro se preenche a partir do primeiro pedido de cancelamento ou desconto cadastrado, no formulário abaixo. Até então, a coorte mostra o churn derivado do faturamento — que sabe quando a receita parou, e não quando o cliente avisou."
                 acao={{ texto: 'Ver a coorte', href: '/saidas?aba=coorte' }}
               />
             )}
+            {/* O cadastro fica DEPOIS do quadro, e não antes: quem abre a tela
+                está trabalhando o que já existe. Só quando o quadro está vazio o
+                formulário é a primeira coisa a fazer — e aí o Vazio acima aponta
+                para ele. */}
+            {podeRegistrar && <Registrar contas={contas} hoje={hoje} />}
           </>
         )}
 

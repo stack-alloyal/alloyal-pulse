@@ -153,6 +153,72 @@ export async function quadroDeSaida(
   })
 }
 
+// ═══ QUEM PODE LEVANTAR A MÃO ════════════════════════════════════════════════
+
+export interface ContaParaSaida {
+  readonly accountId: string
+  readonly razaoSocial: string
+  /** O MRR que `anunciar` vai congelar sozinho. `null` = precisa ser digitado. */
+  readonly mrrCentavos: string | null
+}
+
+/**
+ * As contas que podem receber um pedido de saída.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ POR QUE ESTA LISTA É RECORTADA, e não "todas as contas".                    │
+ * │                                                                            │
+ * │ São 3.274 contas no cadastro e 2.153 marcadas ativas, mas só 426 ativas      │
+ * │ faturaram nos últimos doze meses — medido em 27/08/2026. Levantada de mão    │
+ * │ é evento de cliente COM receita: as outras 1.727 são cadastro sem cobrança,  │
+ * │ e oferecê-las num select transforma a escolha do cliente numa busca em       │
+ * │ 2.153 linhas para achar uma de 426.                                         │
+ * │                                                                            │
+ * │ Doze meses, e não os dois da carência do MRR: quem parou de pagar há seis    │
+ * │ meses e só agora formaliza o cancelamento é justamente o caso que o campo    │
+ * │ de MRR digitado existe para atender. Ele aparece na lista com `mrrCentavos`  │
+ * │ nulo, e a tela pede o valor.                                                │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * Conta que já tem saída em andamento fica FORA: `anunciar` recusa a segunda, e
+ * oferecer uma opção que só devolve erro é fazer a pessoa descobrir a regra pelo
+ * tropeço.
+ */
+export async function contasParaSaida(
+  db: pg.Pool,
+  id: Identidade,
+): Promise<ContaParaSaida[]> {
+  const { rows } = await db.query(
+    `WITH faturou AS (
+       SELECT DISTINCT ON (account_id) account_id, mrr_centavos, competencia
+         FROM analytics.mrr_faturado_mes
+        WHERE competencia >= date_trunc('month', current_date) - interval '12 months'
+        ORDER BY account_id, competencia DESC
+     )
+     SELECT a.id::text AS account_id, a.razao_social,
+            -- O MRR só é oferecido como congelável se estiver DENTRO da carência
+            -- de dois meses que anunciar() usa. Mostrar o de nove meses atrás
+            -- prometeria um congelamento que a função não vai fazer.
+            CASE WHEN f.competencia >= date_trunc('month', current_date) - interval '2 months'
+                 THEN f.mrr_centavos::text END AS mrr
+       FROM core.account a
+       JOIN faturou f ON f.account_id = a.id
+      WHERE a.ativo
+        AND ($2::boolean OR a.csm_email = $1)
+        AND NOT EXISTS (
+          SELECT 1 FROM success.cancellation c
+           WHERE c.account_id = a.id
+             AND c.estado IN ('anunciado', 'financeiro', 'reversao', 'em_aviso'))
+      ORDER BY a.razao_social`,
+    [id.email, daBase(id)],
+  )
+  return rows.map((r) => ({
+    accountId: String(r['account_id']),
+    razaoSocial: String(r['razao_social'] ?? ''),
+    mrrCentavos: r['mrr'] === null ? null : String(r['mrr']),
+  }))
+}
+
 // ═══ A COORTE ════════════════════════════════════════════════════════════════
 
 export interface MesDaCoorte {

@@ -54,25 +54,6 @@ async function tentar(fn: () => Promise<string>): Promise<never> {
   redirect(destino)
 }
 
-export async function registrarSaida(dados: FormData): Promise<void> {
-  const id = await exigir((p) => temEscopo(p.fila), 'registro de saída')
-  const canal = String(dados.get('canal') ?? '')
-  const quem = String(dados.get('quemComunicou') ?? '').trim()
-  const motivo = String(dados.get('motivo') ?? '').trim()
-  const data = String(dados.get('dataLevantada') ?? '')
-  await tentar(async () => {
-    await anunciar(pool(), id, {
-      accountId: String(dados.get('accountId') ?? ''),
-      origem: String(dados.get('origem') ?? 'cliente') as OrigemSaida,
-      ...(data ? { dataLevantada: data } : {}),
-      ...(canal ? { canal: canal as CanalAnuncio } : {}),
-      ...(quem ? { quemComunicou: quem } : {}),
-      ...(motivo ? { motivo } : {}),
-    })
-    return 'saída registrada'
-  })
-}
-
 export async function acaoConfirmarAviso(dados: FormData): Promise<void> {
   const id = await exigir((p) => temEscopo(p.fila), 'confirmação de aviso prévio')
   await tentar(async () => {
@@ -215,8 +196,18 @@ export async function acaoDefinirMeta(dados: FormData): Promise<void> {
 }
 
 /** O registro da levantada passa a aceitar o tipo do pedido e o MRR digitado. */
+/*
+ * A ÚNICA porta de entrada do fluxo. Havia duas — esta e uma `registrarSaida`
+ * anterior, subconjunto desta —, e NENHUMA das duas era chamada por formulário
+ * algum: `success.cancellation` ficou em zero linha, e daí saíram todos os zeros
+ * da tela. A duplicata foi removida junto com o defeito.
+ *
+ * O gate é `fila`, e não `contas`, para ser o MESMO que `anunciar` aplica lá
+ * dentro. Com `contas`, o Comercial preenchia o formulário inteiro e recebia
+ * "registrar saída exige acesso à fila de trabalho" no fim.
+ */
 export async function registrarPedido(dados: FormData): Promise<void> {
-  const id = await exigir((p) => temEscopo(p.contas), 'registrar pedido de saída')
+  const id = await exigir((p) => temEscopo(p.fila), 'registrar pedido de saída')
   const mrr = String(dados.get('mrr') ?? '').trim()
   const aviso = String(dados.get('avisoPrevioDias') ?? '').trim()
   await tentar(async () => {

@@ -210,6 +210,12 @@ export interface Saida {
   cobrancaConfirmadaEm: string | null
   competenciaEfeitoReceita: string | null
   motivo: string | null
+  /**
+   * Quem confirmou o motivo — e é por ser OUTRA pessoa que o CHECK do banco
+   * aceita. `null` é motivo não confirmado, que não é o mesmo que sem motivo:
+   * o campo `motivo` pode estar preenchido por quem abriu o pedido.
+   */
+  motivoConfirmadoPor: string | null
   retidoEm: string | null
   retidoPor: string | null
   aprovadoPor: string | null
@@ -251,7 +257,8 @@ const COLUNAS = `
   c.cobranca_confirmada_por                            AS "cobrancaConfirmadaPor",
   c.cobranca_confirmada_em                             AS "cobrancaConfirmadaEm",
   to_char(c.competencia_efeito_receita,'YYYY-MM')      AS "competenciaEfeitoReceita",
-  c.motivo, to_char(c.retido_em,'YYYY-MM-DD') AS "retidoEm", c.retido_por AS "retidoPor",
+  c.motivo, c.motivo_confirmado_por                    AS "motivoConfirmadoPor",
+  to_char(c.retido_em,'YYYY-MM-DD') AS "retidoEm", c.retido_por AS "retidoPor",
   c.aprovado_por AS "aprovadoPor",
   (c.data_fim_aviso - current_date)                    AS "diasParaFimDoAviso",
   c.criado_em                                          AS "criadoEm"`

@@ -183,6 +183,7 @@ jobs:
             packages/success/dist/fila.test.js \
             packages/success/dist/conta.test.js \
             packages/success/dist/cancelamento.test.js \
+            packages/success/dist/saida-visoes.test.js \
             packages/success/dist/fechamento.test.js \
             packages/success/dist/biblioteca.test.js \
             packages/success/dist/renovacao.test.js \
@@ -261,6 +262,10 @@ jobs:
           # Credencial de cliente na tela de conferência: a aba "todos os campos"
           # despejava api_secret/api_key/signature_secret da Lecupon em página interna.
           node --test packages/config/dist/fontes.test.js
+          # Ação de servidor sem formulário: registrarPedido era a única porta de
+          # entrada do fluxo de saída e nenhum <form> a chamava — a tela subiu zerada
+          # com os 765 testes passando.
+          node --test packages/config/dist/acoes-ligadas.test.js
           # Dedup por chave na gravação do Omie: sem ela o ciclo morre depois de 17
           # minutos de varredura, com "cannot affect row a second time".
           node --test packages/config/dist/omie.test.js
