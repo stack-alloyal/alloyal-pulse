@@ -278,4 +278,58 @@ describe('invariantes de domínio', { skip: !ADMIN }, () => {
     await inserir(2, false)
     await db.query(`DELETE FROM success.playbook WHERE chave = 'queda-adesao'`)
   })
+  /* ┌───────────────────────────────────────────────────────────────────────┐
+     │ QUEM APAGA PRECISA DO GRANT DE APAGAR.                                 │
+     │                                                                        │
+     │ Medido em 27/08/2026: o C22 NUNCA escreveu um evento em produção.       │
+     │ `pulse_worker` tinha INSERT, SELECT e UPDATE em `fact.mrr_event` e NÃO   │
+     │ DELETE, e `gerarEventosDeMrr` começa apagando os derivados da            │
+     │ competência — é assim que ele é idempotente. Falhava em 2 segundos com   │
+     │ "permission denied for table mrr_event".                                │
+     │                                                                        │
+     │ E ficou VERDE por uma semana: o ciclo pergunta `competenciasSemEventos`  │
+     │ antes de escrever, e essa pergunta é só SELECT. Com o ledger cheio a     │
+     │ resposta era "nenhuma pendente", ele gravava `ok` com zero linhas, e a   │
+     │ parede de permissão nunca era tocada. Ciclo sem trabalho e ciclo sem     │
+     │ PERMISSÃO registram exatamente a mesma coisa no painel.                 │
+     │                                                                        │
+     │ A lista é ESCRITA À MÃO, e isto é decisão. A primeira versão varria os   │
+     │ `DELETE FROM` do fonte e exigia o grant do worker — e acusou quatro      │
+     │ tabelas de `ops` que quem apaga é o `pulse_api`, na tela de              │
+     │ configuração. `@pulse/config` é compartilhado entre a app e o worker, e  │
+     │ o diretório do arquivo NÃO diz qual papel executa aquela linha. Um       │
+     │ portão que erra o dono ensina a ignorar portão.                         │
+     │                                                                        │
+     │ O custo é ter de acrescentar uma linha aqui ao escrever um DELETE novo.  │
+     │ É o custo certo: quem escreve o DELETE é quem sabe quem vai executá-lo.  │
+     └───────────────────────────────────────────────────────────────────────┘ */
+  test('quem apaga tem o grant de apagar', async () => {
+    const APAGAM = [
+      // O worker, nos ciclos:
+      { papel: 'pulse_worker', tabela: 'fact.mrr_event', onde: 'gerarEventosDeMrr (C22)' },
+      { papel: 'pulse_worker', tabela: 'fact.inadimplencia_titulo', onde: 'apurarCompetencia (C21)' },
+      { papel: 'pulse_worker', tabela: 'metrics.daily_snapshot', onde: 'consolidação (C13)' },
+      { papel: 'pulse_worker', tabela: 'core.omie_titulo', onde: 'carga do Omie (C20)' },
+      // A app, nas telas de configuração:
+      { papel: 'pulse_api', tabela: 'ops.configuracao', onde: 'loja.ts, tela de ajustes' },
+      { papel: 'pulse_api', tabela: 'ops.segredo', onde: 'loja.ts, tela de segredos' },
+      { papel: 'pulse_api', tabela: 'ops.user_role', onde: 'papeis.ts, tela de papéis' },
+      { papel: 'pulse_api', tabela: 'ops.codigo_verificacao', onde: 'verificacao.ts, step-up' },
+    ] as const
+
+    const semGrant: string[] = []
+    for (const { papel, tabela, onde } of APAGAM) {
+      const { rows } = await db.query<{ pode: boolean }>(
+        'SELECT has_table_privilege($1, $2, $3) AS pode',
+        [papel, tabela, 'DELETE'],
+      )
+      if (rows[0]?.pode !== true) semGrant.push(`${papel} → ${tabela} (${onde})`)
+    }
+    assert.deepEqual(
+      semGrant,
+      [],
+      'o código apaga destas tabelas e o papel não tem DELETE nelas — vai falhar com ' +
+        '"permission denied" na primeira vez que houver trabalho, e o painel mostra verde até lá',
+    )
+  })
 })
