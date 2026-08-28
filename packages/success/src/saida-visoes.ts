@@ -231,11 +231,30 @@ export interface MesDaCoorte {
   readonly comDesconto: number
   readonly renegociados: number
   readonly cancelados: number
-  /** Do ledger derivado: churn com EFEITO neste mês. Tem história. */
+  /**
+   * Do MESMO pipeline: pedidos cuja receita PARA neste mês.
+   *
+   * ┌───────────────────────────────────────────────────────────────────────┐
+   * │ VEM DE `competencia_efeito_receita`, e não do ledger de MRR.            │
+   * │                                                                        │
+   * │ A primeira versão lia `fact.mrr_event`, e isso misturava duas           │
+   * │ definições de churn na mesma tabela. O ledger é DERIVADO do             │
+   * │ faturamento do Omie: ele sabe que a receita parou, não por quê — um     │
+   * │ cliente que renegociou para pagar trimestralmente entra lá como churn   │
+   * │ e reativação, e o próprio módulo que o gera diz isso no cabeçalho.      │
+   * │                                                                        │
+   * │ Numa coorte de SAÍDA as duas colunas têm de falar do mesmo caso: o mês  │
+   * │ em que o cliente avisou, e o mês em que a receita dele parou. A         │
+   * │ distância entre as duas é o aviso prévio, e só faz sentido se for o     │
+   * │ mesmo pedido nos dois lados. `competencia_efeito_receita` é apurada     │
+   * │ pelo fluxo com as duas confirmações humanas — última cobrança mais um.  │
+   * │                                                                        │
+   * │ Reativação saiu junto: não é evento do pipeline de saída. Cliente que   │
+   * │ volta é assunto de Receita, e estava aqui só porque o ledger a tinha.   │
+   * └───────────────────────────────────────────────────────────────────────┘
+   */
   readonly churnEfeitoContas: number
   readonly churnEfeitoCentavos: string
-  readonly reativouContas: number
-  readonly reativouCentavos: string
 }
 
 /**
@@ -278,13 +297,16 @@ export async function coorteDeSaida(db: pg.Pool, meses = 12): Promise<MesDaCoort
         GROUP BY 1
      ),
      efeito AS (
-       SELECT competencia AS mes,
-              count(*) FILTER (WHERE tipo IN ('churn_pedido', 'churn_inadimplencia')) AS n,
-              coalesce(abs(sum(valor_centavos) FILTER (
-                WHERE tipo IN ('churn_pedido', 'churn_inadimplencia'))), 0)            AS mrr,
-              count(*) FILTER (WHERE tipo = 'reativacao')                              AS rea_n,
-              coalesce(sum(valor_centavos) FILTER (WHERE tipo = 'reativacao'), 0)      AS rea_mrr
-         FROM fact.mrr_event
+       /* O mês em que a receita PARA, do mesmo pedido do lado do anúncio.
+          Só estado de perda entra: retido, desconto e renegociado continuam
+          faturando, e contá-los aqui afirmaria uma saída de receita que não
+          houve. */
+       SELECT c.competencia_efeito_receita AS mes,
+              count(*)                                      AS n,
+              coalesce(sum(c.mrr_centavos_na_levantada), 0)  AS mrr
+         FROM success.cancellation c
+        WHERE c.competencia_efeito_receita IS NOT NULL
+          AND c.estado IN ('em_aviso', 'encerrado')
         GROUP BY 1
      )
      SELECT to_char(g.mes, 'YYYY-MM-DD') AS mes,
@@ -296,9 +318,7 @@ export async function coorteDeSaida(db: pg.Pool, meses = 12): Promise<MesDaCoort
             coalesce(an.renegociados, 0)::int AS renegociados,
             coalesce(an.cancelados, 0)::int   AS cancelados,
             coalesce(ef.n, 0)::int            AS churn_contas,
-            coalesce(ef.mrr, 0)::text         AS churn_mrr,
-            coalesce(ef.rea_n, 0)::int        AS rea_contas,
-            coalesce(ef.rea_mrr, 0)::text     AS rea_mrr
+            coalesce(ef.mrr, 0)::text         AS churn_mrr
        FROM grade g
        LEFT JOIN anuncio an ON an.mes = g.mes
        LEFT JOIN efeito  ef ON ef.mes = g.mes
@@ -316,8 +336,6 @@ export async function coorteDeSaida(db: pg.Pool, meses = 12): Promise<MesDaCoort
     cancelados: Number(r['cancelados']),
     churnEfeitoContas: Number(r['churn_contas']),
     churnEfeitoCentavos: String(r['churn_mrr']),
-    reativouContas: Number(r['rea_contas']),
-    reativouCentavos: String(r['rea_mrr']),
   }))
 }
 
@@ -366,10 +384,25 @@ export async function metaVersusRealizado(
        SELECT generate_series($1::date, $2::date, interval '1 month')::date AS mes
      ),
      churn AS (
-       SELECT competencia AS mes,
-              coalesce(abs(sum(valor_centavos)), 0) AS v
-         FROM fact.mrr_event
-        WHERE tipo IN ('churn_pedido', 'churn_inadimplencia')
+       /* ┌───────────────────────────────────────────────────────────────────┐
+          │ O REALIZADO SAI DO PIPELINE, e não do ledger de MRR.               │
+          │                                                                    │
+          │ A primeira versão somava fact.mrr_event, e era erro de conceito:    │
+          │ esta tabela fica ao lado do quadro de saídas e responde "batemos a  │
+          │ meta de churn?". O ledger é derivado do faturamento do Omie e não   │
+          │ sabe POR QUE a receita parou — cliente que mudou para cobrança      │
+          │ trimestral entra lá como churn. A meta seria cobrada contra um      │
+          │ número que inclui quem não saiu.                                    │
+          │                                                                    │
+          │ Aqui o realizado é o que o time REGISTROU e levou até a perda, no   │
+          │ mês em que a receita para. Mesma fonte dos KPI e do quadro: a tela  │
+          │ inteira conta uma história só.                                      │
+          └───────────────────────────────────────────────────────────────────┘ */
+       SELECT c.competencia_efeito_receita AS mes,
+              coalesce(sum(c.mrr_centavos_na_levantada), 0) AS v
+         FROM success.cancellation c
+        WHERE c.competencia_efeito_receita IS NOT NULL
+          AND c.estado IN ('em_aviso', 'encerrado')
         GROUP BY 1
      )
      SELECT to_char(g.mes, 'YYYY-MM-DD') AS mes,

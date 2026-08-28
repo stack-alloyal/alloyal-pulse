@@ -129,12 +129,83 @@ test('nenhum comentário SQL usa crase', () => {
       continue // pacote que não existe mais, ou sem src
     }
     for (const nome of arquivos) {
-      const linhas = readFileSync(join(dir, nome), 'utf8').split('\n')
-      linhas.forEach((linha, i) => {
-        if (/^\s*--/.test(linha) && linha.includes('`')) {
-          achados.push(`${pacote}/${nome}:${i + 1} · ${linha.trim().slice(0, 60)}`)
+      /* ┌──────────────────────────────────────────────────────────────────┐
+         │ ONDE O TEMPLATE LITERAL TERMINA, e não que prefixo a linha tem.    │
+         │                                                                    │
+         │ A décima terceira ocorrência (27/08/2026) estava numa moldura de   │
+         │ caixa dentro de um bloco de comentário, dentro de um template      │
+         │ literal de SQL. Linha de moldura não começa com marcador nenhum —  │
+         │ começa com a barra vertical do desenho —, então o portão antigo,   │
+         │ que olhava o prefixo, não a viu. O build viu, e apontou erro de    │
+         │ sintaxe numa linha que é texto em português.                       │
+         │                                                                    │
+         │ A primeira tentativa de alargar contava crases por linha para      │
+         │ saber se estava dentro de SQL. Deu SEIS falsos positivos: par de   │
+         │ crase em prosa de JSDoc, aberto numa linha e fechado na seguinte,  │
+         │ é indistinguível de fronteira de literal para um contador. Régua   │
+         │ que acusa o inocente ensina a ignorar régua.                       │
+         │                                                                    │
+         │ Então este portão LÊ o arquivo como o compilador lê: um pequeno    │
+         │ lexer que sabe distinguir comentário, aspas e template literal.    │
+         │ E a pergunta deixa de ser "que prefixo tem a linha?" para ser      │
+         │ "EM QUE LINHA o template acabou?". Se acabou numa linha que é      │
+         │ desenho ou comentário, a crase dali é o defeito — porque o         │
+         │ compilador fechou o literal ali, e o resto do SQL virou código.    │
+         └──────────────────────────────────────────────────────────────────┘ */
+      const fonte = readFileSync(join(dir, nome), 'utf8')
+      // Linha onde cada template literal FECHA. Dentro de um literal, `/*` e
+      // `--` não são comentário: são texto. Só a crase importa.
+      const fechamentos: number[] = []
+      let estado: 'codigo' | 'linha' | 'bloco' | 'aspa1' | 'aspa2' | 'literal' = 'codigo'
+      let linha = 1
+      let profundidade = 0
+      for (let k = 0; k < fonte.length; k++) {
+        const c = fonte[k]
+        const prox = fonte[k + 1]
+        if (c === '\n') linha++
+        if (c === '\\') { k++; continue }
+        switch (estado) {
+          case 'codigo':
+            if (c === '/' && prox === '/') { estado = 'linha'; k++ }
+            else if (c === '/' && prox === '*') { estado = 'bloco'; k++ }
+            else if (c === "'") estado = 'aspa1'
+            else if (c === '"') estado = 'aspa2'
+            else if (c === '`') estado = 'literal'
+            break
+          case 'linha':
+            if (c === '\n') estado = 'codigo'
+            break
+          case 'bloco':
+            if (c === '*' && prox === '/') { estado = 'codigo'; k++ }
+            break
+          case 'aspa1':
+            if (c === "'" || c === '\n') estado = 'codigo'
+            break
+          case 'aspa2':
+            if (c === '"' || c === '\n') estado = 'codigo'
+            break
+          case 'literal':
+            // `${` devolve ao código até a chave fechar: é onde vivem os
+            // pedaços de SQL compartilhados (${POSICAO}, ${COLUNAS}).
+            if (c === '$' && prox === '{') { profundidade++; estado = 'codigo'; k++ }
+            else if (c === '`') { fechamentos.push(linha); estado = 'codigo' }
+            break
         }
-      })
+        if (estado === 'codigo' && profundidade > 0 && c === '}') {
+          profundidade--
+          estado = 'literal'
+        }
+      }
+
+      const linhas = fonte.split('\n')
+      for (const n of fechamentos) {
+        const texto = linhas[n - 1] ?? ''
+        // Desenho de caixa, comentário SQL ou de bloco: nenhum desses é lugar
+        // de um template literal terminar.
+        if (/^\s*(│|--|\*|\/\*)/.test(texto) || texto.includes('│')) {
+          achados.push(`${pacote}/${nome}:${n} · ${texto.trim().slice(0, 60)}`)
+        }
+      }
     }
   }
   assert.ok(achados.length >= 0, 'varredura executada')

@@ -335,16 +335,31 @@ function Coluna({
 /* ─── A coorte ──────────────────────────────────────────────────────────────── */
 
 /**
- * As duas coortes lado a lado, e a diferença entre elas dita em texto.
+ * As duas coortes lado a lado, e a distância entre elas é o aviso prévio.
  *
- * A de ANÚNCIO começa vazia e é a que antecipa; a de EFEITO tem história e é a
- * que a cascata usa. Juntar numa coluna faria junho aparecer com saídas
- * anunciadas em abril — deslocadas pelo tamanho do aviso, que varia por contrato.
+ * A de ANÚNCIO é o mês em que a mão subiu; a de EFEITO é o mês em que a receita
+ * para. Juntar numa coluna faria junho aparecer com saídas anunciadas em abril —
+ * deslocadas pelo tamanho do aviso, que varia por contrato.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ AS DUAS VÊM DO MESMO PIPELINE, e antes não vinham.                         │
+ * │                                                                            │
+ * │ A coluna de efeito lia `fact.mrr_event`, o ledger derivado do faturamento   │
+ * │ do Omie. Dava história de cinco anos e uma tabela que misturava duas        │
+ * │ definições de churn: o ledger sabe que a receita parou, não POR QUÊ, e      │
+ * │ cliente que passou a pagar trimestralmente entra lá como saída. Numa coorte │
+ * │ de saída as duas colunas têm de ser o MESMO caso nos dois lados, senão a    │
+ * │ distância entre elas não é aviso prévio nenhum.                            │
+ * │                                                                            │
+ * │ O preço é começar vazia e preencher conforme o time usa o pipeline. É o     │
+ * │ preço certo: coorte que já vem cheia de um número que ninguém registrou     │
+ * │ ensina a confiar no número errado.                                         │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 export function Coorte({ meses }: { meses: readonly MesDaCoorte[] }) {
   const temAnuncio = meses.some((m) => m.anunciados > 0)
   const totalChurn = meses.reduce((s, m) => s + Number(m.churnEfeitoCentavos), 0)
-  const totalRea = meses.reduce((s, m) => s + Number(m.reativouCentavos), 0)
+  const totalAnunciado = meses.reduce((s, m) => s + Number(m.mrrAnunciadoCentavos), 0)
   return (
     <div className="grid gap-5">
       <Card title="Coorte por mês">
@@ -359,7 +374,6 @@ export function Coorte({ meses }: { meses: readonly MesDaCoorte[] }) {
             'Renegociados',
             'Cancelados',
             'Churn no efeito',
-            'Reativaram',
           ]}
           rows={meses.map((m) => [
             <span className="whitespace-nowrap font-semibold tabular-nums">{MES(m.mes)}</span>,
@@ -373,33 +387,36 @@ export function Coorte({ meses }: { meses: readonly MesDaCoorte[] }) {
             <span className="tabular-nums">{m.renegociados || '—'}</span>,
             <span className="tabular-nums">{m.cancelados || '—'}</span>,
             <>
-              <span className="tabular-nums">{BRL(m.churnEfeitoCentavos)}</span>
-              <span className="mt-0.5 block text-nota text-ink-3">{N(m.churnEfeitoContas)} conta(s)</span>
-            </>,
-            <>
-              <span className="tabular-nums">{BRL(m.reativouCentavos)}</span>
-              <span className="mt-0.5 block text-nota text-ink-3">{N(m.reativouContas)} conta(s)</span>
+              <span className="tabular-nums">
+                {m.churnEfeitoContas === 0 ? '—' : BRL(m.churnEfeitoCentavos)}
+              </span>
+              {m.churnEfeitoContas > 0 && (
+                <span className="mt-0.5 block text-nota text-ink-3">
+                  {N(m.churnEfeitoContas)} conta(s)
+                </span>
+              )}
             </>,
           ])}
         />
         <p className="mt-3 max-w-[80ch] text-meta leading-relaxed text-ink-3">
           São <strong className="font-semibold text-ink">duas coortes na mesma tabela</strong>, e a
           distância entre elas é o aviso prévio. À esquerda, o mês em que a{' '}
-          <strong className="font-semibold text-ink">mão subiu</strong> — vem do pipeline, e é a que
-          antecipa. À direita, o mês em que a{' '}
-          <strong className="font-semibold text-ink">receita saiu</strong> — vem do ledger derivado
-          do faturamento, e tem história.{' '}
-          {!temAnuncio && (
+          <strong className="font-semibold text-ink">mão subiu</strong>. À direita, o mês em que a{' '}
+          <strong className="font-semibold text-ink">receita para</strong> — apurado pelo próprio
+          fluxo, com as duas confirmações humanas, e não adivinhado do faturamento.{' '}
+          {temAnuncio ? (
             <>
-              As colunas de anúncio estão vazias porque{' '}
-              <strong className="font-semibold text-ink">nenhuma levantada foi registrada ainda</strong>
-              : o ledger sabe quando a receita parou, não quando o cliente avisou. Elas se preenchem
-              a partir do primeiro pedido cadastrado.
+              No período: {BRL(totalAnunciado)} levantaram a mão e {BRL(totalChurn)} saíram do
+              faturamento. Os dois números não fecham no mesmo mês de propósito.
             </>
-          )}{' '}
-          A coluna de reativação existe porque uma coorte de saída que não mostra quem voltou conta
-          metade da história: no período são {BRL(totalRea)} que retornaram contra {BRL(totalChurn)}{' '}
-          que saíram.
+          ) : (
+            <>
+              A tabela está vazia porque{' '}
+              <strong className="font-semibold text-ink">nenhuma levantada foi registrada ainda</strong>
+              , e ela mede o que o time registra — não o que se deduz do faturamento. Preenche a
+              partir do primeiro pedido cadastrado no quadro.
+            </>
+          )}
         </p>
       </Card>
     </div>

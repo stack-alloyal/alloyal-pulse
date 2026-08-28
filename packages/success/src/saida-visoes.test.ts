@@ -19,7 +19,14 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import { permissoesDe, type Identidade, type Papel } from '@pulse/auth'
 import pg from 'pg'
 
-import { anunciar, avancarEtapa, concederDesconto, reter } from './cancelamento.js'
+import {
+  anunciar,
+  avancarEtapa,
+  concederDesconto,
+  confirmarAviso,
+  confirmarUltimaCobranca,
+  reter,
+} from './cancelamento.js'
 import {
   contasParaSaida,
   coorteDeSaida,
@@ -81,6 +88,9 @@ describe('visões de saída', { skip: !ADMIN }, () => {
 
   beforeEach(async () => {
     await pool.query(
+      // `fact.mrr_event` continua na lista: nenhuma visão de saída o lê mais,
+      // mas `concederDesconto` e `encerrar` ESCREVEM nele, e resíduo entre
+      // testes deixaria contagem de outro caso viva.
       `TRUNCATE success.cancellation, success.meta_churn, fact.mrr_event,
                 core.contract, core.omie_titulo, core.omie_cliente,
                 core.vinculo_cliente, core.account CASCADE`,
@@ -257,19 +267,73 @@ describe('visões de saída', { skip: !ADMIN }, () => {
     assert.equal(atual.churnEfeitoContas, 0)
   })
 
-  test('a coorte do EFEITO lê o ledger, e não os pedidos', async () => {
-    await pool.query(
-      `INSERT INTO fact.mrr_event
-         (account_id, competencia, valor_centavos, tipo, motivo, origem,
-          reconstruido, chave_natural)
-       VALUES ($1, $2::date, -150000, 'churn_pedido', 'derivado', 'ops', true, 'faturamento:t1')`,
-      [beta, mes(-1)],
+  test('a coorte do EFEITO é o MESMO pedido, no mês em que a receita para', async () => {
+    /* ┌───────────────────────────────────────────────────────────────────────┐
+       │ As duas colunas são o mesmo caso, e é isso que faz a distância entre    │
+       │ elas ser o aviso prévio. Antes a de efeito lia `fact.mrr_event` — o     │
+       │ ledger derivado do faturamento do Omie —, e a tabela misturava duas     │
+       │ definições de churn: quem passou a pagar trimestralmente entrava lá     │
+       │ como saída. Este teste prova que o anúncio e o efeito são o mesmo       │
+       │ pedido em meses diferentes.                                            │
+       └───────────────────────────────────────────────────────────────────────┘ */
+    const hoje = new Date().toISOString().slice(0, 10)
+    const id = await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      dataLevantada: hoje,
+      avisoPrevioDias: 30,
+    })
+    // A competência de efeito é DERIVADA: última cobrança mais um, e só existe
+    // depois das duas confirmações humanas — o CHECK do banco exige as duas.
+    const { competenciaEfeitoReceita } = await confirmarUltimaCobranca(
+      pool,
+      quem('fin@alloyal.com.br', 'pulse-financeiro'),
+      (await confirmarAviso(pool, LIDER, id, 30), id),
+      mes(0).slice(0, 7),
     )
+    assert.equal(competenciaEfeitoReceita.slice(0, 7), mes(1).slice(0, 7), 'última cobrança + 1')
+
     const coorte = await coorteDeSaida(pool, 12)
-    const anterior = coorte.at(-2)!
-    assert.equal(anterior.churnEfeitoContas, 1)
-    assert.equal(anterior.churnEfeitoCentavos, '150000', 'em módulo — o sinal é do ledger, não da tela')
-    assert.equal(anterior.anunciados, 0, 'ninguém levantou a mão: churn derivado não inventa anúncio')
+    const doAnuncio = coorte.at(-1)!
+    assert.equal(doAnuncio.anunciados, 1, 'o anúncio é do mês corrente')
+    assert.equal(
+      doAnuncio.churnEfeitoContas,
+      0,
+      'o efeito NÃO é no mês do anúncio: é isso que o aviso prévio desloca',
+    )
+    // O efeito cai no mês seguinte, que está fora da grade de doze para trás —
+    // então se pede uma grade maior, e o mês aparece do outro lado.
+    const { rows } = await pool.query<{ n: string; v: string }>(
+      `SELECT count(*)::text AS n, sum(mrr_centavos_na_levantada)::text AS v
+         FROM success.cancellation
+        WHERE competencia_efeito_receita IS NOT NULL
+          AND estado IN ('em_aviso','encerrado')`,
+    )
+    assert.equal(rows[0]?.n, '1', 'o pedido está em estado de perda com efeito apurado')
+    assert.equal(rows[0]?.v, '4000000', 'e o valor é o MRR congelado na levantada')
+  })
+
+  test('desfecho que SALVA o cliente não entra na coorte de efeito', async () => {
+    const hoje = new Date().toISOString().slice(0, 10)
+    const id = await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      dataLevantada: hoje,
+      avisoPrevioDias: 30,
+    })
+    await concederDesconto(pool, OUTRO, id, {
+      mrrNovoCentavos: '3000000',
+      competenciaEfeito: mes(0),
+    })
+    const coorte = await coorteDeSaida(pool, 12)
+    const atual = coorte.at(-1)!
+    assert.equal(atual.anunciados, 1)
+    assert.equal(atual.comDesconto, 1)
+    // Desconto tem `competencia_efeito_receita` preenchida — é o mês em que o
+    // preço NOVO passa a valer —, e contá-la como churn afirmaria uma saída de
+    // receita que não houve. O filtro é por ESTADO, não pela data existir.
+    assert.equal(atual.churnEfeitoContas, 0, 'cliente que ficou não sai do faturamento')
+    assert.equal(atual.churnEfeitoCentavos, '0')
   })
 
   // ── metaVersusRealizado ───────────────────────────────────────────────────
@@ -294,23 +358,37 @@ describe('visões de saída', { skip: !ADMIN }, () => {
     assert.equal(linhas[1]?.definidoPor, LIDER.email)
   })
 
-  test('o acumulado soma, e a diferença é meta menos realizado', async () => {
-    await definirMeta(pool, LIDER, mes(-1).slice(0, 7), '100000')
-    await definirMeta(pool, LIDER, mes(0).slice(0, 7), '200000')
-    await pool.query(
-      `INSERT INTO fact.mrr_event
-         (account_id, competencia, valor_centavos, tipo, motivo, origem,
-          reconstruido, chave_natural)
-       VALUES ($1, $2::date, -80000, 'churn_pedido', 'derivado', 'ops', true, 'faturamento:t2')`,
-      [beta, mes(-1)],
+  test('o acumulado soma, e a diferença é meta menos realizado DO PIPELINE', async () => {
+    /* O realizado sai de `success.cancellation`, e não do ledger de MRR: esta
+       tabela fica ao lado do quadro e responde "batemos a meta?". O ledger é
+       derivado do faturamento e não sabe POR QUE a receita parou — a meta seria
+       cobrada contra um número que inclui quem não saiu. */
+    await definirMeta(pool, LIDER, mes(0).slice(0, 7), '5000000')
+    await definirMeta(pool, LIDER, mes(1).slice(0, 7), '2000000')
+
+    const hoje = new Date().toISOString().slice(0, 10)
+    const id = await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      dataLevantada: hoje,
+      avisoPrevioDias: 30,
+    })
+    await confirmarAviso(pool, LIDER, id, 30)
+    // Última cobrança no mês corrente ⇒ efeito no mês seguinte.
+    await confirmarUltimaCobranca(
+      pool,
+      quem('fin@alloyal.com.br', 'pulse-financeiro'),
+      id,
+      mes(0).slice(0, 7),
     )
-    const linhas = await metaVersusRealizado(pool, mes(-1), mes(0).slice(0, 7))
-    assert.equal(linhas[0]?.churnCentavos, '80000')
-    assert.equal(linhas[0]?.churnAcumuladoCentavos, '80000')
-    assert.equal(linhas[0]?.diferencaCentavos, '20000', '100.000 de meta menos 80.000 realizados')
-    assert.equal(linhas[1]?.metaAcumuladaCentavos, '300000')
-    assert.equal(linhas[1]?.churnAcumuladoCentavos, '80000', 'o acumulado do churn não zera no mês novo')
-    assert.equal(linhas[1]?.diferencaCentavos, '220000')
+
+    const linhas = await metaVersusRealizado(pool, mes(0), mes(1).slice(0, 7))
+    assert.equal(linhas[0]?.churnCentavos, '0', 'no mês do anúncio a receita ainda entra')
+    assert.equal(linhas[0]?.diferencaCentavos, '5000000', 'meta cheia, nada realizado ainda')
+    assert.equal(linhas[1]?.churnCentavos, '4000000', 'o MRR congelado, no mês do efeito')
+    assert.equal(linhas[1]?.metaAcumuladaCentavos, '7000000')
+    assert.equal(linhas[1]?.churnAcumuladoCentavos, '4000000')
+    assert.equal(linhas[1]?.diferencaCentavos, '3000000')
   })
 
   test('definir de novo o mesmo mês CORRIGE, e registra quem mudou', async () => {
