@@ -57,6 +57,13 @@ COPY --from=build /app/apps/web-internal/public ./apps/web-internal/public
 # 500 num documento que existe no repo. A rota que o serve devolve 500 com a causa
 # em vez de 404, justamente para essa falta aparecer.
 COPY --from=build /app/apps/web-internal/conteudo ./apps/web-internal/conteudo
+# `docs/` — a pasta de PRODUTO na raiz do repositório, servida em /docs atrás do
+# SSO. Vem de lá e não de uma cópia dentro da app porque é a FONTE: é o mesmo
+# arquivo que `infra/docs/` serve e que o rodapé dos documentos cita. Uma cópia
+# dentro de `apps/` envelheceria, e o sintoma seria /docs servindo um PRD que
+# ninguém reconhece. O destino é `/app/docs` de propósito: o cwd do standalone é
+# `/app/apps/web-internal`, então `../../docs` resolve aqui e em `next dev`.
+COPY --from=build /app/docs ./docs
 USER node
 EXPOSE 3000
 CMD ["node", "apps/web-internal/server.js"]

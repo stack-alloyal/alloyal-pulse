@@ -1,6 +1,7 @@
 import {
   Building2,
   BookOpen,
+  BookText,
   CalendarCheck,
   CalendarDays,
   Database,
@@ -113,6 +114,17 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Biblioteca",
     icone: BookOpen,
     proposito: "Playbooks versionados, publicados sem deploy",
+  },
+  {
+    /* O PRD e os documentos de produto, em /docs, atrás do mesmo SSO.
+       ENTRA NO MENU porque documento que ninguém acha não existe — foi a lição
+       do fluxo de saídas, que subiu completo e sem porta de entrada. E o item
+       leva FORA da casca de propósito: /docs é documento com o próprio CSS e a
+       própria coluna de leitura, não tela de operação. */
+    href: "/docs",
+    rotulo: "Documentos",
+    icone: BookText,
+    proposito: "O PRD e o que foi aprovado, atrás do SSO",
   },
   {
     href: "/gatilhos",

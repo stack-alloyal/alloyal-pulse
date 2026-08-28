@@ -222,3 +222,68 @@ test('a cascata continua sendo a mais estrita das telas de receita', () => {
   )
   assert.match(cascata, /p\.receita === 'base'/, 'a cascata deixou de exigir escopo de base')
 })
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * PORTÃO: toda rota de /docs resolve identidade.
+ *
+ * `/docs` serve material interno — o PRD com arquitetura, desenho de isolamento
+ * entre clientes e o kickoff dos times. A política é deliberadamente mais frouxa
+ * que a das telas: PAPEL não é exigido, porque o pedido era "aberto a todos que
+ * entrarem pelo SSO do Google". Mas sessão e suspensão barram.
+ *
+ * O modo de falha é conhecido, e já aconteceu: enquanto esses documentos moravam em
+ * `public/`, arquivo estático NÃO passava pela resolução de identidade — e uma
+ * pessoa SUSPENSA levava 403 em `/carteira` e lia o documento com 200. Meia
+ * suspensão.
+ *
+ * Este portão pega a PRÓXIMA rota, a que alguém acrescenta em três meses copiando
+ * a de cima e apagando a linha da identidade. Sem ela, a rota devolve 200 para
+ * qualquer requisição que alcance o contêiner — e o sintoma não aparece em teste
+ * nenhum, porque o documento continua abrindo para quem testa.
+ *
+ * A regra é por DIRETÓRIO, e não por lista: lista não cobre a próxima rota.
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+test('toda rota de /docs resolve identidade antes de ler o arquivo', () => {
+  const raiz = join(RAIZ, 'apps', 'web-internal', 'app', 'docs')
+  const rotas: string[] = []
+  const varrer = (d: string) => {
+    for (const nome of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, nome.name)
+      if (nome.isDirectory()) varrer(p)
+      else if (nome.name === 'route.ts') rotas.push(p)
+    }
+  }
+  varrer(raiz)
+  assert.ok(rotas.length >= 2, `achei só ${rotas.length} rotas em /docs — o caminho mudou?`)
+
+  const frouxas: string[] = []
+  for (const rota of rotas) {
+    const texto = readFileSync(rota, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    // Uma das duas: o helper comum, ou a checagem à mão que ele encapsula.
+    const resolve =
+      /await\s+exigirSessaoParaDocumento\(\)/.test(texto) || /await\s+identidade\(\)/.test(texto)
+    // E ela tem de vir ANTES da leitura: checar depois de ler é ler para quem não
+    // deveria, mesmo que a resposta seja descartada.
+    const posGuarda = Math.max(
+      texto.indexOf('exigirSessaoParaDocumento()'),
+      texto.indexOf('identidade()'),
+    )
+    const posLeitura = Math.max(texto.indexOf('lerDocumento('), texto.indexOf('readFile('))
+    if (!resolve) {
+      frouxas.push(`${relative(RAIZ, rota)} — não resolve identidade`)
+    } else if (posLeitura !== -1 && posGuarda > posLeitura) {
+      frouxas.push(`${relative(RAIZ, rota)} — lê o arquivo ANTES de checar a sessão`)
+    }
+  }
+  assert.deepEqual(
+    frouxas,
+    [],
+    `\nrota de /docs sem a guarda de identidade:\n${frouxas.join('\n')}\n` +
+      'A expressão da casa é `await exigirSessaoParaDocumento()` (ver app/docs/servir.ts),\n' +
+      'e ela vem antes de qualquer leitura de disco.\n',
+  )
+})
+
