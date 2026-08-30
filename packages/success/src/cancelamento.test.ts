@@ -33,6 +33,11 @@ import {
   SemPermissaoError,
   TransicaoInvalidaError,
   type Saida,
+  avancarEtapa,
+  concederDesconto,
+  confirmarMotivo,
+  renegociar,
+  DIAS_PARA_ESTAGNAR,
 } from './cancelamento.js'
 
 const ADMIN = process.env['DATABASE_URL_ADMIN']
@@ -410,7 +415,10 @@ describe('fluxo de saída', { skip: !ADMIN }, () => {
           dataLevantada: '2027-01-10',
         }),
       (e: Error) => {
-        assert.match(e.message, /sem contrato vigente/)
+        // A invariante é "há MRR para congelar", e não "há contrato vigente": em
+        // produção `core.contract` tem ZERO linhas, e exigir a FONTE em vez do
+        // VALOR deixou o fluxo de saídas morto na porta de entrada por meses.
+        assert.match(e.message, /não há MRR para congelar/)
         return true
       },
     )
@@ -440,10 +448,41 @@ describe('fluxo de saída', { skip: !ADMIN }, () => {
           dataLevantada: '2026-07-15',
         }),
       (e: Error) => {
-        assert.match(e.message, /sem contrato vigente/)
+        assert.match(e.message, /não há MRR para congelar/)
         return true
       },
     )
+  })
+
+  test('sem contrato, o MRR pode vir do faturado ou ser informado', async () => {
+    // O caso que a versão anterior tornava impossível: cliente que parou de pagar
+    // meses atrás e só agora formaliza a saída. Não há contrato vigente e não há
+    // faturamento recente — e quem registra sabe o valor.
+    await pool.query(`UPDATE core.contract SET status_vigencia = 'encerrado'`)
+    const id = await anunciar(pool, CSM, {
+      accountId: acme,
+      origem: 'cliente',
+      dataLevantada: '2026-07-15',
+      mrrCentavos: '4200000',
+    })
+    const { rows } = await pool.query(
+      'SELECT mrr_centavos_na_levantada::text AS mrr, pedido, criado_por FROM success.cancellation WHERE id = $1',
+      [id],
+    )
+    assert.equal(rows[0]?.mrr, '4200000')
+    assert.equal(rows[0]?.pedido, 'cancelar')
+    assert.equal(rows[0]?.criado_por, CSM.email)
+  })
+
+  test('PDD passa sem MRR: cortar quem já não paga é o caso em que não há valor', async () => {
+    await pool.query(`UPDATE core.contract SET status_vigencia = 'encerrado'`)
+    const id = await anunciar(pool, FIN, { accountId: acme, origem: 'alloyal' })
+    const { rows } = await pool.query(
+      'SELECT origem, mrr_centavos_na_levantada FROM success.cancellation WHERE id = $1',
+      [id],
+    )
+    assert.equal(rows[0]?.origem, 'alloyal')
+    assert.equal(rows[0]?.mrr_centavos_na_levantada, null)
   })
 
   // ── Recorte ───────────────────────────────────────────────────────────────
@@ -477,6 +516,146 @@ describe('fluxo de saída', { skip: !ADMIN }, () => {
     assert.equal(rows[0]?.estado, 'perdida')
     assert.match(String(rows[0]?.nota), /saída encerrada/)
   })
+
+  // ══ OS DESFECHOS QUE SALVAM O CLIENTE ═════════════════════════════════════
+
+  test('desconto entra como CONTRAÇÃO no ledger, não como churn', async () => {
+    // A consequência mais séria do desenho: três dos cinco desfechos salvam o
+    // cliente. Lançar churn aqui contaria como perdido um cliente que está na
+    // base, e a cascata em /receita mostraria uma conta perdida que não saiu.
+    const id = await anunciar(pool, CSM, {
+      accountId: acme,
+      origem: 'cliente',
+      dataLevantada: '2026-07-15',
+      pedido: 'desconto',
+    })
+    const r = await concederDesconto(pool, FIN, id, {
+      mrrNovoCentavos: '3000000',
+      competenciaEfeito: '2026-08',
+    })
+    assert.equal(r.contracaoCentavos, '1000000')
+
+    const { rows } = await pool.query<{ tipo: string; valor: string }>(
+      'SELECT tipo, valor_centavos::text AS valor FROM fact.mrr_event WHERE account_id = $1',
+      [acme],
+    )
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]?.tipo, 'contracao')
+    // NEGATIVO, como churn e ao contrário de expansão: é o sinal que torna o
+    // agregado da cascata somável.
+    assert.equal(rows[0]?.valor, '-1000000')
+
+    const { rows: c } = await pool.query<{ estado: string; novo: string }>(
+      'SELECT estado, mrr_novo_centavos::text AS novo FROM success.cancellation WHERE id = $1',
+      [id],
+    )
+    assert.equal(c[0]?.estado, 'desconto')
+    assert.equal(c[0]?.novo, '3000000')
+  })
+
+  test('desconto que não é desconto é recusado', async () => {
+    const id = await anunciar(pool, CSM, {
+      accountId: acme, origem: 'cliente', dataLevantada: '2026-07-15',
+    })
+    await assert.rejects(
+      () => concederDesconto(pool, FIN, id, { mrrNovoCentavos: '4000000', competenciaEfeito: '2026-08' }),
+      /igual ou maior não é desconto/,
+    )
+    // E nada foi gravado: a transação inteira volta atrás.
+    const { rows } = await pool.query('SELECT count(*)::int n FROM fact.mrr_event')
+    assert.equal(rows[0]?.n, 0)
+  })
+
+  test('renegociação que só mexe em prazo NÃO gera evento de receita', async () => {
+    // É a diferença que a lista de desfechos esconde: parcelar dívida muda QUANDO
+    // o dinheiro entra, não QUANTO entra por mês. Lançar contração aí contaria
+    // como perda de receita recorrente uma mudança de prazo.
+    const id = await anunciar(pool, CSM, {
+      accountId: acme, origem: 'cliente', dataLevantada: '2026-07-15',
+    })
+    const r = await renegociar(pool, FIN, id, { nota: 'dívida em 6x' })
+    assert.equal(r.contracaoCentavos, null)
+    const { rows } = await pool.query('SELECT count(*)::int n FROM fact.mrr_event')
+    assert.equal(rows[0]?.n, 0)
+    const { rows: c } = await pool.query<{ estado: string }>(
+      'SELECT estado FROM success.cancellation WHERE id = $1', [id],
+    )
+    assert.equal(c[0]?.estado, 'renegociado')
+  })
+
+  test('renegociação que muda o mensal exige a competência do efeito', async () => {
+    const id = await anunciar(pool, CSM, {
+      accountId: acme, origem: 'cliente', dataLevantada: '2026-07-15',
+    })
+    await assert.rejects(
+      () => renegociar(pool, FIN, id, { mrrNovoCentavos: '3500000' }),
+      /precisa da competência de efeito/,
+    )
+  })
+
+  test('renegociar para CIMA entra como expansão, não como contração', async () => {
+    // O ledger não pode mentir pelo nome do desfecho: renegociar para cima
+    // acontece, e chamar isso de contração inverteria o sinal do mês.
+    const id = await anunciar(pool, CSM, {
+      accountId: acme, origem: 'cliente', dataLevantada: '2026-07-15',
+    })
+    await renegociar(pool, FIN, id, { mrrNovoCentavos: '4500000', competenciaEfeito: '2026-09' })
+    const { rows } = await pool.query<{ tipo: string; valor: string }>(
+      'SELECT tipo, valor_centavos::text AS valor FROM fact.mrr_event WHERE account_id = $1',
+      [acme],
+    )
+    assert.equal(rows[0]?.tipo, 'expansao')
+    assert.equal(rows[0]?.valor, '500000')
+  })
+
+  test('as etapas de trabalho movem, e a idade reinicia', async () => {
+    const id = await anunciar(pool, CSM, {
+      accountId: acme, origem: 'cliente', dataLevantada: '2026-07-15',
+    })
+    await avancarEtapa(pool, CSM, id, 'financeiro')
+    await avancarEtapa(pool, CSM, id, 'reversao')
+    const { rows } = await pool.query<{ estado: string; dias: number }>(
+      `SELECT estado, (now()::date - etapa_desde::date) AS dias
+         FROM success.cancellation WHERE id = $1`,
+      [id],
+    )
+    assert.equal(rows[0]?.estado, 'reversao')
+    assert.equal(Number(rows[0]?.dias), 0)
+    // Mover para a etapa em que já está não faz nada, e recusa em voz alta.
+    await assert.rejects(() => avancarEtapa(pool, CSM, id, 'reversao'), /não para a mesma/)
+    assert.equal(DIAS_PARA_ESTAGNAR, 14)
+  })
+
+  test('quem registrou não confirma o próprio motivo', async () => {
+    const id = await anunciar(pool, CSM, {
+      accountId: acme, origem: 'cliente', dataLevantada: '2026-07-15',
+    })
+    await assert.rejects(
+      () => confirmarMotivo(pool, CSM, id, { motivo: 'custo' }),
+      /quem registrou o pedido não confirma o próprio motivo/,
+    )
+    await confirmarMotivo(pool, LIDER, id, { motivo: 'concorrente' })
+    const { rows } = await pool.query<{ motivo: string; por: string }>(
+      'SELECT motivo, motivo_confirmado_por AS por FROM success.cancellation WHERE id = $1',
+      [id],
+    )
+    assert.equal(rows[0]?.motivo, 'concorrente')
+    assert.equal(rows[0]?.por, LIDER.email)
+  })
+
+  test('encerrar confirma o motivo, porque quem aprova já é outra pessoa', async () => {
+    // A decisão 4 sem custo de passo: exigir uma AÇÃO separada travaria o pedido
+    // num time pequeno, e não precisa — encerrar já exige aprovaDistrato.
+    const id = await ateEncerrar()
+    const { rows } = await pool.query<{ por: string; aprovado: string }>(
+      `SELECT motivo_confirmado_por AS por, aprovado_por AS aprovado
+         FROM success.cancellation WHERE id = $1`,
+      [id],
+    )
+    assert.equal(rows[0]?.por, FIN.email)
+    assert.equal(rows[0]?.aprovado, FIN.email)
+    assert.notEqual(rows[0]?.por, CSM.email)
+  })
 })
 
 test('a taxonomia de motivos é fechada e tem rótulo legível', () => {
@@ -487,5 +666,4 @@ test('a taxonomia de motivos é fechada e tem rótulo legível', () => {
   assert.ok(MOTIVOS_SAIDA.length <= 10, 'taxonomia grande é preenchida no chute')
   assert.ok(MOTIVOS_SAIDA.some((m) => m.valor === 'outro'), 'sem "outro" a categoria errada é escolhida')
   for (const m of MOTIVOS_SAIDA) assert.ok(m.explica.length > 10, `${m.valor} sem explicação`)
-
 })

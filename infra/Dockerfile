@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7-labs
 # ═══════════════════════════════════════════════════════════════════════════
 # Imagem multi-alvo do Alloyal Pulse. ARM64 (Oracle Ampere).
 #
@@ -12,8 +13,18 @@ WORKDIR /app
 
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
-COPY packages/*/package.json packages/
-COPY apps/*/package.json apps/
+# ⚠️ `--parents` NÃO É ENFEITE. Sem ele, `COPY packages/*/package.json packages/` **achata**: os oito
+# manifestos viram UM arquivo `packages/package.json` (o último vence), e os três de `apps/` viram
+# `apps/package.json`. O `pnpm install` seguinte então nem enxerga os workspaces — instalava só as
+# dependências da raiz, e `--frozen-lockfile` dava uma garantia que não existia.
+#
+# Isso passou despercebido porque o `COPY . .` do estágio `build` trazia o `node_modules` DA MÁQUINA
+# de quem buildava e tapava o buraco. Ou seja: as imagens saíam com o que estava na pasta do host, não
+# com o que o lockfile manda. O sintoma só apareceu ao pôr um `.dockerignore` (que é o certo) —
+# `Cannot find module '/app/apps/web-portal/node_modules/next/dist/bin/next'`.
+#
+# `--parents` preserva o caminho de cada manifesto, que é o que o pnpm precisa para montar o workspace.
+COPY --parents packages/*/package.json apps/*/package.json ./
 # `--mount=type=cache` acelera rebuild sem inflar a imagem final.
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
@@ -57,6 +68,13 @@ COPY --from=build /app/apps/web-internal/public ./apps/web-internal/public
 # 500 num documento que existe no repo. A rota que o serve devolve 500 com a causa
 # em vez de 404, justamente para essa falta aparecer.
 COPY --from=build /app/apps/web-internal/conteudo ./apps/web-internal/conteudo
+# `docs/` — a pasta de PRODUTO na raiz do repositório, servida em /docs atrás do
+# SSO. Vem de lá e não de uma cópia dentro da app porque é a FONTE: é o mesmo
+# arquivo que `infra/docs/` serve e que o rodapé dos documentos cita. Uma cópia
+# dentro de `apps/` envelheceria, e o sintoma seria /docs servindo um PRD que
+# ninguém reconhece. O destino é `/app/docs` de propósito: o cwd do standalone é
+# `/app/apps/web-internal`, então `../../docs` resolve aqui e em `next dev`.
+COPY --from=build /app/docs ./docs
 USER node
 EXPOSE 3000
 CMD ["node", "apps/web-internal/server.js"]

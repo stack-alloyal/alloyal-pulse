@@ -1,10 +1,9 @@
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-
-import { NaoAutenticadoError, SemPapelError } from '@pulse/auth'
-import { forbidden, unauthorized } from 'next/navigation'
-
-import { identidade } from '../../../lib/identidade'
+import {
+  exigirSessaoParaDocumento,
+  faltandoNoPacote,
+  lerDocumento,
+  respostaDeDocumento,
+} from '../servir'
 
 /**
  * Serve os documentos internos em HTML — atrás da identidade, não do `public/`.
@@ -22,18 +21,9 @@ import { identidade } from '../../../lib/identidade'
  * │ a todos que entrarem pelo SSO do Google".                                  │
  * └───────────────────────────────────────────────────────────────────────────┘
  *
- * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ POR QUE `SemPapelError` É ENGOLIDA AQUI, E SÓ AQUI:                        │
- * │                                                                            │
- * │ `identidadeDaSessao` (o caminho normal das telas) transforma falta de papel │
- * │ em 403 — e usá-la aqui QUEBROU o requisito: usuário novo, sem papel, passou │
- * │ a levar 403 no documento. Medido: 403 onde tinha que ser 200.               │
- * │                                                                            │
- * │ Então a checagem é montada à mão, e a lista de quem passa é explícita:      │
- * │ sessão válida e não suspenso. Suspensão e falta de sessão continuam         │
- * │ barrando — só a falta de PAPEL é tolerada, porque é justamente o que este   │
- * │ documento quer permitir.                                                   │
- * └───────────────────────────────────────────────────────────────────────────┘
+ * A POLÍTICA DE ACESSO mora em `servir.ts` agora, porque `/docs` também a usa —
+ * papel não é exigido, sessão e suspensão são. Duas cópias de uma regra sutil é
+ * uma delas ficando desatualizada, e a desatualizada é a que vaza.
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
  * │ AS FONTES CONTINUAM EM `public/`, e é decisão: são arquivo de fonte, sem   │
@@ -51,55 +41,23 @@ import { identidade } from '../../../lib/identidade'
  */
 const DOCUMENTOS: Record<string, string> = {
   'kickoff.html': 'kickoff.html',
+  // Os dois PRDs vêm da pasta de produto na raiz do repositório, e não de
+  // `conteudo/`: lá é a FONTE, e uma cópia dentro da app envelheceria.
+  'prd-pulse.html': 'PRD-Alloyal-Pulse-v1.0.html',
+  'prd-contratos.html': 'PRD-Alloyal-Contratos-v1.0.html',
 }
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ arquivo: string }> },
 ): Promise<Response> {
-  // Antes de qualquer leitura de disco. A ordem dos catch é a política:
-  //   SemPapelError        → PASSA (é o ponto deste documento)
-  //   AcessoSuspensoError  → 403, e tudo o mais também
-  //   NaoAutenticadoError  → 401
-  try {
-    await identidade()
-  } catch (err) {
-    if (err instanceof SemPapelError) {
-      // Autenticada pelo Google, ainda sem papel: exatamente o público deste doc.
-    } else if (err instanceof NaoAutenticadoError) {
-      unauthorized()
-    } else {
-      forbidden()
-    }
-  }
+  // Antes de qualquer leitura de disco.
+  await exigirSessaoParaDocumento()
 
   const { arquivo } = await params
   const nome = DOCUMENTOS[arquivo]
   if (!nome) return new Response('não encontrado', { status: 404 })
 
-  // O `server.js` do standalone faz `process.chdir(__dirname)`, então o cwd em
-  // produção é `/app/apps/web-internal` — NÃO `/app`. Conferido em
-  // `/proc/1/cwd` no contêiner; a primeira versão montava
-  // `/app/apps/web-internal/apps/web-internal/...` e devolvia 500.
-  //
-  // Em `next dev` o cwd é a raiz do app, que dá o mesmo caminho relativo.
-  const caminho = join(process.cwd(), 'conteudo', nome)
-  let html: string
-  try {
-    html = await readFile(caminho, 'utf8')
-  } catch {
-    // Arquivo listado e ausente é defeito de EMPACOTAMENTO, não do pedido — foi
-    // exatamente o que aconteceu com `public/` não entrando no standalone. Devolver
-    // 404 aqui esconderia isso; 500 com a causa aparece no log.
-    return new Response(`documento ${nome} não está no pacote`, { status: 500 })
-  }
-
-  return new Response(html, {
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      // Sem cache compartilhado: a resposta depende de QUEM pediu, e um proxy
-      // guardando-a serviria o documento a quem foi suspenso depois.
-      'Cache-Control': 'private, no-store',
-    },
-  })
+  const html = await lerDocumento(nome)
+  return html === null ? faltandoNoPacote(nome) : respostaDeDocumento(html)
 }
