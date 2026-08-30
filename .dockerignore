@@ -8,20 +8,38 @@
 # O custo não era só disco (três snapshots desse contexto ocupavam 14,4 GB do cache de build da VM):
 # o upload do contexto é síncrono, então cada build esperava por 4,8 GB antes da primeira instrução.
 #
+# ⚠️ A primeira versão deste arquivo (29/08) resolveu 88% e PARECIA pronta. O que faltava está
+# explicado no bloco de cache abaixo: sem `**/`, os dois `.next` de `apps/` continuavam entrando.
+#
 # ⚠️ E tem um efeito de CORREÇÃO, não só de tamanho: o `build` herda o `node_modules` que o
 # `pnpm install` acabou de montar no estágio `deps`, e o `COPY . .` estava sobrescrevendo isso com o
 # `node_modules` da máquina — com os symlinks do pnpm apontando para caminhos do host. O que sobe agora
 # é o que o lockfile diz, não o que sobrou na pasta de quem buildou.
 
 # ── Cache local e artefato de build (a imagem refaz) ──
-.turbo/
-.next/
-dist/
-*.tsbuildinfo
-next-env.d.ts
+#
+# ⚠️ O `**/` NÃO É ENFEITE, e a falta dele custou 553 MB — medido em 30/08.
+#
+# Padrão de `.dockerignore` é ANCORADO NA RAIZ DO CONTEXTO: `.next/` casa com
+# `<raiz>/.next/` e com mais nada. Não casa com `apps/web-internal/.next/`, que é
+# onde o `.next` de um monorepo realmente mora. O `.turbo/` de 3,5 GB foi pego
+# porque está na raiz; os dois `.next` não, porque estão dois níveis abaixo.
+#
+# O sintoma é traiçoeiro porque o arquivo PARECE certo e o contexto CAI muito:
+# de 4.797 MB para 570 MB, 88% a menos. Só que os 570 MB restantes eram
+# `apps/web-internal/.next` (395 MB) e `apps/web-portal/.next` (157 MB) — e
+# ninguém confere a segunda casa depois de uma melhora de 88%.
+**/.turbo/
+**/.next/
+**/dist/
+**/*.tsbuildinfo
+**/next-env.d.ts
 
 # ── Dependências: quem instala é o `pnpm install --frozen-lockfile` do estágio deps ──
-node_modules/
+#
+# Mesmo caso: `node_modules/` sozinho deixaria passar `apps/*/node_modules` e
+# `packages/*/node_modules`, que num monorepo pnpm são a maior parte deles.
+**/node_modules/
 
 # ── Repositório e sessões de ferramenta (não é fonte) ──
 .git/
