@@ -1,0 +1,60 @@
+# O QUE **NÃO** VAI PARA DENTRO DO DOCKER.
+#
+# Docker não lê o `.gitignore`. Sem este arquivo, o `COPY . .` do estágio `build` levava o repositório
+# INTEIRO para o daemon a cada build — medido em 29/08: **4.797 MB de contexto**, dos quais só ~6 MB
+# eram fonte. O resto: `.turbo` (3.484 MB), `.claude` (724 MB), `node_modules` (504 MB) e `.next`
+# (552 MB) — tudo isso é cache local ou coisa que a própria imagem reconstrói.
+#
+# O custo não era só disco (três snapshots desse contexto ocupavam 14,4 GB do cache de build da VM):
+# o upload do contexto é síncrono, então cada build esperava por 4,8 GB antes da primeira instrução.
+#
+# ⚠️ E tem um efeito de CORREÇÃO, não só de tamanho: o `build` herda o `node_modules` que o
+# `pnpm install` acabou de montar no estágio `deps`, e o `COPY . .` estava sobrescrevendo isso com o
+# `node_modules` da máquina — com os symlinks do pnpm apontando para caminhos do host. O que sobe agora
+# é o que o lockfile diz, não o que sobrou na pasta de quem buildou.
+
+# ── Cache local e artefato de build (a imagem refaz) ──
+.turbo/
+.next/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Dependências: quem instala é o `pnpm install --frozen-lockfile` do estágio deps ──
+node_modules/
+
+# ── Repositório e sessões de ferramenta (não é fonte) ──
+.git/
+.gitignore
+.github/
+.claude/
+.vscode/
+
+# ── Segredos: nunca entram em camada de imagem, nem na intermediária ──
+# (o `.gitignore` já os barra no git; aqui é a mesma trava para o Docker)
+.env
+.env.*
+!.env.example
+infra/.env
+infra/.env.*
+infra/oauth2.env
+infra/*/.env
+infra/*/oauth2.env
+!infra/.env.example
+!infra/oauth2.env.example
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+.license*
+
+# ── Ruído ──
+*.log
+.DS_Store
+.venv/
+__pycache__/
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
