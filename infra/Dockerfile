@@ -33,11 +33,38 @@ COPY . .
 RUN pnpm build
 
 # ─── worker ────────────────────────────────────────────────────────────────
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ O WORKER NÃO LEVA O `node_modules` DO BUILD, e a diferença é 491 MB.        │
+# │                                                                            │
+# │ Medido em 30/08 dentro da imagem: `node_modules` de 512 MB, e o topo dele   │
+# │ era `next` (156 MB) mais `@next/swc-linux-arm64` (130 MB) — 286 MB de       │
+# │ Next.js num processo que é BullMQ e nunca renderizou nada. Junto vinham     │
+# │ `lucide-react` (40 MB), `@turbo/linux-arm64` (36 MB), `typescript` (23 MB), │
+# │ `sharp-libvips` (18 MB), `playwright-core` (14 MB) e `prettier` (9,7 MB).   │
+# │                                                                            │
+# │ A causa é que o estágio `build` instala o workspace INTEIRO — é o que ele   │
+# │ precisa para compilar as três apps —, e copiar esse `node_modules` para o   │
+# │ runtime traz a ferramenta de build junto com a dependência de execução.     │
+# │                                                                            │
+# │ `pnpm deploy --prod` monta a árvore que ESTE pacote precisa: as             │
+# │ dependências declaradas em `apps/worker/package.json` (bullmq, pg) e os     │
+# │ pacotes do workspace já compilados. Medido: 21 MB.                          │
+# │                                                                            │
+# │ `--legacy` é exigido pelo pnpm 10 fora de `inject-workspace-packages`.      │
+# │ Sem ele o comando recusa e manda configurar o workspace — mudança que       │
+# │ afetaria a instalação de todo mundo para resolver um detalhe de imagem.     │
+# │                                                                            │
+# │ O destino é `apps/worker` de propósito: a árvore do `deploy` tem `dist/` na │
+# │ própria raiz, e pôr em outro lugar obrigaria a mudar o `CMD` — que carrega  │
+# │ o argumento `worker` e um comentário explicando por que ele não é opcional. │
+# └───────────────────────────────────────────────────────────────────────────┘
+FROM build AS worker-deploy
+RUN pnpm deploy --filter @pulse/worker --prod --legacy /deploy
+
 FROM base AS worker
 ENV NODE_ENV=production TZ=UTC
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/packages ./packages
-COPY --from=build /app/apps/worker ./apps/worker
+COPY --from=worker-deploy /deploy ./apps/worker
 USER node
 # O ARGUMENTO `worker` NÃO É OPCIONAL. Sem ele, `main.js` roda em modo
 # "inventario": imprime os ciclos declarados e SAI com código 0. Com

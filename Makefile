@@ -94,9 +94,57 @@ secrets-decrypt: ## Gera infra/.env (600) a partir do arquivo cifrado
 	@echo "infra/.env gerado (600). NÃO versionar."
 
 # ─── Produção (VM) ──────────────────────────────────────────────────────────
+#
+# `up` constrói E sobe no mesmo comando. Serve para mudança pequena, mas tem uma
+# propriedade ruim: se o build falhar no meio, a stack já foi parada. `deploy`
+# separa as duas coisas e guarda o caminho de volta — use ele para publicar.
 .PHONY: up
-up: ## [PRODUÇÃO] Sobe a stack
+up: ## [PRODUÇÃO] Sobe a stack (constrói e sobe junto)
 	$(COMPOSE) up -d --build
+
+APPS := worker web-internal web-portal
+
+.PHONY: deploy
+deploy: ## [PRODUÇÃO] Publica com ponto de retorno: marca, constrói, sobe, confere
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ A ORDEM É O PRODUTO DESTE ALVO, e cada passo existe por um motivo.            │
+# │                                                                              │
+# │ 1. MARCAR primeiro. O build sobrescreve `:latest`, e sem a marca não há       │
+# │    volta — a imagem anterior vira camada órfã e some na próxima poda.         │
+# │ 2. CONSTRUIR SEM SUBIR. Se falhar aqui, produção não foi tocada. É a          │
+# │    diferença para o `up`, que já derrubou a stack quando o build quebra.      │
+# │ 3. SUBIR só depois de as três imagens existirem.                             │
+# │ 4. CONFERIR, e dizer como voltar se não subiu.                               │
+# └─────────────────────────────────────────────────────────────────────────────┘
+	@echo "── 1/4 · ponto de retorno ──"
+	@for a in $(APPS); do 	  docker image inspect alloyal-pulse-$$a:latest >/dev/null 2>&1 	    && docker tag alloyal-pulse-$$a:latest alloyal-pulse-$$a:anterior 	    && echo "   alloyal-pulse-$$a:anterior" 	    || echo "   alloyal-pulse-$$a ainda não existe — primeira publicação"; 	done
+	@echo "── 2/4 · construindo (produção intacta se falhar) ──"
+	$(COMPOSE) build $(APPS)
+	@echo "── 3/4 · subindo ──"
+	$(COMPOSE) up -d $(APPS)
+	@echo "── 4/4 · conferindo ──"
+	@sleep 6
+	@$(COMPOSE) ps $(APPS)
+	@echo
+	@echo "   Se algo não subiu, o caminho de volta é:"
+	@echo "     make rollback && make up"
+
+.PHONY: rollback
+rollback: ## [PRODUÇÃO] Devolve as imagens marcadas por `deploy` para :latest
+	@for a in $(APPS); do 	  docker image inspect alloyal-pulse-$$a:anterior >/dev/null 2>&1 	    && docker tag alloyal-pulse-$$a:anterior alloyal-pulse-$$a:latest 	    && echo "   alloyal-pulse-$$a devolvida" 	    || echo "   alloyal-pulse-$$a:anterior NÃO EXISTE — nada a devolver"; 	done
+	@echo "   Agora: $(COMPOSE) up -d $(APPS)"
+
+.PHONY: podar
+podar: ## Poda cache de build e imagens órfãs (o cache é COMPARTILHADO com os outros apps da VM)
+# ⚠️ O cache do BuildKit é do DAEMON, não do projeto: podar aqui deixa o próximo
+# build do radar, do evolution e do publi mais lento também. Não quebra nada — só
+# reconstrói —, mas é bom saber antes de rodar no meio do dia de alguém.
+#
+# `until=24h` preserva o cache do dia, que é o que acelera um segundo deploy hoje.
+	@echo "antes:"; docker system df | head -5
+	@docker builder prune --force --filter until=24h
+	@docker image prune --force
+	@echo "depois:"; docker system df | head -5
 
 .PHONY: logs
 logs: ## Segue os logs
