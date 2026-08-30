@@ -342,7 +342,10 @@ export default async function Sincronizacao({
         <Card title="Como ler esta tela">
           <ul className="grid gap-2 text-corpo leading-relaxed text-ink-2">
             <li className="flex gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+              {/* `amber-700` e não `amber` puro: o cheio dá 2,15:1 sobre branco e ícone
+                  precisa de 3:1. É o idioma do Publi, que usa `text-amber-700` em 62
+                  lugares e o cheio em nenhum — o cheio serve a fundo, não a tinta. */}
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
               <span>
                 <strong className="font-semibold text-ink">atrasado</strong> é
                 mais de 26h sem carga bem-sucedida numa agenda diária. A folga

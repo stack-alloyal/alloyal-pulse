@@ -58,32 +58,59 @@ export const alloyalPreset: Partial<Config> = {
         // │ 800/900, orange 100/300) seguem em hex: são decorativos e não  │
         // │ carregam texto, então não têm par escuro no documento.         │
         // └─────────────────────────────────────────────────────────────┘
-        bg: 'var(--bg)',
-        surface: { DEFAULT: 'var(--surface)', 2: 'var(--surface-2)' },
-        line: { DEFAULT: 'var(--line)', strong: 'var(--line-strong)' },
+        /* ┌─────────────────────────────────────────────────────────────────┐
+           │ `rgb(var(--x) / <alpha-value>)` E NÃO `var(--x)` CRU.             │
+           │                                                                   │
+           │ É o que preserva o modificador de opacidade. Com `var(--x)` o      │
+           │ Tailwind não consegue compor a cor e SIMPLESMENTE NÃO EMITE a      │
+           │ classe — não vira sólida, some. Medido em 30/08 com build antes e  │
+           │ depois: antes, nenhuma classe de opacidade da paleta existia na    │
+           │ CSS gerada; depois, todas.                                          │
+           │                                                                   │
+           │ O efeito visível: o véu da gaveta do Radar (`bg-ink/40`) e o do    │
+           │ modal de novidades (`bg-ink/50`) não pintavam nada — o modal abria │
+           │ sem escurecer o que está atrás, e a área de fechar por clique      │
+           │ ficava invisível. O botão de perigo não tinha `hover`.             │
+           │                                                                   │
+           │ Idioma copiado do `alloyal-publi/tailwind.config.ts`, onde o       │
+           │ mesmo comentário existe pelo mesmo motivo.                         │
+           └─────────────────────────────────────────────────────────────────┘ */
+        bg: 'rgb(var(--bg) / <alpha-value>)',
+        surface: { DEFAULT: 'rgb(var(--surface) / <alpha-value>)', 2: 'rgb(var(--surface-2) / <alpha-value>)' },
+        line: { DEFAULT: 'rgb(var(--line) / <alpha-value>)', strong: 'rgb(var(--line-strong) / <alpha-value>)' },
         ink: {
-          DEFAULT: 'var(--ink)', 2: 'var(--ink-2)', 3: 'var(--ink-3)', 4: 'var(--ink-4)',
+          DEFAULT: 'rgb(var(--ink) / <alpha-value>)', 2: 'rgb(var(--ink-2) / <alpha-value>)',
+          3: 'rgb(var(--ink-3) / <alpha-value>)', 4: 'rgb(var(--ink-4) / <alpha-value>)',
         },
+        /* ESCALA COMPLETA, regra do Publi: shade que falte aqui cai no default
+           do Tailwind, que é hex FIXO — funciona no claro por coincidência e
+           fica ilegível no escuro. Antes desta mudança, purple 200/300/400/800,
+           orange 100/300 e blue/pink eram hex literal aqui, e nenhum trocava de
+           valor no tema escuro. */
         purple: {
-          50: 'var(--purple-50)', 100: 'var(--purple-100)', 200: '#C9A8F6', 300: '#A66FEF',
-          400: '#8A3FEA', 500: 'var(--purple-500)', 700: 'var(--purple-700)', 800: '#410D8C',
-          900: '#2E0962', DEFAULT: 'var(--purple-500)',
+          50: 'rgb(var(--purple-50) / <alpha-value>)', 100: 'rgb(var(--purple-100) / <alpha-value>)',
+          200: 'rgb(var(--purple-200) / <alpha-value>)', 300: 'rgb(var(--purple-300) / <alpha-value>)',
+          400: 'rgb(var(--purple-400) / <alpha-value>)', 500: 'rgb(var(--purple-500) / <alpha-value>)',
+          700: 'rgb(var(--purple-700) / <alpha-value>)', 800: 'rgb(var(--purple-800) / <alpha-value>)',
+          DEFAULT: 'rgb(var(--purple-500) / <alpha-value>)',
         },
         orange: {
-          50: 'var(--orange-50)', 100: '#FFD9B3', 300: '#FFB870', 500: 'var(--orange-500)',
-          700: 'var(--orange-700)', DEFAULT: 'var(--orange-500)',
+          50: 'rgb(var(--orange-50) / <alpha-value>)', 100: 'rgb(var(--orange-100) / <alpha-value>)',
+          200: 'rgb(var(--orange-200) / <alpha-value>)', 300: 'rgb(var(--orange-300) / <alpha-value>)',
+          400: 'rgb(var(--orange-400) / <alpha-value>)', 500: 'rgb(var(--orange-500) / <alpha-value>)',
+          700: 'rgb(var(--orange-700) / <alpha-value>)', 800: 'rgb(var(--orange-800) / <alpha-value>)',
+          DEFAULT: 'rgb(var(--orange-500) / <alpha-value>)',
         },
-        green: { DEFAULT: 'var(--green)', 50: 'var(--green-50)' },
-        amber: { DEFAULT: 'var(--amber)', 50: 'var(--amber-50)' },
-        red: { DEFAULT: 'var(--red)', 50: 'var(--red-50)' },
-        health: { on: '#16A34A', risk: '#F59E0B', off: '#DC2626' },
-        // Azul e rosa eram hex literal dentro do Badge. Viram token porque, nas
-        // palavras do documento, "a terceira tela que precisasse de azul
-        // inventaria outro" — e dois azuis parecidos são piores que dois azuis
-        // diferentes: ninguém sabe qual é o certo.
-        blue: { DEFAULT: '#1D4ED8', 50: '#E6F0FE' },
-        pink: { DEFAULT: '#C0005A', 50: '#FDE7F1' },
-      },
+        green: { DEFAULT: 'rgb(var(--green) / <alpha-value>)', 50: 'rgb(var(--green-50) / <alpha-value>)' },
+        amber: {
+          DEFAULT: 'rgb(var(--amber) / <alpha-value>)', 50: 'rgb(var(--amber-50) / <alpha-value>)',
+          100: 'rgb(var(--amber-100) / <alpha-value>)', 200: 'rgb(var(--amber-200) / <alpha-value>)', 300: 'rgb(var(--amber-300) / <alpha-value>)',
+          700: 'rgb(var(--amber-700) / <alpha-value>)', 800: 'rgb(var(--amber-800) / <alpha-value>)', 900: 'rgb(var(--amber-900) / <alpha-value>)',
+        },
+        red: { DEFAULT: 'rgb(var(--red) / <alpha-value>)', 50: 'rgb(var(--red-50) / <alpha-value>)' },
+        blue: { DEFAULT: 'rgb(var(--blue) / <alpha-value>)', 50: 'rgb(var(--blue-50) / <alpha-value>)' },
+        pink: { DEFAULT: 'rgb(var(--pink) / <alpha-value>)', 50: 'rgb(var(--pink-50) / <alpha-value>)' },
+},
       borderRadius: { sm: '7px', md: '10px', lg: '14px', xl: '18px' },
       boxShadow: {
         sm: '0 1px 2px rgba(20,18,30,.05), 0 1px 3px rgba(20,18,30,.04)',

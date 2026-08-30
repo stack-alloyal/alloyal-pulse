@@ -22,7 +22,7 @@ const COR = {
   linha: '#ececef',
   tinta: '#16161a',
   tinta2: '#5b5b66',
-  tinta3: '#9a9aa6',
+  tinta3: '#75757e',
 } as const
 
 export function escaparHtml(s: string): string {

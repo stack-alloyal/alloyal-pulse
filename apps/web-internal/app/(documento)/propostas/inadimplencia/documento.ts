@@ -42,16 +42,16 @@ export const ESTILO = `/* ──────────────────
 :root{
   --bg:#f6f6f8; --surface:#ffffff; --surface-2:#fbfbfc;
   --line:#ececef; --line-strong:#e0e0e6;
-  --ink:#16161a; --ink-2:#5b5b66; --ink-3:#9a9aa6; --ink-4:#bfbfc8;
+  --ink:#16161a; --ink-2:#5b5b66; --ink-3:#75757e; --ink-4:#93939a;
   --purple-50:#f3ecfe; --purple-100:#e3d2fb; --purple-500:#6a18e5; --purple-700:#5512b8;
   --orange-50:#fff3e8; --orange-500:#ff7a00; --orange-700:#b45309;
-  --amber:#f59e0b; --amber-50:#fef4e2; --red:#dc2626; --red-50:#fcebeb;
+  --amber:#f59e0b; --amber-50:#fef4e2; --red:#d32424; --red-50:#fcebeb;
   --sombra:0 1px 2px rgba(22,22,26,.05), 0 1px 3px rgba(22,22,26,.04);
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
   --bg:#0f0e13; --surface:#17161d; --surface-2:#1d1c25;
   --line:#2a2833; --line-strong:#383544;
-  --ink:#edecf2; --ink-2:#a9a6b6; --ink-3:#7c7889; --ink-4:#5a5768;
+  --ink:#edecf2; --ink-2:#a9a6b6; --ink-3:#827e90; --ink-4:#656174;
   --purple-50:#241a3a; --purple-100:#2e2350; --purple-500:#8a3fea; --purple-700:#b98bff;
   --orange-50:#2a1b0c; --orange-500:#ff8c28; --orange-700:#ffb870;
   --amber:#fbbf24; --amber-50:#2e2410; --red:#f87171; --red-50:#2e1618;
@@ -60,7 +60,7 @@ export const ESTILO = `/* ──────────────────
 :root[data-theme="dark"]{
   --bg:#0f0e13; --surface:#17161d; --surface-2:#1d1c25;
   --line:#2a2833; --line-strong:#383544;
-  --ink:#edecf2; --ink-2:#a9a6b6; --ink-3:#7c7889; --ink-4:#5a5768;
+  --ink:#edecf2; --ink-2:#a9a6b6; --ink-3:#827e90; --ink-4:#656174;
   --purple-50:#241a3a; --purple-100:#2e2350; --purple-500:#8a3fea; --purple-700:#b98bff;
   --orange-50:#2a1b0c; --orange-500:#ff8c28; --orange-700:#ffb870;
   --amber:#fbbf24; --amber-50:#2e2410; --red:#f87171; --red-50:#2e1618;

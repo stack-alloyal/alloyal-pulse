@@ -266,13 +266,30 @@ test('todo tone= do Badge existe em base.tsx', () => {
  * ser, byte a byte, um valor declarado em `estilo.css`. Trocar um token sem trocar
  * o e-mail passa a quebrar o portão em vez de sair só no e-mail de alguém.
  */
+/**
+ * As cores declaradas no tema, como hex minúsculo — a fonte de verdade das três
+ * asserções de paridade abaixo e do portão de contraste no fim do arquivo.
+ *
+ * ⚠️ LÊ AS DUAS NOTAÇÕES, e isto não é zelo: a paleta passou a ser TRIPLA RGB em
+ * 30/08, quando adotou a do `alloyal-publi` — é o que permite `rgb(var(--x) /
+ * <alpha-value>)` no preset e faz `bg-ink/40` existir. Um leitor que só entenda
+ * hex passa a achar ZERO token e as asserções acusam o e-mail, a tela de entrada
+ * e os documentos de terem cor que "não existe" — quando quem deixou de enxergar
+ * foi ele. Aconteceu na primeira execução depois da troca.
+ */
+function coresDoTema() {
+  const estilo = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
+  const cores = new Set()
+  for (const h of estilo.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []) cores.add(h.toLowerCase())
+  for (const [, tripla] of estilo.matchAll(/--[a-z0-9-]+:\s*([0-9]{1,3} [0-9]{1,3} [0-9]{1,3})\s*;/g)) {
+    cores.add('#' + tripla.trim().split(/\s+/).map((n) => Number(n).toString(16).padStart(2, '0')).join(''))
+  }
+  return cores
+}
+
 test('as cores do template de e-mail são as mesmas de estilo.css', () => {
   const template = readFileSync(join(RAIZ, 'packages', 'mail', 'src', 'template.ts'), 'utf8')
-  const estilo = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
-
-  const tokens = new Set(
-    (estilo.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((h) => h.toLowerCase()),
-  )
+  const tokens = coresDoTema()
   assert.ok(tokens.size > 5, 'não li os tokens de estilo.css — o caminho mudou?')
 
   // Só o bloco COR: o resto do arquivo é `#fff` de texto sobre o gradiente e `#`
@@ -306,8 +323,7 @@ const SIGN_IN = join(RAIZ, 'infra', 'oauth2-templates', 'sign_in.html')
 
 test('as cores da tela do oauth2-proxy são as mesmas de estilo.css', () => {
   const html = readFileSync(SIGN_IN, 'utf8')
-  const estilo = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
-  const tokens = new Set((estilo.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((h) => h.toLowerCase()))
+  const tokens = coresDoTema()
 
   // Só o bloco `:root`, que é onde moram as cores do tema. Fora dele há as
   // quatro do Google (marca de terceiro, proibido repintar) e `#fff`.
@@ -354,8 +370,7 @@ import { enxugar, linkDoFavicon } from './marca/gerar.mjs'
 const ARTES = ['marca/pulse-icone.svg', 'marca/pulse-icone-maskable.svg']
 
 test('as cores do ícone são as da marca', () => {
-  const estilo = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
-  const tokens = new Set((estilo.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((h) => h.toLowerCase()))
+  const tokens = coresDoTema()
   // O claro do gradiente não é token de tema — ele só existe dentro do ícone, e
   // foi MEDIDO no do Allvoice. Fica declarado aqui para não virar cor solta.
   const doIcone = new Set(['#8b57ef', '#ffffff'])
@@ -942,8 +957,7 @@ test('a base de clientes tem um único construtor de URL', () => {
  */
 test('as cores dos documentos são as mesmas de estilo.css', () => {
   const raiz = join(RAIZ, 'apps', 'web-internal', 'app', '(documento)')
-  const estilo = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
-  const tokens = new Set((estilo.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((h) => h.toLowerCase()))
+  const tokens = coresDoTema()
   assert.ok(tokens.size > 5, 'não li os tokens de estilo.css — o caminho mudou?')
 
   const docs = []
@@ -993,3 +1007,184 @@ test('as cores dos documentos são as mesmas de estilo.css', () => {
     )
   }
 })
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * PORTÃO: cor usada como TEXTO passa 4,5:1.
+ *
+ * Nasceu de uma auditoria em 30/08/2026 que comparou a paleta do Pulse com a do
+ * `alloyal-publi`, de onde ela foi copiada. O Publi tinha CONSERTADO o contraste em
+ * 14/08 (commit 895f2fb) e o Pulse ficou com os valores de antes: `ink-3` a 2,78:1
+ * sendo o rótulo de todo KPI e cabeçalho, `ink-4` a 1,83:1, e o verde do Badge a
+ * 2,98:1 sobre o próprio fundo. Nenhum deles dava erro em lugar nenhum.
+ *
+ * A classe de defeito é a que este arquivo inteiro existe para pegar: o valor muda
+ * por baixo de um nome que não muda, o build passa, e o número que alguém precisa
+ * ler fica invisível. Sem uma asserção que faça a CONTA, não há como perceber.
+ *
+ * Mede contra `--surface` (#FFFFFF), o fundo mais CLARO da paleta. É de propósito:
+ * sobre o fundo mais claro o contraste é o MELHOR caso, então o que falha aqui
+ * falha em qualquer fundo da casa, e o portão não acusa à toa. Falso positivo é
+ * como um portão passa a ser ignorado.
+ *
+ * Limiar único de 4,5:1, sem a folga de 3:1 que a WCAG dá a texto grande: o token
+ * não sabe em que tamanho vai ser usado, e um que só passa a 30px é armadilha
+ * armada para o primeiro reuso a 13px.
+ *
+ * A ideia e a estrutura vêm do trabalho da branch `worktree-ds-2026-contraste`,
+ * que resolveu o mesmo problema para outra paleta. O que muda é a fonte dos
+ * valores: aqui eles vêm do `estilo.css` em tripla RGB, porque é lá que o tema
+ * mora — no preset eles são `rgb(var(--x) / <alpha-value>)` e não têm valor.
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+const CONTRASTE_MINIMO = 4.5
+
+/**
+ * A tinta fraca aceita, com motivo — a mesma exigência do `ds-excecao`:
+ * silenciador anônimo é como a regra morre.
+ */
+const TINTA_FRACA_ACEITA = {
+  'ink-4': [
+    'o mais fraco da escala, 3,05:1 — serve a texto secundário e a traço.',
+    'É exceção HERDADA do Publi, que a declara com o mesmo motivo e a usa em 523',
+    'lugares. Endurecê-la é decisão de design que muda os dois produtos juntos,',
+    'não conserto de um lado só.',
+  ].join(' '),
+}
+
+/** Os tokens de cor do tema CLARO, lidos do `estilo.css` em tripla RGB. */
+function tokensDeCor() {
+  const css = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
+  // Só o primeiro bloco: é o tema claro, e é onde `--surface` é branco.
+  const fim = [':root:not(', '[data-theme=', '@media']
+    .map((m) => css.indexOf(m, css.indexOf(':root') + 5))
+    .filter((i) => i > 0)
+  const claro = css.slice(css.indexOf(':root'), Math.min(...fim, css.length))
+
+  const tokens = new Map()
+  for (const [, nome, tripla] of claro.matchAll(/--([a-z0-9-]+):\s*([0-9]+ [0-9]+ [0-9]+)\s*;/g)) {
+    const hex = '#' + tripla.trim().split(/\s+/).map((n) => Number(n).toString(16).padStart(2, '0')).join('')
+    tokens.set(nome, hex)
+  }
+  return tokens
+}
+
+/** Luminância relativa da WCAG. */
+function luminancia(hex) {
+  const canal = (n) => {
+    const c = n / 255
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  }
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b)
+}
+
+function contraste(a, b) {
+  const [claro, escuro] = [luminancia(a), luminancia(b)].sort((x, y) => y - x)
+  return (claro + 0.05) / (escuro + 0.05)
+}
+
+test('a conta de contraste é a da WCAG', () => {
+  // Sem isto, um erro na fórmula deixaria o portão abaixo verde afirmando o que não
+  // verificou. Os três pares são os do próprio texto da norma.
+  assert.equal(contraste('#000000', '#FFFFFF').toFixed(2), '21.00')
+  assert.equal(contraste('#FFFFFF', '#FFFFFF').toFixed(2), '1.00')
+  assert.equal(contraste('#767676', '#FFFFFF') >= 4.5, true)
+})
+
+test('os tokens de cor são legíveis pelo portão', () => {
+  // O par da asserção "há arquivos para varrer": se o recorte do CSS falhar, o
+  // portão de contraste varre o vazio e passa sem medir nada.
+  const tokens = tokensDeCor()
+  assert.ok(tokens.size > 30, `li só ${tokens.size} tokens do estilo.css — o recorte quebrou?`)
+  for (const nome of ['ink', 'ink-2', 'ink-3', 'ink-4', 'surface', 'green', 'red', 'amber-700']) {
+    assert.ok(tokens.has(nome), `token \`${nome}\` não foi lido — a paleta mudou de forma?`)
+  }
+  assert.equal(tokens.get('surface'), '#ffffff', 'o fundo de referência deixou de ser branco')
+})
+
+test('todo texto colorido passa 4,5:1 sobre o surface', () => {
+  const tokens = tokensDeCor()
+  const fundo = tokens.get('surface')
+  const usados = new Map()
+
+  for (const { caminho, texto } of ARQUIVOS) {
+    for (const [, tok] of semComentarios(texto).matchAll(/\btext-([a-z][a-z0-9-]*)\b/g)) {
+      if (!tokens.has(tok)) continue
+      if (!usados.has(tok)) usados.set(tok, new Set())
+      usados.get(tok).add(caminho)
+    }
+  }
+  assert.ok(usados.size > 5, `só ${usados.size} tokens usados como texto — a varredura quebrou?`)
+
+  const fracos = []
+  for (const [tok, onde] of usados) {
+    const razao = contraste(tokens.get(tok), fundo)
+    if (razao >= CONTRASTE_MINIMO) continue
+    if (tok in TINTA_FRACA_ACEITA) continue
+    fracos.push(
+      `text-${tok} é ${tokens.get(tok)}, ${razao.toFixed(2)}:1 — ` +
+        `${onde.size} arquivo(s), ex.: ${[...onde][0]}`,
+    )
+  }
+  assert.deepEqual(
+    fracos,
+    [],
+    `\ncor usada como texto abaixo de ${CONTRASTE_MINIMO}:1 sobre ${fundo}:\n${fracos.join('\n')}\n` +
+      'Os tons cheios (`amber`, `green`) servem a FUNDO; para tinta use o par escuro\n' +
+      '(`amber-700`, `orange-700`) — é o idioma do Publi. Se a cor for exceção\n' +
+      'legítima, declare em TINTA_FRACA_ACEITA com o motivo.\n',
+  )
+})
+
+test('a exceção declarada continua sendo usada — e continua sendo exceção', () => {
+  // Exceção que ninguém usa mais é regra afrouxada à toa. E exceção cujo valor
+  // melhorou deve SAIR da lista, senão ela protege o que não precisa.
+  const tokens = tokensDeCor()
+  const fundo = tokens.get('surface')
+  for (const [tok, motivo] of Object.entries(TINTA_FRACA_ACEITA)) {
+    assert.ok(motivo.length > 40, `a exceção de \`${tok}\` não explica o motivo`)
+    assert.ok(tokens.has(tok), `\`${tok}\` não existe mais na paleta — tire da lista`)
+    assert.ok(
+      contraste(tokens.get(tok), fundo) < CONTRASTE_MINIMO,
+      `\`${tok}\` agora passa ${CONTRASTE_MINIMO}:1 — tire da lista de exceções`,
+    )
+  }
+})
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * PORTÃO: token de cor consumido no CSS vem envolvido em `rgb(...)`.
+ *
+ * Escrito depois de eu mesmo quebrar isto em 30/08. Ao adotar a tripla RGB do
+ * Publi, troquei o VALOR dos tokens e esqueci dos consumidores diretos dentro do
+ * próprio `estilo.css`. `background: var(--bg)` passou a resolver para
+ * `background: 246 246 248` — CSS INVÁLIDO —, e o navegador simplesmente DESCARTA
+ * a declaração.
+ *
+ * O efeito medido: `body` sem fundo e sem cor. Todo elemento que não declarava cor
+ * própria caiu no preto padrão do navegador, e no tema escuro isso deu preto sobre
+ * `#17161d` — 1,17:1. A cascata de receita inteira ficou ilegível, e nada disso
+ * gerou erro em lugar nenhum: nem no build, nem no console, nem em teste.
+ *
+ * É a mesma classe do resto do arquivo — valor troca por baixo de nome que não
+ * muda —, agora aplicada ao próprio arquivo que define os nomes.
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+test('todo token de cor consumido no CSS está dentro de rgb()', () => {
+  const css = readFileSync(join(RAIZ, 'packages', 'ui', 'src', 'estilo.css'), 'utf8')
+  const declarados = [...css.matchAll(/--([a-z0-9-]+):\s*[0-9]{1,3} [0-9]{1,3} [0-9]{1,3}\s*;/g)].map((m) => m[1])
+  assert.ok(declarados.length > 30, `li só ${declarados.length} tokens em tripla — o formato mudou?`)
+
+  const crus = []
+  for (const linha of css.split('\n')) {
+    for (const [, nome] of linha.matchAll(/(?<!rgb\()var\(--([a-z0-9-]+)\)/g)) {
+      if (declarados.includes(nome)) crus.push(`${nome}: ${linha.trim().slice(0, 64)}`)
+    }
+  }
+  assert.deepEqual(
+    crus,
+    [],
+    '\ntoken em tripla RGB consumido sem `rgb(...)` — o navegador descarta a declaração:\n' +
+      crus.join('\n') +
+      '\nUse `rgb(var(--token))`, ou `rgb(var(--token) / 0.4)` quando quiser opacidade.\n',
+  )
+})
+

@@ -12,31 +12,76 @@
    ============================================================ */
 @layer base {
   :root {
-    /* ---- Alloyal hex (fonte de verdade) ---- */
-    --bg: #f6f6f8;
-    --surface: #ffffff;
-    --surface-2: #fbfbfc;
-    --line: #ececef;
-    --line-strong: #e0e0e6;
-    --ink: #16161a;
-    --ink-2: #5b5b66;
-    --ink-3: #9a9aa6;
-    --ink-4: #bfbfc8;
-
-    --purple-50: #f3ecfe;
-    --purple-100: #e3d2fb;
-    --purple-500: #6a18e5;
-    --purple-700: #5512b8;
-    --purple-900: #2e0962;
-    --orange-50: #fff3e8;
-    --orange-500: #ff7a00;
-    --orange-700: #b45309;
-    --green: #16a34a;
-    --green-50: #e9f7ef;
-    --amber: #f59e0b;
-    --amber-50: #fef4e2;
-    --red: #dc2626;
-    --red-50: #fcebeb;
+    /* ┌───────────────────────────────────────────────────────────────────────┐
+       │ A PALETA É A DO ALLOYAL-PUBLI, copiada e não aproximada.               │
+       │                                                                        │
+       │ Os dois produtos mostram as mesmas cores para as mesmas coisas, e um    │
+       │ cinza "quase igual" ao do outro é pior que um diferente: ninguém sabe   │
+       │ qual é o certo. Fonte: `alloyal-publi/src/index.css`.                   │
+       │                                                                        │
+       │ TRIPLA RGB e não hex, e isto NÃO é estilo — é o que faz `bg-ink/40`     │
+       │ existir. O preset consome como `rgb(var(--x) / <alpha-value>)`; com     │
+       │ `var(--x)` cru o Tailwind não consegue compor a opacidade e             │
+       │ SIMPLESMENTE NÃO EMITE a classe. Medido em 30/08, com build antes e     │
+       │ depois: antes, ZERO classes de opacidade da paleta na CSS gerada;       │
+       │ depois, as cinco. O véu da gaveta do Radar e o do modal de novidades    │
+       │ não pintavam nada, e o `hover` do botão de perigo não tinha cor.        │
+       │                                                                        │
+       │ ESCALA COMPLETA, e é regra do Publi: shade que falte aqui cai no        │
+       │ default do Tailwind, que é FIXO — funciona no claro por coincidência e  │
+       │ fica ilegível no escuro.                                                │
+       │                                                                        │
+       │ ⚠️ ink-3, ink-4 e green vêm ESCURECIDOS do Publi (commit 895f2fb,       │
+       │ 14/08). Reprovavam no WCAG: 2,78 · 1,83 · 2,98 sobre o próprio fundo.   │
+       │ Agora 4,56 (AA) · 3,05 (não-textual) · 4,50. O Pulse tinha os valores   │
+       │ de antes do conserto.                                                   │
+       └───────────────────────────────────────────────────────────────────────┘ */
+    /* ---- superfície e tinta ---- */
+    --bg: 246 246 248;
+    --surface: 255 255 255;
+    --surface-2: 251 251 252;
+    --line: 236 236 239;
+    --line-strong: 224 224 230;
+    --ink: 22 22 26;
+    --ink-2: 91 91 102;
+    --ink-3: 117 117 126;
+    --ink-4: 147 147 154;
+    /* ---- ação ---- */
+    --purple-50: 243 236 254;
+    --purple-100: 227 210 251;
+    --purple-200: 201 168 246;
+    --purple-300: 166 111 239;
+    --purple-400: 138 63 234;
+    --purple-500: 106 24 229;
+    --purple-700: 85 18 184;
+    --purple-800: 65 13 140;
+    /* ---- marca ---- */
+    --orange-50: 255 243 232;
+    --orange-100: 255 217 179;
+    --orange-200: 255 199 138;
+    --orange-300: 255 184 112;
+    --orange-400: 255 150 51;
+    --orange-500: 255 122 0;
+    --orange-700: 180 83 9;
+    --orange-800: 138 62 6;
+    /* ---- semânticas: cheio + fundo ---- */
+    --green: 17 129 58;
+    --green-50: 233 247 239;
+    --amber: 245 158 11;
+    --amber-50: 254 244 226;
+    --amber-100: 254 243 199;
+    --amber-200: 253 230 138;
+    --amber-300: 252 211 77;
+    --amber-700: 180 83 9;
+    --amber-800: 146 64 14;
+    --amber-900: 120 53 15;
+    --red: 211 36 36;
+    --red-50: 252 235 235;
+    /* ---- apoio ---- */
+    --blue: 29 78 216;
+    --blue-50: 230 240 254;
+    --pink: 192 0 90;
+    --pink-50: 253 231 241;
 
     /* ---- Superfície escura, só para o painel de marca da tela de login ----
        Papel que o Pulse não tinha: todas as telas internas são claras. O valor é o
@@ -98,54 +143,104 @@
      └─────────────────────────────────────────────────────────────────────┘ */
   :root:not([data-theme='light']) {
     @media (prefers-color-scheme: dark) {
-      --bg: #0f0e13;
-      --surface: #17161d;
-      --surface-2: #1d1c25;
-      --line: #2a2833;
-      --line-strong: #383544;
-      --ink: #edecf2;
-      --ink-2: #a9a6b6;
-      --ink-3: #7c7889;
-      --ink-4: #5a5768;
-      --purple-50: #241a3a;
-      --purple-100: #2e2350;
-      --purple-500: #8a3fea;
-      --purple-700: #b98bff;
-      --green: #4ade80;
-      --green-50: #10291b;
-      --amber: #fbbf24;
-      --amber-50: #2e2410;
-      --red: #f87171;
-      --red-50: #2e1618;
-      --orange-50: #2a1b0c;
-      --orange-500: #ff8c28;
-      --orange-700: #ffb870;
+      /* ---- superfície e tinta ---- */
+      --bg: 15 14 19;
+      --surface: 23 22 29;
+      --surface-2: 29 28 37;
+      --line: 42 40 51;
+      --line-strong: 56 53 68;
+      --ink: 237 236 242;
+      --ink-2: 169 166 182;
+      --ink-3: 130 126 144;
+      --ink-4: 101 97 116;
+      /* ---- ação ---- */
+      --purple-50: 36 26 58;
+      --purple-100: 46 35 80;
+      --purple-200: 66 48 110;
+      --purple-300: 120 78 200;
+      --purple-400: 150 90 240;
+      --purple-500: 138 63 234;
+      --purple-700: 185 139 255;
+      --purple-800: 205 175 255;
+      /* ---- marca ---- */
+      --orange-50: 42 27 12;
+      --orange-100: 74 47 20;
+      --orange-200: 102 64 26;
+      --orange-300: 168 104 40;
+      --orange-400: 230 130 45;
+      --orange-500: 255 140 40;
+      --orange-700: 255 184 112;
+      --orange-800: 255 205 156;
+      /* ---- semânticas: cheio + fundo ---- */
+      --green: 74 222 128;
+      --green-50: 16 41 27;
+      --amber: 251 191 36;
+      --amber-50: 46 36 16;
+      --amber-100: 58 46 18;
+      --amber-200: 74 58 22;
+      --amber-300: 138 106 34;
+      --amber-700: 253 202 84;
+      --amber-800: 255 214 122;
+      --amber-900: 255 228 160;
+      --red: 248 113 113;
+      --red-50: 46 22 24;
+      /* ---- apoio ---- */
+      --blue: 126 168 255;
+      --blue-50: 20 33 61;
+      --pink: 255 138 184;
+      --pink-50: 51 16 31;
+      --veu: 5 4 10;
     }
   }
 
   :root[data-theme='dark'] {
-    --bg: #0f0e13;
-    --surface: #17161d;
-    --surface-2: #1d1c25;
-    --line: #2a2833;
-    --line-strong: #383544;
-    --ink: #edecf2;
-    --ink-2: #a9a6b6;
-    --ink-3: #7c7889;
-    --ink-4: #5a5768;
-    --purple-50: #241a3a;
-    --purple-100: #2e2350;
-    --purple-500: #8a3fea;
-    --purple-700: #b98bff;
-    --green: #4ade80;
-    --green-50: #10291b;
-    --amber: #fbbf24;
-    --amber-50: #2e2410;
-    --red: #f87171;
-    --red-50: #2e1618;
-    --orange-50: #2a1b0c;
-    --orange-500: #ff8c28;
-    --orange-700: #ffb870;
+    /* ---- superfície e tinta ---- */
+    --bg: 15 14 19;
+    --surface: 23 22 29;
+    --surface-2: 29 28 37;
+    --line: 42 40 51;
+    --line-strong: 56 53 68;
+    --ink: 237 236 242;
+    --ink-2: 169 166 182;
+    --ink-3: 130 126 144;
+    --ink-4: 101 97 116;
+    /* ---- ação ---- */
+    --purple-50: 36 26 58;
+    --purple-100: 46 35 80;
+    --purple-200: 66 48 110;
+    --purple-300: 120 78 200;
+    --purple-400: 150 90 240;
+    --purple-500: 138 63 234;
+    --purple-700: 185 139 255;
+    --purple-800: 205 175 255;
+    /* ---- marca ---- */
+    --orange-50: 42 27 12;
+    --orange-100: 74 47 20;
+    --orange-200: 102 64 26;
+    --orange-300: 168 104 40;
+    --orange-400: 230 130 45;
+    --orange-500: 255 140 40;
+    --orange-700: 255 184 112;
+    --orange-800: 255 205 156;
+    /* ---- semânticas: cheio + fundo ---- */
+    --green: 74 222 128;
+    --green-50: 16 41 27;
+    --amber: 251 191 36;
+    --amber-50: 46 36 16;
+    --amber-100: 58 46 18;
+    --amber-200: 74 58 22;
+    --amber-300: 138 106 34;
+    --amber-700: 253 202 84;
+    --amber-800: 255 214 122;
+    --amber-900: 255 228 160;
+    --red: 248 113 113;
+    --red-50: 46 22 24;
+    /* ---- apoio ---- */
+    --blue: 126 168 255;
+    --blue-50: 20 33 61;
+    --pink: 255 138 184;
+    --pink-50: 51 16 31;
+    --veu: 5 4 10;
   }
 
 }
@@ -156,8 +251,8 @@
   }
   html,
   body {
-    background: var(--bg);
-    color: var(--ink);
+    background: rgb(var(--bg));
+    color: rgb(var(--ink));
     font-family: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 14px;
     line-height: 1.45;
@@ -179,28 +274,28 @@
    ============================================================ */
 @layer components {
   [data-dado='defasado'] {
-    color: var(--amber);
+    color: rgb(var(--amber));
   }
   [data-dado='parcial'],
   [data-dado='suprimido'] {
-    color: var(--ink-3);
+    color: rgb(var(--ink-3));
   }
   [data-dado='em_verificacao'] {
-    color: var(--purple-700);
+    color: rgb(var(--purple-700));
   }
 
   /* Faixa de saúde. Cor nunca sozinha (D9): sempre acompanha rótulo. */
   [data-saude='saudavel'] {
-    color: var(--green);
+    color: rgb(var(--green));
   }
   [data-saude='atencao'] {
-    color: var(--amber);
+    color: rgb(var(--amber));
   }
   [data-saude='risco'] {
-    color: var(--orange-700);
+    color: rgb(var(--orange-700));
   }
   [data-saude='critico'] {
-    color: var(--red);
+    color: rgb(var(--red));
   }
 }
 
