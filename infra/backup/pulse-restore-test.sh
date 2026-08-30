@@ -40,7 +40,13 @@ echo "testando: $ARQUIVO"
 TMP="$(mktemp -d)"
 limpar() {
   rm -rf "$TMP"
-  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  # ⚠️ O `-v` NÃO É OPCIONAL. A imagem do Postgres declara `VOLUME /var/lib/postgresql/data`, então cada
+  # execução cria um volume ANÔNIMO de ~85 MB — e `docker rm` sem `-v` o deixa para trás. Medido na VM em
+  # 29/08: 328 volumes órfãos ocupando 20,7 GB (somando o mesmo bug na suíte do Hub).
+  # Aqui é mais sério que espaço: o volume que sobra é a RESTAURAÇÃO DE UM BACKUP DE PRODUÇÃO. Naquela
+  # varredura os órfãos estavam vazios, mas o dia em que um teste rodar com dump cheio deixa uma cópia
+  # da base de clientes num volume que ninguém audita.
+  docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
 }
 trap limpar EXIT
 
@@ -55,7 +61,7 @@ else
 fi
 
 # ── 2. Postgres descartável ─────────────────────────────────────────────────
-docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER" -e POSTGRES_PASSWORD=teste -e POSTGRES_DB=restaurado \
   -p "127.0.0.1:$PORTA:5432" postgres:16 >/dev/null
 for _ in $(seq 1 45); do
