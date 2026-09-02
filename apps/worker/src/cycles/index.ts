@@ -41,6 +41,8 @@ import {
   gravarCategorias,
   gravarExtras,
   gravarOmie,
+  limparSombraDeTitulos,
+  trocarTitulosDaSombra,
   gravarOrdensDeServico,
   lerCategorias,
   lerContratos,
@@ -766,8 +768,47 @@ export const c20Omie = defineCycle({
       `${mov.movimentos.length} título(s) em ${mov.paginas} página(s)${mov.parcial ? " — PARCIAL" : ""}`,
     );
 
-    const r = await gravarOmie(db, { fichas: fichas.fichas, movimentos: mov.movimentos });
-    ctx.log(`gravado: ${r.fichas} ficha(s) · ${r.movimentos} título(s)`);
+    /* ┌───────────────────────────────────────────────────────────────────────┐
+       │ OS TÍTULOS PASSAM PELA SOMBRA; O RESTO CONTINUA EM UPSERT DIRETO.      │
+       │                                                                        │
+       │ Só os títulos precisavam: o upsert nunca REMOVE, e título que o Omie   │
+       │ para de devolver ficava aqui para sempre. Medido em 02/09: 1.079        │
+       │ fantasmas, dos quais 6 em atraso somando R$ 31 mil na carteira que o   │
+       │ Financeiro cobra.                                                      │
+       │                                                                        │
+       │ Ficha, contrato e vendedor não têm o problema no mesmo grau — cadastro │
+       │ de cliente não desaparece do Omie, ele é INATIVADO, e a coluna         │
+       │ `inativo` já traz isso. Estender a sombra a eles seria custo sem       │
+       │ defeito medido para justificar.                                       │
+       │                                                                        │
+       │ A sombra é limpa ANTES: resto da execução anterior é lixo, e trocar    │
+       │ por uma mistura de dois dias seria pior que não trocar.                │
+       └───────────────────────────────────────────────────────────────────────┘ */
+    await limparSombraDeTitulos(db);
+    const r = await gravarOmie(
+      db,
+      { fichas: fichas.fichas, movimentos: mov.movimentos },
+      { destinoDosTitulos: "sombra" },
+    );
+    ctx.log(`gravado: ${r.fichas} ficha(s) · ${r.movimentos} título(s) na sombra`);
+
+    /* A troca só com a varredura COMPLETA. Página que falhou significa título que
+       não veio, e trocar aqui apagaria dado bom para gravar menos do que havia —
+       exatamente o que o comentário de `gravarOmie` alerta. */
+    let troca: Awaited<ReturnType<typeof trocarTitulosDaSombra>> | null = null;
+    if (mov.parcial) {
+      ctx.log(
+        "troca NÃO feita: a varredura de títulos veio parcial. O vivo fica como estava, " +
+          "e a próxima execução completa reconcilia.",
+      );
+    } else {
+      troca = await trocarTitulosDaSombra(db);
+      ctx.log(
+        troca.trocou
+          ? `troca feita: ${troca.naSombra} título(s) vivos, ${troca.removidos} removido(s) por terem saído da fonte`
+          : `troca RECUSADA: ${troca.motivo}`,
+      );
+    }
 
     // Vendedores e contratos: baratos (35 e 2.231) e é onde moram o VENDEDOR do
     // cliente e o valor MENSAL do contrato — MRR na fonte. As baixas já vieram na
@@ -829,6 +870,13 @@ export const c20Omie = defineCycle({
         ordensDeServico: gos.ordens,
         itensDeServico: gos.servicos,
         parcial: fichas.parcial || mov.parcial || cats.parcial || ctr.parcial || os.parcial,
+        /* A TROCA sobe no detalhe pelo mesmo motivo que `parcial`: uma troca
+           recusada é o ciclo funcionando, mas alguém precisa poder VER que o vivo
+           não foi renovado — senão a recusa fica só no log do contêiner, que é
+           onde o alarme do C22 passou seis dias escondido. */
+        troca: troca
+          ? { feita: troca.trocou, removidos: troca.removidos, motivo: troca.motivo ?? null }
+          : { feita: false, removidos: 0, motivo: 'varredura parcial — troca não tentada' },
         vinculosAutomaticos: auto,
         conferencia: fila,
       },

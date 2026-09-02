@@ -354,7 +354,9 @@ describe('renovação', { skip: !ADMIN }, () => {
     await conta('agosto', 10, 1_000_000)
     await conta('setembro', 40, 2_000_000)
     await abrirJanela(pool, { hoje: HOJE })
-    const cal = await calendario(pool, 12)
+    // `hoje` injetado: sem ele o teste depende do mês em que roda, e foi assim
+    // que ele quebrou sozinho na virada de agosto para setembro.
+    const cal = await calendario(pool, 12, { hoje: HOJE })
     assert.ok(cal.length >= 2)
     assert.equal(
       cal.reduce((s, m) => s + Number(m.mrrCentavos), 0),

@@ -184,6 +184,7 @@ jobs:
             packages/success/dist/conta.test.js \
             packages/success/dist/cancelamento.test.js \
             packages/success/dist/saida-visoes.test.js \
+            packages/config/dist/troca-sombra.test.js \
             packages/success/dist/fechamento.test.js \
             packages/success/dist/biblioteca.test.js \
             packages/success/dist/renovacao.test.js \

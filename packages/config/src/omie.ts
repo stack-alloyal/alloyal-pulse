@@ -351,11 +351,31 @@ function porChave<T>(itens: readonly T[], chave: (t: T) => number | string): T[]
  * Grava as duas cópias. `ON CONFLICT DO UPDATE` em vez de apagar e reinserir:
  * apagar deixaria a tela vazia durante a carga, e uma carga PARCIAL apagaria dado
  * bom para gravar menos do que havia.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ OS TÍTULOS VÃO PARA A SOMBRA, e as duas razões acima é que exigem isso.    │
+ * │                                                                            │
+ * │ O upsert resolvia as duas e criava uma terceira: ele nunca REMOVE. Título   │
+ * │ que o Omie para de devolver ficava aqui para sempre — medido em 02/09,      │
+ * │ 1.079 fantasmas, dos quais 6 em atraso somando R$ 31 mil na carteira que o  │
+ * │ Financeiro cobra.                                                          │
+ * │                                                                            │
+ * │ Com `destino: 'sombra'` a carga escreve fora do caminho e quem troca é      │
+ * │ `trocarTitulosDaSombra`, depois de validar. As duas razões originais        │
+ * │ continuam honradas: a troca é uma transação só (nenhum leitor vê vazio) e   │
+ * │ só acontece com a varredura completa e a contagem dentro do piso.           │
+ * │                                                                            │
+ * │ O padrão é `'vivo'` para não mudar o comportamento de quem já chamava —     │
+ * │ só o C20 pede a sombra.                                                    │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 export async function gravarOmie(
   db: pg.Pool,
   dados: { fichas?: FichaOmie[]; movimentos?: MovimentoOmie[] },
+  opcoes: { destinoDosTitulos?: 'vivo' | 'sombra' } = {},
 ): Promise<{ fichas: number; movimentos: number }> {
+  const tabelaDeTitulo =
+    opcoes.destinoDosTitulos === 'sombra' ? 'core.omie_titulo_sombra' : 'core.omie_titulo'
   let fichas = 0
   let movimentos = 0
 
@@ -394,7 +414,7 @@ export async function gravarOmie(
 
   for (const lote of emLotes(porChave(dados.movimentos ?? [], (m) => m.codigoTitulo), 1000)) {
     const { rowCount } = await db.query(
-      `INSERT INTO core.omie_titulo
+      `INSERT INTO ${tabelaDeTitulo}
          (codigo_titulo, documento, codigo_cliente, categoria, status, emissao, vencimento,
           previsao, pagamento, valor_centavos, pago_centavos, aberto_centavos, liquidado,
           sincronizado_em)
@@ -884,3 +904,109 @@ export async function gravarOrdensDeServico(
 
   return { ordens: gravadas, servicos }
 }
+
+/** As colunas do título que vêm da fonte. `situacao` é gerada e não entra. */
+const COLUNAS_DE_TITULO = [
+  'codigo_titulo', 'documento', 'codigo_cliente', 'categoria', 'status', 'emissao',
+  'vencimento', 'previsao', 'pagamento', 'valor_centavos', 'pago_centavos',
+  'aberto_centavos', 'liquidado', 'sincronizado_em',
+].join(', ')
+
+/**
+ * O PISO da troca, em fração do que já está vivo.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ 0,90 NÃO É PALPITE. Medido em 02/09/2026 sobre as 20 execuções gravadas do  │
+ * │ C20: a contagem de títulos variou entre 89.827 e 90.104 — 0,3% de amplitude │
+ * │ —, e a maior queda entre dias consecutivos levou a contagem a 99,8% do dia  │
+ * │ anterior.                                                                  │
+ * │                                                                            │
+ * │ Um piso de 90% é 30 vezes mais folgado que a variação real, então nunca     │
+ * │ dispara por rotatividade normal de título. E ainda pega o que precisa       │
+ * │ pegar: varredura que morre no meio perde página inteira, não 0,3%.          │
+ * │                                                                            │
+ * │ Folgado de propósito. Portão que dispara por variação legítima é portão     │
+ * │ que alguém desliga na terceira vez.                                        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export const PISO_DA_TROCA = 0.9
+
+export interface ResultadoDaTroca {
+  readonly trocou: boolean
+  readonly vivos: number
+  readonly naSombra: number
+  /** Quantos títulos a fonte deixou de devolver — o que a troca REMOVE. */
+  readonly removidos: number
+  readonly motivo?: string
+}
+
+/**
+ * Troca os títulos vivos pelo que está na sombra — numa transação só.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A ORDEM É O PRODUTO DESTA FUNÇÃO.                                          │
+ * │                                                                            │
+ * │ 1. CONTAR os dois lados ANTES de tocar em qualquer coisa.                  │
+ * │ 2. RECUSAR se a sombra tiver menos que o piso. Recusar não é falha do       │
+ * │    ciclo: é a proteção fazendo o trabalho, e o motivo volta escrito.        │
+ * │ 3. TROCAR dentro de UMA transação. `TRUNCATE` toma bloqueio exclusivo, e é  │
+ * │    o que garante que nenhum leitor veja a tabela vazia — ele espera o       │
+ * │    commit e enxerga o conjunto novo inteiro, ou o antigo inteiro.           │
+ * │                                                                            │
+ * │ Sombra VAZIA recusa sempre, sem exceção: é o retrato de uma carga que não   │
+ * │ aconteceu, e trocar por ela apagaria a base inteira.                        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * Quem chama é responsável por só chamar quando a varredura foi COMPLETA
+ * (`parcial === false`). Esta função valida tamanho, não integridade da leitura —
+ * uma API que devolve 100% das páginas com 100% do conteúdo errado passa por aqui.
+ */
+export async function trocarTitulosDaSombra(
+  db: pg.Pool,
+  { piso = PISO_DA_TROCA }: { piso?: number } = {},
+): Promise<ResultadoDaTroca> {
+  const cliente = await db.connect()
+  try {
+    const { rows } = await cliente.query<{ vivos: string; sombra: string; removidos: string }>(
+      `SELECT (SELECT count(*) FROM core.omie_titulo)        AS vivos,
+              (SELECT count(*) FROM core.omie_titulo_sombra) AS sombra,
+              (SELECT count(*) FROM core.omie_titulo v
+                WHERE NOT EXISTS (SELECT 1 FROM core.omie_titulo_sombra s
+                                   WHERE s.codigo_titulo = v.codigo_titulo)) AS removidos`,
+    )
+    const vivos = Number(rows[0]?.vivos ?? 0)
+    const naSombra = Number(rows[0]?.sombra ?? 0)
+    const removidos = Number(rows[0]?.removidos ?? 0)
+
+    if (naSombra === 0) {
+      return { trocou: false, vivos, naSombra, removidos,
+        motivo: 'a sombra está vazia — carga que não aconteceu não troca nada' }
+    }
+    if (vivos > 0 && naSombra < vivos * piso) {
+      return { trocou: false, vivos, naSombra, removidos,
+        motivo:
+          `a sombra tem ${naSombra} título(s) contra ${vivos} vivo(s), ` +
+          `abaixo do piso de ${Math.round(piso * 100)}% — parece varredura truncada, não rotatividade` }
+    }
+
+    await cliente.query('BEGIN')
+    await cliente.query('TRUNCATE core.omie_titulo')
+    await cliente.query(
+      `INSERT INTO core.omie_titulo (${COLUNAS_DE_TITULO})
+       SELECT ${COLUNAS_DE_TITULO} FROM core.omie_titulo_sombra`,
+    )
+    await cliente.query('COMMIT')
+    return { trocou: true, vivos, naSombra, removidos }
+  } catch (erro) {
+    await cliente.query('ROLLBACK').catch(() => undefined)
+    throw erro
+  } finally {
+    cliente.release()
+  }
+}
+
+/** Esvazia a sombra. Roda ANTES da carga: resto da execução anterior é lixo. */
+export async function limparSombraDeTitulos(db: pg.Pool): Promise<void> {
+  await db.query('TRUNCATE core.omie_titulo_sombra')
+}
+

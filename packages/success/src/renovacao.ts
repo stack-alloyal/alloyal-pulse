@@ -411,10 +411,28 @@ export async function acuracia(
   }
 }
 
-/** O calendário: MRR a renovar por mês, para os próximos N meses. */
+/**
+ * O calendário: MRR a renovar por mês, para os próximos N meses.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ `hoje` É INJETÁVEL, como em `abrirJanela` e `listar`, e era a única função  │
+ * │ deste módulo que não aceitava. A consulta usava `current_date` cru, e o     │
+ * │ efeito apareceu em 02/09/2026: o teste do calendário passou por um mês e    │
+ * │ QUEBROU sozinho na virada, sem ninguém tocar em nada.                      │
+ * │                                                                            │
+ * │ A massa dele monta contratos a partir de um `HOJE` fixo de 31/07 — um       │
+ * │ vencendo em 10/08 e outro em 09/09. Enquanto o mês corrente era agosto os   │
+ * │ dois entravam na janela; em setembro o de agosto caiu para trás de          │
+ * │ `date_trunc('month', current_date)` e a soma passou de 3 para 2 milhões.    │
+ * │                                                                            │
+ * │ Consulta que só se pode testar no mês certo é consulta sem teste. O padrão  │
+ * │ do módulo já era injetar a data; aqui ele só não tinha sido seguido.        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
 export async function calendario(
   db: pg.Pool,
   meses = 12,
+  { hoje }: { hoje?: string } = {},
 ): Promise<Array<{ mes: string; quantas: number; mrrCentavos: string; fechadas: number }>> {
   const { rows } = await db.query<{
     mes: string
@@ -427,10 +445,11 @@ export async function calendario(
             COALESCE(sum(mrr_em_risco_centavos),0)::text AS mrr,
             count(*) FILTER (WHERE estado IN ('renovada','perdida'))::text AS fechadas
        FROM success.renewal
-      WHERE vigencia_fim >= date_trunc('month', current_date)
-        AND vigencia_fim < date_trunc('month', current_date) + make_interval(months => $1)
+      WHERE vigencia_fim >= date_trunc('month', coalesce($2::date, current_date))
+        AND vigencia_fim < date_trunc('month', coalesce($2::date, current_date))
+                           + make_interval(months => $1)
       GROUP BY 1 ORDER BY 1`,
-    [meses],
+    [meses, hoje ?? null],
   )
   return rows.map((r) => ({
     mes: r.mes,
