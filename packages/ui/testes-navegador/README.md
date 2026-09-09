@@ -19,6 +19,31 @@ node testes-navegador/roadmap.mjs          # menu, cadastro, timeline, por área
 ../../infra/limpar-registros-de-teste.sh   # limpa SÓ as identidades de teste
 ```
 
+## As telas do oauth2-proxy
+
+`telas-do-proxy.mjs` é o único desta pasta que **não toca em produção**: sobe um
+oauth2-proxy descartável na 4199 com a imagem do compose, um upstream
+`static://200` e `--custom-templates-dir` apontado para `infra/oauth2-templates`.
+Nem banco, nem segredo, nem sessão. Não precisa de `.env` nem de `BASE`.
+
+```bash
+cd packages/ui
+node testes-navegador/telas-do-proxy.mjs     # tiros em /tmp/pulse-telas-do-proxy
+TIROS=/outro/lugar node testes-navegador/telas-do-proxy.mjs
+```
+
+**Por que existe, tendo portão em `design-system.test.mjs`.** O portão lê o HTML
+como texto — cor, frase do CSRF, título e tag fechada em cada ramo. O que ele não
+faz é EXECUTAR o template, e `error.html` é Go `html/template`. Medido em
+09/09/2026: trocar `(eq .StatusCode 403)` por `(eq .StatusCode "403")` passa por
+todo portão de texto, e o proxy devolve 403 com o corpo cortado antes do título —
+sem status de erro. Só renderizando de verdade se vê.
+
+**Cobre 2 dos 5 ramos por status.** 401, 403 sem ser de tempo e 404 não são
+alcançáveis por requisição nesta configuração: `/oauth2/<desconhecido>` cai na
+tela de entrada e `/oauth2/auth` responde 401 sem corpo. Para esses, o portão de
+texto é o que há.
+
 ## Duas regras que não são opcionais
 
 **Nunca limpar a base entre execuções.** Estes testes rodam contra a PRODUÇÃO, que tem

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alloyal Pulse — {{.StatusCode}}</title>
+<!--
+  Tela de ERRO do Alloyal Pulse, servida pelo oauth2-proxy
+  (`--custom-templates-dir`). A irmã do `sign_in.html`, e pelas mesmas razões:
+  ver o bloco de comentário de lá sobre hex literal e sobre o portão que
+  compara cada cor daqui com os tokens de `estilo.css`.
+
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │ POR QUE ESTE ARQUIVO EXISTE, medido em 09/09/2026.                         │
+  │                                                                            │
+  │ `--custom-templates-dir=/templates` estava configurado desde sempre, e a    │
+  │ pasta só tinha `sign_in.html`. O oauth2-proxy então servia o template       │
+  │ EMBUTIDO dele para erro: um "403 Forbidden" em Bulma, com "Go back" e       │
+  │ "Sign in" em inglês, a mensagem verdadeira dobrada dentro de um card        │
+  │ "More Info" que só abre por JavaScript, e o rodapé anunciando a versão do   │
+  │ proxy. Foi essa a página que apareceu para quem deixou a tela de login      │
+  │ aberta e voltou depois.                                                     │
+  │                                                                            │
+  │ E o 403 mais comum aqui NÃO é falta de permissão — é a janela do login      │
+  │ vencendo. O cookie CSRF nasce no `/oauth2/start` e vale                     │
+  │ `--cookie-csrf-expire`; se a confirmação no Google demorar mais que isso, o │
+  │ `/oauth2/callback` não acha o cookie e devolve 403. Já tinha acontecido em   │
+  │ 06/08/2026 com a janela de 5m, e voltou a acontecer com 15m.                │
+  │                                                                            │
+  │ Dizer "Forbidden" para isso é mentir sobre a causa: manda a pessoa pedir    │
+  │ acesso a alguém quando o que ela precisa é clicar em entrar de novo.        │
+  └───────────────────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │ O CONTRATO DO TEMPLATE, lido na v7.15.3 (não adivinhado):                  │
+  │ `pkg/app/pagewriter/error_page.go` passa `.StatusCode` (int), `.Title`      │
+  │ (`http.StatusText`), `.Message`, `.ProxyPrefix`, `.Redirect`, `.RequestID`, │
+  │ `.Footer` e `.Version`. As únicas funções registradas são `ToUpper` e       │
+  │ `ToLower` — não há `contains`, então o reconhecimento da mensagem é `eq`    │
+  │ EXATO, e o portão em design-system.test.mjs guarda a string.                │
+  │                                                                            │
+  │ `.Redirect` nunca vem vazio: o `ErrorPage` troca vazio e sign-in por "/".   │
+  └───────────────────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │ NÃO REDIRECIONA SOZINHO, e é decisão, não esquecimento.                    │
+  │                                                                            │
+  │ Um `<meta refresh>` para `/oauth2/start` consertaria o caso da janela       │
+  │ vencida sem ninguém clicar. Mas quando a causa é PERMANENTE — cookie        │
+  │ bloqueado no navegador, relógio fora de hora — o mesmo atalho vira laço     │
+  │ infinito: start → Google → callback → 403 → start. Botão explícito é o que  │
+  │ o usuário pediu ("uma mensagem de tempo e necessário novo login") e é o que │
+  │ para o laço.                                                               │
+  └───────────────────────────────────────────────────────────────────────────┘
+-->
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --roxo: #6a18e5; --ink: #16161a; --ink-2: #5b5b66; --ink-3: #75757e; --surface-2: #fbfbfc; --line-strong: #e0e0e6; }
+  html, body { height: 100%; }
+  body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    color: var(--ink); background: var(--surface-2);
+    display: flex; align-items: center; justify-content: center; padding: 24px; }
+
+  /* Coluna única e estreita, e não o painel duplo da tela de entrada: esta
+     página INTERROMPE. O painel de marca é convite, e convidar quem levou um
+     erro é ruído. */
+  .caixa { width: 100%; max-width: 460px; }
+  .marca { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .marca svg { height: 24px; width: auto; }
+  .marca span { font-size: 16px; font-weight: 700; }
+
+  .codigo { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  h1 { margin-top: 8px; font-size: 25px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }
+  .lead { margin-top: 10px; font-size: 13.5px; color: var(--ink-2); line-height: 1.65; }
+  .lead b { color: var(--ink); font-weight: 600; }
+
+  /* Roxo é ação — a regra da casa. Laranja é marca e não pinta alarme, sobretudo
+     porque o caso mais comum aqui não é alarme nenhum: é tempo esgotado. */
+  .botao { display: flex; align-items: center; justify-content: center; width: 100%; margin-top: 24px; padding: 13px 20px;
+    border-radius: 6px; border: 1px solid var(--roxo); background: var(--roxo); color: #fff; font-size: 14.5px; font-weight: 600;
+    cursor: pointer; text-decoration: none; transition: filter .15s; }
+  .botao:hover { filter: brightness(1.08); }
+  .botao:focus-visible { outline: none; box-shadow: 0 0 0 2px #e3d2fb; }
+  .secundario { display: block; margin-top: 12px; font-size: 12.5px; color: var(--ink-3); text-align: center; text-decoration: underline; }
+
+  /* O diagnóstico fica LEGÍVEL e fechado, em <details> — sem JavaScript. No
+     template embutido ele só abria por script, e é o que o suporte precisa ler
+     para achar a linha no log. */
+  .diag { margin-top: 24px; border-top: 1px solid #ececef; padding-top: 16px; font-size: 11.5px; color: var(--ink-3); }
+  .diag summary { cursor: pointer; }
+  .diag dl { margin-top: 10px; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; line-height: 1.6; }
+  .diag dt { font-weight: 600; }
+  .diag dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+  .rodape { margin-top: 20px; font-size: 11.5px; color: var(--ink-3); }
+</style>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJBbGxveWFsIFB1bHNlIj48dGl0bGU+QWxsb3lhbCBQdWxzZTwvdGl0bGU+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJmdW5kb1B1bHNlIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNkExOEU1Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjOEI1N0VGIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIHJ4PSIxMTMiIHJ5PSIxMTMiIGZpbGw9InVybCgjZnVuZG9QdWxzZSkiLz48ZyBmaWxsPSJub25lIiBzdHJva2Utd2lkdGg9IjQ0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIHN0cm9rZT0iI0ZGRkZGRiIgZD0iTTEwMCAyNTYgSDE5NiIvPjxwYXRoIHN0cm9rZT0iI0ZGRkZGRiIgZD0iTTMxMiAyNTYgSDQxMiIvPjxwYXRoIHN0cm9rZT0iI0ZGN0EwMCIgZD0iTTE5NiAyNTYgTDI1MCAxNDAgTDI5MiAzNzIgTDMxMiAyNTYiLz48L2c+PC9zdmc+">
+</head>
+<body>
+<div class="caixa">
+  <div class="marca">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 114 38" fill="#16161a"><path d="M6.894 17.171c2.005 0 3.374.391 4.498 1.516V16.34s.098-1.32-1.124-1.32H2.249V9.299h11.637c3.765 0 3.912 4.058 3.912 4.058v15.842h-6.356v-1.858h-.098c-.733 1.711-2.591 2.494-4.743 2.494C2.591 29.786 0 27.292 0 23.527s2.738-6.356 6.894-6.356zm4.303 6.014c0-1.076-.88-1.809-2.347-1.809-1.369 0-2.347.684-2.347 1.809s.978 1.809 2.347 1.809c1.467.049 2.347-.684 2.347-1.809zM31.102 0h6.796v23.323 5.867h-6.796V0zM21.055 0h6.796v23.323 5.867h-6.796V0zm26.823 37.764c.684-.929 1.711-1.467 2.983-1.467s2.298.538 2.982 1.467h6.943c-1.223-4.254-4.987-7.089-9.925-7.089s-8.703 2.836-9.925 7.089h6.943zm18.491-5.632l8.361-.049a.98.98 0 0 0 .978-.978v-2.738h-.147c-.684.636-1.76 1.32-4.009 1.32-4.4 0-7.53-3.325-7.53-7.921V9.299h6.748v11.344c0 1.369 1.125 2.542 2.493 2.542s2.396-1.075 2.396-2.493V9.299h6.698l.049 26.648c0 .978-.929 2.053-2.053 2.053H66.369v-5.867zm25.758-14.961c2.005 0 3.374.391 4.498 1.516V16.34s.098-1.32-1.124-1.32h-8.068V9.299H99.07c3.764 0 3.911 4.058 3.911 4.058v15.842h-6.356v-1.858h-.098c-.733 1.711-2.591 2.494-4.743 2.494-4.009 0-6.601-2.543-6.601-6.259s2.787-6.405 6.943-6.405zm4.303 6.014c0-1.076-.88-1.809-2.347-1.809-1.369 0-2.347.684-2.347 1.809s.978 1.809 2.347 1.809c1.418.049 2.347-.684 2.347-1.809zM106.239 0h6.796v23.323 5.867h-6.796V0zM61.612 19.336c0 6.161-4.449 10.512-10.659 10.512s-10.659-4.352-10.659-10.512c0-6.112 4.449-10.463 10.659-10.463s10.659 4.352 10.659 10.463zm-14.717.147c0 2.787 1.613 4.645 4.058 4.645s4.058-1.858 4.058-4.645c0-2.885-1.614-4.792-4.058-4.792-2.494 0-4.058 1.907-4.058 4.792z"/></svg>
+    <span>Pulse</span>
+  </div>
+
+  {{/* O 403 da janela vencida, reconhecido pela mensagem EXATA da v7.15.3.
+       Os dois pontos do `oauthproxy.go` que produzem 403 no callback — cookie
+       não encontrado e nonce divergente — mandam esta mesma frase. */}}
+  {{ $expirou := and (eq .StatusCode 403) (eq .Message "Login Failed: Unable to find a valid CSRF token. Please try again.") }}
+
+  {{ if $expirou }}
+    <p class="codigo">Sessão de login</p>
+    <h1>O tempo para entrar esgotou</h1>
+    <p class="lead">A confirmação no Google levou mais do que a janela permitida, e por segurança ela não vale mais. <b>Não é problema com a sua conta nem com o seu acesso</b> — é só entrar de novo.</p>
+    <a href="{{.ProxyPrefix}}/start?rd={{.Redirect}}" class="botao">Entrar de novo</a>
+
+  {{ else if eq .StatusCode 401 }}
+    <p class="codigo">Erro {{.StatusCode}}</p>
+    <h1>Você precisa entrar</h1>
+    <p class="lead">Esta página é do time interno da Alloyal. Entre com sua conta <b>@alloyal.com.br</b> para continuar.</p>
+    <a href="{{.ProxyPrefix}}/sign_in?rd={{.Redirect}}" class="botao">Entrar</a>
+
+  {{ else if eq .StatusCode 403 }}
+    <p class="codigo">Erro {{.StatusCode}}</p>
+    <h1>Sem acesso a esta página</h1>
+    <p class="lead">Sua conta entrou, mas não tem permissão para esta área. O acesso vem do <b>papel cadastrado no Pulse</b>: peça a quem administra a plataforma.</p>
+    <a href="{{.Redirect}}" class="botao">Voltar</a>
+    <a href="{{.ProxyPrefix}}/sign_in?rd={{.Redirect}}" class="secundario">Entrar com outra conta</a>
+
+  {{ else if eq .StatusCode 404 }}
+    <p class="codigo">Erro {{.StatusCode}}</p>
+    <h1>Esta página não existe</h1>
+    <p class="lead">O endereço pode ter mudado, ou o link estar velho.</p>
+    <a href="{{.Redirect}}" class="botao">Voltar</a>
+
+  {{ else }}
+    <p class="codigo">Erro {{.StatusCode}}</p>
+    <h1>Algo deu errado ao entrar</h1>
+    <p class="lead">A falha foi no acesso, antes do Pulse. Tentar de novo costuma resolver; se insistir, mande <b>o código abaixo</b> para quem administra a plataforma.</p>
+    <a href="{{.ProxyPrefix}}/sign_in?rd={{.Redirect}}" class="botao">Tentar de novo</a>
+  {{ end }}
+
+  {{ if or .Message .RequestID }}
+  <details class="diag">
+    <summary>Detalhes técnicos</summary>
+    <dl>
+      {{ if .Message }}<dt>Falha</dt><dd>{{.Message}}</dd>{{ end }}
+      {{ if .RequestID }}<dt>Código</dt><dd>{{.RequestID}}</dd>{{ end }}
+    </dl>
+  </details>
+  {{ end }}
+
+  {{/* Sem o rodapé embutido: ele anuncia "OAuth2 Proxy version v7.15.3" numa
+       página que qualquer um alcança sem entrar. */}}
+  <p class="rodape">Alloyal · acesso restrito a colaboradores</p>
+</div>
+</body>
+</html>

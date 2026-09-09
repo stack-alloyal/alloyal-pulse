@@ -191,9 +191,29 @@ services:
       # máquina redirecionando.
       #
       # O que esta janela protege é a ligação entre quem começou o login e quem
-      # voltou com o código. 15m não afrouxa isso de forma relevante — o `state` é
-      # aleatório e de uso único, e o código do Google expira sozinho em minutos.
-      - --cookie-csrf-expire=15m
+      # voltou com o código. O `state` é aleatório e de uso único, e o código do
+      # Google expira sozinho em minutos.
+      #
+      # ── 15m → 1h, em 09/09/2026 ──────────────────────────────────────────
+      # 15m é o PADRÃO do oauth2-proxy, e falhou de novo: alguém deixou o login
+      # começado, voltou muito depois e levou 403.
+      #
+      # O detalhe que faltava estar escrito: o código do Google é emitido no FIM
+      # da interação, não na ida. Quem fica quarenta minutos na tela do Google —
+      # escolhendo conta, num segundo fator, ou simplesmente distraído — volta com
+      # um código NOVO e um cookie CSRF vencido. Então esta janela não precisa
+      # cobrir a vida do código; precisa cobrir a PERMANÊNCIA de uma pessoa numa
+      # tela de terceiro, que não tem limite natural.
+      #
+      # Por que 1h não afrouxa de forma relevante: `--cookie-csrf-per-request`
+      # emite um cookie por fluxo, e o código do Google é de uso único e morre em
+      # ~10min. Um fluxo velho já não completa por causa do código, independente
+      # deste prazo — o que o prazo maior evita é o caso oposto, o de recusar um
+      # código legítimo e recém-emitido.
+      #
+      # E quando ainda assim vencer, `infra/oauth2-templates/error.html` explica
+      # que foi tempo, em vez do "403 Forbidden" que manda pedir acesso a alguém.
+      - --cookie-csrf-expire=1h
       # ── Duração da sessão ────────────────────────────────────────────────
       # O padrão do oauth2-proxy é 168h — SETE DIAS — e é o que Publi, Hub e
       # Radar usam. Aqui é menos, e a razão é o que está atrás da porta: o Pulse
