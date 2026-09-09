@@ -45,40 +45,63 @@
  * └───────────────────────────────────────────────────────────────────────────┘
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ ESTE ARQUIVO ESTÁ VERMELHO NO PASSO 5, e é achado, não defeito do teste.    │
+ * │ O PASSO 5 ESTEVE VERMELHO, e o diagnóstico inicial estava errado duas vezes.│
  * │                                                                            │
- * │ `avancarEtapa` recusa com violação de `cancellation_estado_check`. A        │
- * │ primeira leitura foi que a restrição não conhecia o estado `financeiro` —   │
- * │ e está ERRADA: medido em produção, o CHECK lista os oito estados, e a 0052  │
- * │ o atualizou corretamente.                                                   │
+ * │ `avancarEtapa` recusava com violação de `cancellation_estado_check`. A       │
+ * │ primeira leitura foi que a restrição não conhecia o estado `financeiro` —    │
+ * │ errada: medido em produção, o CHECK lista os oito estados. A segunda foi     │
+ * │ que "o formulário do quadro tem dois botões e `dados.get('para')` volta      │
+ * │ vazio" — certa no sintoma, errada na causa. Não era o formulário: é que o    │
+ * │ par name/value do botão que SUBMETE não entra no FormData de uma Server      │
+ * │ Action. O HTML manda incluir; o React não inclui.                           │
  * │                                                                            │
- * │ O que a linha recusada mostra é `estado` VAZIO. Ou seja, o valor do botão   │
- * │ não chega à ação: o formulário do quadro tem dois `<button type="submit"    │
- * │ name="para">` (financeiro e reversão), e `dados.get('para')` volta vazio.   │
- * │ O banco recusou certo — foi ele que impediu uma linha corrompida.           │
+ * │ Consertado em 09/09/2026: o destino vai LIGADO por `formAction={acao.bind    │
+ * │ (null, e)}`, e a ação valida contra as três etapas antes de tocar no banco.  │
+ * │ Provado pelos dois lados — com o código do HEAD o estado ficava              │
+ * │ `anunciado`; com a correção, `financeiro`.                                  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ SEIS FALHAS ERAM DO TESTE, e pareciam defeito de produto.                  │
  * │                                                                            │
- * │ Duas coisas a consertar, e nenhuma foi feita ainda: a ação precisa VALIDAR  │
- * │ `para` contra as três etapas antes de tocar no banco (mensagem de produto,  │
- * │ não violação de restrição), e o formulário precisa entregar o valor do      │
- * │ botão que foi clicado.                                                     │
+ * │ 1. CAIXA. `innerText` devolve o texto RENDERIZADO, e o design system aplica │
+ * │    `text-transform: uppercase`: no HTML "Churn no efeito", na tela          │
+ * │    "CHURN NO EFEITO". Três asserções comparavam com a caixa da FONTE. Daí   │
+ * │    `tem()` e `casa()`.                                                     │
+ * │ 2. MOMENTO. Três asserções liam o `innerText` do instante do POST, antes de │
+ * │    o quadro revalidar — e a da meta lia a aba errada, porque a Server        │
+ * │    Action redireciona para `/saidas` sem o `?aba=meta`. Agora RELEEM.       │
+ * │ 3. LAYOUT. `/Informações financeiras 1 pedido/` media um layout que a tela  │
+ * │    não tem: cada coluna é "rótulo · descrição · N pedido(s)".               │
  * │                                                                            │
- * │ Fica commitado vermelho de propósito: não está no CI, e um teste que        │
- * │ encontra defeito real vale mais guardado do que apagado.                    │
+ * │ Vale registrar porque o custo delas foi real: seis falhas vermelhas fizeram │
+ * │ o fluxo parecer quebrado quando três visões estavam corretas na tela.       │
  * └───────────────────────────────────────────────────────────────────────────┘
  *
  * Como rodar (o preparo inteiro, em ordem):
  *
  *   docker run -d --name pulse-pg-e2e -e POSTGRES_PASSWORD=teste \
  *     -e POSTGRES_DB=pulse -p 127.0.0.1:5457:5432 postgres:16
- *   DATABASE_URL_ADMIN=postgres://postgres:teste@127.0.0.1:5457/pulse \
- *     pnpm --filter @pulse/db migrate
- *   # massa: duas contas ativas, contrato numa, faturamento de 6 meses nas duas,
- *   # e uma linha em ops.user_role para o e-mail que vai operar
+ *   export DATABASE_URL_ADMIN=postgres://postgres:teste@127.0.0.1:5457/pulse
+ *   pnpm --filter @pulse/db build && pnpm --filter @pulse/db migrate
+ *   node packages/db/dist/primeiro-admin-cli.js stack@alloyal.com.br
+ *
+ *   # A MASSA. Era prosa aqui ("duas contas ativas, contrato numa, …") e prosa
+ *   # não roda: o teste espera nome e valor EXATOS. Ver infra/massa-saida-e2e.sql,
+ *   # que também explica por que `make seed` NÃO basta (ele não popula Omie, e
+ *   # `analytics.mrr_faturado_mes` é view sobre o Omie — sem isso o select do
+ *   # cadastro fica vazio e sete asserções caem por falta de massa).
+ *   docker exec -i pulse-pg-e2e psql -U postgres -d pulse -f - < infra/massa-saida-e2e.sql
+ *
  *   pnpm build --filter @pulse/web-internal
- *   NODE_ENV=production PULSE_PROXY_SECRET=<qualquer> \
+ *   cd apps/web-internal && NODE_ENV=production PULSE_PROXY_SECRET=<qualquer> \
  *     DATABASE_URL=postgres://postgres:teste@127.0.0.1:5457/pulse \
  *     pnpm exec next start -p 3402
- *   BASE=http://127.0.0.1:3402 PULSE_PROXY_SECRET=<o mesmo> \
+ *
+ *   # ⚠ TABELA LIMPA a cada execução: o passo 1 afirma "quadro começa vazio".
+ *   docker exec pulse-pg-e2e psql -U postgres -d pulse \
+ *     -c 'TRUNCATE success.cancellation CASCADE; TRUNCATE success.meta_churn;'
+ *   cd packages/ui && BASE=http://127.0.0.1:3402 PULSE_PROXY_SECRET=<o mesmo> \
  *     node testes-navegador/saida-ponta-a-ponta.mjs
  */
 import { chromium } from 'playwright'
@@ -116,11 +139,25 @@ const conferir = (ok, oque, detalhe = '') => {
   console.log(`${ok ? 'ok   ' : 'FALHA'} ${oque}${detalhe ? ` · ${detalhe}` : ''}`)
 }
 
-/** O texto todo da aba, para procurar valor dentro. */
+/**
+ * O texto todo da aba, para procurar valor dentro.
+ *
+ * ⚠ `innerText` devolve o texto RENDERIZADO, e o design system aplica
+ * `text-transform: uppercase` nos rótulos e cabeçalhos: no HTML está "Churn no
+ * efeito", na tela está "CHURN NO EFEITO". Três asserções deste arquivo
+ * falhavam por isso e PARECIAM defeito de produto — medido em 09/09/2026, com a
+ * coluna presente e correta na tela. Daí `tem()` e `casa()` abaixo, que
+ * comparam sem caixa; comparar com a caixa do HTML é medir a fonte, não a tela.
+ */
 const textoDe = async (rota) => {
   await pg.goto(BASE + rota, { waitUntil: 'networkidle' })
   return (await pg.locator('body').innerText()).replace(/\s+/g, ' ')
 }
+
+/** Contém, sem caixa. */
+const tem = (t, agulha) => t.toLowerCase().includes(agulha.toLowerCase())
+/** Casa, sem caixa. */
+const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags : re.flags + 'i').test(t)
 
 // ─── 1. O ponto de partida: tudo em zero ────────────────────────────────────
 {
@@ -155,29 +192,36 @@ const textoDe = async (rota) => {
     pg.getByRole('button', { name: 'Registrar' }).click(),
   ])
 
-  const t = (await pg.locator('body').innerText()).replace(/\s+/g, ' ')
-  conferir(!/erro|não|falh/i.test(t.slice(0, 200)) || t.includes('pedido registrado'), 'o cadastro respondeu sem erro')
-  conferir(t.includes('Transportadora Aurora'), 'o cliente aparece no quadro')
-  conferir(!t.includes('Nenhum pedido registrado'), 'o quadro deixou de estar vazio')
+  const resposta = (await pg.locator('body').innerText()).replace(/\s+/g, ' ')
+  conferir(!/erro|não|falh/i.test(resposta.slice(0, 200)) || tem(resposta, 'pedido registrado'), 'o cadastro respondeu sem erro')
+
+  /* RELÊ a tela, em vez de medir o innerText do instante do POST. A resposta da
+     Server Action chega antes de o quadro revalidar, então "Nenhum pedido
+     registrado" ainda estava lá — e a asserção acusava um quadro vazio que, na
+     recarga seguinte, já mostrava o pedido. Era o teste medindo o meio do
+     caminho. */
+  const t = await textoDe('/saidas')
+  conferir(tem(t, 'Transportadora Aurora'), 'o cliente aparece no quadro')
+  conferir(!tem(t, 'Nenhum pedido registrado'), 'o quadro deixou de estar vazio')
   // MRR congelado do CONTRATO (R$ 12.500) e não do faturado — a conta tem os dois,
   // e o contrato vence na ordem de resolução de `anunciar`.
-  conferir(/R\$\s*12\.500,00/.test(t), 'o MRR foi congelado na levantada')
+  conferir(casa(t, /R\$\s*12\.500,00/), 'o MRR foi congelado na levantada')
 }
 
 // ─── 3. Os KPI param de mostrar zero ────────────────────────────────────────
 {
   const t = await textoDe('/saidas')
-  conferir(/Churn de contas[^0-9]*1\b/.test(t), 'o KPI de churn de contas conta 1')
-  conferir(t.includes('levantaram a mão'), 'e diz quanto MRR levantou a mão')
+  conferir(casa(t, /churn de contas[^0-9]*(?:\d{4}-\d{2})?[^0-9]*1\b/), 'o KPI de churn de contas conta 1')
+  conferir(tem(t, 'levantaram a mão'), 'e diz quanto MRR levantou a mão')
 }
 
 // ─── 4. A coorte pendura o pedido no mês do ANÚNCIO ─────────────────────────
 {
   const t = await textoDe('/saidas?aba=coorte')
-  conferir(!t.includes('nenhuma levantada foi registrada ainda'), 'a coorte saiu do estado vazio')
-  conferir(/60 d/.test(t), 'o aviso prévio médio é o que foi digitado')
-  conferir(t.includes('Churn no efeito'), 'a coluna de efeito existe')
-  conferir(!t.includes('Reativaram'), 'e reativação NÃO está aqui — é assunto de Receita')
+  conferir(!tem(t, 'nenhuma levantada foi registrada ainda'), 'a coorte saiu do estado vazio')
+  conferir(casa(t, /60 d/), 'o aviso prévio médio é o que foi digitado')
+  conferir(tem(t, 'Churn no efeito'), 'a coluna de efeito existe')
+  conferir(!tem(t, 'Reativaram'), 'e reativação NÃO está aqui — é assunto de Receita')
 }
 
 // ─── 5. Avançar a etapa move a coluna do quadro ─────────────────────────────
@@ -189,9 +233,14 @@ const textoDe = async (rota) => {
     pg.waitForURL(/\/saidas/, { waitUntil: 'networkidle' }),
     botao.click(),
   ])
-  const t = (await pg.locator('body').innerText()).replace(/\s+/g, ' ')
+  /* Relê, pelo mesmo motivo do passo 2. E a contagem NÃO fica colada ao rótulo:
+     cada coluna do quadro é "rótulo · descrição · N pedido(s)", então
+     `/Informações financeiras 1 pedido/` nunca casaria — media um layout que a
+     tela não tem. O que prova a movimentação é o par rótulo→contagem na MESMA
+     coluna, com a descrição no meio. */
+  const t = await textoDe('/saidas')
   conferir(
-    /Informações financeiras 1 pedido/.test(t),
+    casa(t, /informações financeiras[^·]*?\b1 pedido/),
     'o pedido está agora na coluna de informações financeiras',
   )
 }
@@ -206,13 +255,18 @@ const textoDe = async (rota) => {
     pg.waitForURL(/\/saidas/, { waitUntil: 'networkidle' }),
     pg.getByRole('button', { name: 'Definir' }).click(),
   ])
-  const t = (await pg.locator('body').innerText()).replace(/\s+/g, ' ')
-  conferir(/R\$\s*50\.000,00/.test(t), 'a meta gravou e aparece na tabela')
-  conferir(!t.includes('Nenhuma meta definida no período'), 'e o aviso de "sem meta" saiu')
+  /* RELÊ `?aba=meta`. A Server Action redireciona para `/saidas` sem o parâmetro,
+     então depois de gravar a aba visível é o Quadro — a tabela da meta continua
+     no HTML e não está RENDERIZADA, e `innerText` não a vê. A meta havia
+     gravado (conferido em success.meta_churn); o teste estava olhando a aba
+     errada. */
+  const t = await textoDe('/saidas?aba=meta')
+  conferir(casa(t, /R\$\s*50\.000,00/), 'a meta gravou e aparece na tabela')
+  conferir(!tem(t, 'Nenhuma meta definida no período'), 'e o aviso de "sem meta" saiu')
   // O realizado continua zero: o pedido está em etapa de trabalho, a receita
   // ainda entra. É a distinção que a tela existe para mostrar.
   conferir(
-    /Sem meta|R\$ 0,00/.test(t),
+    casa(t, /Sem meta|R\$ 0,00/),
     'o realizado do mês do anúncio é zero — a receita ainda não parou',
   )
 }

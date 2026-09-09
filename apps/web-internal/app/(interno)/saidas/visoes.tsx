@@ -297,7 +297,7 @@ function Coluna({
               <span className="mt-1 block text-nota text-red">parado há {N(p.diasNaEtapa)} dias</span>
             )}
             {pos.tipo === 'etapa' && (
-              <form action={acaoAvancarEtapa} className="mt-1.5 flex flex-wrap gap-1.5">
+              <form className="mt-1.5 flex flex-wrap gap-1.5">
                 <input type="hidden" name="id" value={p.id} />
                 {/* A posição de trabalho mapeia 1:1 no estado, e só `pedido` tem
                     nome diferente do dele (`anunciado`). O botão da etapa atual
@@ -306,15 +306,17 @@ function Coluna({
                 {(['anunciado', 'financeiro', 'reversao'] as const)
                   .filter((e) => e !== (p.posicao === 'pedido' ? 'anunciado' : p.posicao))
                   .map((e) => (
-                    /* ds-excecao: botão de SUBMIT com name e value próprios, que é
-                       o que permite mover o pedido sem JavaScript. `Btn` não
-                       carrega name nem value, e três formulários por cartão para
-                       ter três destinos seria pior que este marcador. */
+                    /* O destino vai LIGADO no `formAction`, e não em `name="para"`:
+                       o par do botão que submete não entra no FormData de uma
+                       Server Action. Ver o comentário de `acaoAvancarEtapa`.
+
+                       ds-excecao: botão de SUBMIT com `formAction` próprio — `Btn`
+                       não carrega formAction, e um formulário por destino
+                       duplicaria o campo `id` em cada cartão. */
                     <button
                       key={e}
                       type="submit"
-                      name="para"
-                      value={e}
+                      formAction={acaoAvancarEtapa.bind(null, e)}
                       className="rounded border border-line-strong bg-surface px-1.5 py-0.5 text-nota text-ink-2 hover:border-purple-500 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500"
                     >
                       → {e === 'anunciado' ? 'pedido' : e === 'financeiro' ? 'financeiro' : 'reversão'}

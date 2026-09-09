@@ -60,6 +60,19 @@ function usarGrupos() {
  * alguém mexesse só no de cima — e "onde eu estou" é exatamente o que o menu
  * minimizado tem menos condição de comunicar.
  */
+/**
+ * Link de menu: `<Link>` para tela, `<a>` para documento.
+ *
+ * Existe para que a escolha fique num lugar só. `ItemDeMenu.externo` diz qual, e
+ * o porquê está no comentário dele.
+ */
+function Alvo({
+  externo,
+  ...resto
+}: { externo?: true } & React.ComponentProps<'a'> & { href: string }) {
+  return externo ? <a {...resto} /> : <Link {...resto} />
+}
+
 function Filho({
   f,
   pai,
@@ -129,7 +142,11 @@ export function Nav() {
              desenho por atributo no <html> evita. */
           <div key={m.href} className="lateral-alvo relative">
             <div className="flex items-center">
-              <Link
+              {/* `<a>` para o que é documento, `<Link>` para o que é tela. Ver o
+                  comentário de `externo` em menu.ts: o pré-carregamento do
+                  `<Link>` puxava 222 KB do PRD em toda abertura de página. */}
+              <Alvo
+                externo={m.externo}
                 href={m.href}
                 aria-current={isAtivo ? 'page' : undefined}
                 className={cn(
@@ -142,7 +159,7 @@ export function Nav() {
                   className={cn('h-[17px] w-[17px] shrink-0', isAtivo ? 'text-purple-500' : 'text-ink-3')}
                 />
                 <span className="lateral-rotulo truncate">{m.rotulo}</span>
-              </Link>
+              </Alvo>
               {/* BOTÃO SEPARADO do link, e não o link inteiro virando gatilho:
                   Configurações É uma tela (o Catálogo), e transformar o item em
                   interruptor tiraria o acesso a ela. Um navega, o outro recolhe. */}
