@@ -16,7 +16,7 @@ import Link from 'next/link'
 
 import { acaoAvancarEtapa, acaoDefinirMeta, registrarPedido } from './acoes'
 import { EscolherConta } from './escolher-conta'
-import { CAMPO_DE_VOLTA } from './volta'
+import { CAMPO_DE_VOLTA, type TelaDoFluxo } from './volta'
 
 /**
  * O campo escondido que diz para onde a ação devolve.
@@ -26,7 +26,7 @@ import { CAMPO_DE_VOLTA } from './volta'
  * rename. O valor é validado contra lista de permissão em `acoes.ts` — ver o
  * comentário de `TELAS_DO_FLUXO` para por que não se sanitiza.
  */
-export function CampoDeVolta({ para }: { para: string }) {
+export function CampoDeVolta({ para }: { para: TelaDoFluxo }) {
   return <input type="hidden" name={CAMPO_DE_VOLTA} value={para} />
 }
 
@@ -81,7 +81,7 @@ export function Registrar({
 }: {
   contas: readonly ContaParaSaida[]
   hoje: string
-  volta: string
+  volta: TelaDoFluxo
 }) {
   const semMrr = contas.filter((c) => c.mrrCentavos === null).length
   return (
@@ -213,7 +213,7 @@ export function Registrar({
  * │ para sair e ficou não é o mesmo que um cliente que nunca pensou em sair.     │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-export function Quadro({ pedidos, volta }: { pedidos: readonly PedidoNoQuadro[]; volta: string }) {
+export function Quadro({ pedidos, volta }: { pedidos: readonly PedidoNoQuadro[]; volta: TelaDoFluxo }) {
   const porPosicao = new Map(POSICOES.map((p) => [p.id, [] as PedidoNoQuadro[]]))
   for (const p of pedidos) porPosicao.get(p.posicao)?.push(p)
 
@@ -288,7 +288,7 @@ function Coluna({
 }: {
   pos: (typeof POSICOES)[number]
   itens: readonly PedidoNoQuadro[]
-  volta: string
+  volta: TelaDoFluxo
 }) {
   const soma = itens.reduce((s, p) => s + Number(p.mrrCentavos ?? 0), 0)
   return (
@@ -763,7 +763,7 @@ export function Meta({
 }: {
   linhas: readonly LinhaDaMeta[]
   podeDefinir: boolean
-  volta: string
+  volta: TelaDoFluxo
 }) {
   const semMeta = linhas.every((l) => l.metaCentavos === null)
   const ultima = linhas[linhas.length - 1]

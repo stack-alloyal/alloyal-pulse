@@ -24,7 +24,36 @@
  * │ está aqui vira `/cancelamento`, e nenhum valor de fora chega ao `redirect`. │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-export const TELAS_DO_FLUXO = ['/cancelamento', '/saidas'] as const
+export const TELAS_DO_FLUXO = [
+  '/cancelamento',
+  '/cancelamento/kanban',
+  '/cancelamento/dados',
+  '/saidas',
+] as const
+
+/**
+ * O tipo que torna o defeito INCOMPILÁVEL, em vez de guardado por portão.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O DEFEITO REAL, relatado pelo usuário em 10/09/2026.                      │
+ * │                                                                            │
+ * │ Quando o kanban virou `/cancelamento/kanban`, ele passou a mandar esse      │
+ * │ caminho como destino de volta — e o caminho NÃO ESTAVA nesta lista. O       │
+ * │ `destinoDeVolta` fez o que devia: caiu no primeiro membro. Resultado, na    │
+ * │ palavra de quem usou: "quando clico para movimentar o card ele volta para a │
+ * │ Visão Geral e tenho que ficar voltando para a aba Kanban".                  │
+ * │                                                                            │
+ * │ E o portão que eu havia escrito para isto era CEGO: ele conferia que cada   │
+ * │ formulário CARREGA o campo de volta, e não que o VALOR do campo está na     │
+ * │ lista. Passou verde enquanto o comportamento estava errado.                 │
+ * │                                                                            │
+ * │ Portão melhor não é a resposta certa aqui — TIPO é. Com `TelaDoFluxo`, um   │
+ * │ caminho fora da lista não compila, e nenhum portão precisa lembrar de       │
+ * │ existir. A lista de permissão continua valendo em tempo de execução, porque │
+ * │ o campo do formulário é entrada do usuário e o tipo não protege disso.       │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export type TelaDoFluxo = (typeof TELAS_DO_FLUXO)[number]
 
 /** O nome do campo, num lugar só — o formulário e a ação têm de concordar. */
 export const CAMPO_DE_VOLTA = 'voltarPara'

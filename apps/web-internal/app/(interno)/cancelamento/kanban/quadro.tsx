@@ -29,6 +29,18 @@
  * └───────────────────────────────────────────────────────────────────────────┘
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O CARTÃO DECLARA ONDE PODE CAIR, e é por isso que a regra não vive na tela.│
+ * │                                                                            │
+ * │ Cada `<article>` sai daqui com `data-alvos` — a lista de colunas que        │
+ * │ `alvosDoCartao()` aprovou para ELE, calculada no servidor, com o estado, a  │
+ * │ origem e a alçada de quem está olhando. O componente de cliente só lê esse  │
+ * │ atributo para acender a coluna certa.                                       │
+ * │                                                                            │
+ * │ A alternativa era o cliente reimplementar a regra. Aí a tela acenderia uma  │
+ * │ coluna que a ação recusa, e o defeito só apareceria para quem arrastasse.   │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
  * │ DESFECHO É COLUNA TRACEJADA, como o Spam e a Lixeira de lá.               │
  * │                                                                            │
  * │ Não é analogia frouxa: `TRANSICOES` declara os quatro desfechos com array   │
@@ -38,16 +50,16 @@
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 import {
+  alvosDoCartao,
   DIAS_PARA_ESTAGNAR,
-  ETAPAS_DE_TRABALHO,
   POSICOES,
   type PedidoNoQuadro,
+  type PoderesDeArraste,
   rotuloDoMotivo,
 } from '@pulse/success'
 import Link from 'next/link'
 
-import { acaoAvancarEtapa } from '../../saidas/acoes'
-import { CampoDeVolta } from '../../saidas/visoes'
+import { Arraste, Coluna } from './arrastar'
 
 const BRL = (c: string | null) =>
   c === null
@@ -64,39 +76,37 @@ const IDADE = (dias: number) => (dias >= 1 ? `${dias}d` : 'hoje')
 /** O ponto de status da cabeça da coluna. Etapa é atenção, desfecho é fim. */
 const PONTO: Record<string, string> = {
   pedido: 'bg-amber-700',
-  financeiro: 'bg-blue-600',
+  financeiro: 'bg-blue',
   reversao: 'bg-purple-500',
   revertido: 'bg-green',
-  desconto: 'bg-blue-600',
+  desconto: 'bg-blue',
   renegociado: 'bg-amber-700',
   cancelamento: 'bg-red',
-  pdd: 'bg-pink-600',
+  pdd: 'bg-pink',
 }
 
-function Cartao({ p, volta }: { p: PedidoNoQuadro; volta: string }) {
-  const etapa = POSICOES.find((x) => x.id === p.posicao)?.tipo === 'etapa'
-  /* Os destinos possíveis: as três etapas menos a atual. Só em coluna de etapa —
-     desfecho é terminal, e oferecer movimento dali seria oferecer o impossível. */
-  const destinos = etapa
-    ? ETAPAS_DE_TRABALHO.filter((e) => e !== (p.posicao === 'pedido' ? 'anunciado' : p.posicao))
-    : []
-  /* ┌─────────────────────────────────────────────────────────────────────────┐
-     │ A SETA MOSTRA A DIREÇÃO, e a primeira versão mostrava "→" nas duas.     │
-     │                                                                          │
-     │ O usuário viu na tela: num cartão em Informações financeiras, o botão de │
-     │ voltar para Pedido tinha "→ pedido" — a mesma seta de avançar. Ler "→    │
-     │ pedido" num cartão que JÁ passou do pedido diz o contrário do que a ação │
-     │ faz.                                                                    │
-     │                                                                          │
-     │ `ETAPAS_DE_TRABALHO` já declara a ordem (`anunciado`, `financeiro`,      │
-     │ `reversao`), então a direção se DERIVA dela — comparar o índice do        │
-     │ destino com o da posição atual. Uma lista de "quem volta para quem"       │
-     │ seria a segunda verdade que diverge no dia em que uma etapa entrar. */
-  const ordem = (e: string) => (ETAPAS_DE_TRABALHO as readonly string[]).indexOf(e)
-  const atual = ordem(p.posicao === 'pedido' ? 'anunciado' : p.posicao)
+function Cartao({ p, poderes }: { p: PedidoNoQuadro; poderes: PoderesDeArraste }) {
+  /* As colunas onde ESTE cartão pode cair, decididas pela mesma função que a
+     ação de soltar consulta. Vazio = cartão parado: desfecho já registrado, ou
+     alçada que não move nada. `draggable` segue a lista — não se oferece o
+     gesto que a regra vai recusar inteiro. */
+  const alvos = alvosDoCartao(p, poderes)
 
   return (
-    <article className="group min-w-0 rounded-md border border-line bg-surface p-2.5 shadow-e1">
+    <article
+      data-saida={p.id}
+      data-posicao={p.posicao}
+      data-alvos={alvos.join(' ')}
+      draggable={alvos.length > 0}
+      title={
+        alvos.length > 0
+          ? 'Arraste para outra coluna'
+          : 'Desfecho registrado: este cartão não se move mais'
+      }
+      className={`group min-w-0 rounded-md border border-line bg-surface p-2.5 shadow-e1 ${
+        alvos.length > 0 ? 'cursor-grab active:cursor-grabbing' : ''
+      }`}
+    >
       {/* Linha 1: origem, nome, e o selo de estagnação onde o Allvoice põe a
           contagem de não lidas. */}
       <div className="flex min-w-0 items-start gap-2">
@@ -169,94 +179,42 @@ function Cartao({ p, volta }: { p: PedidoNoQuadro; volta: string }) {
         )}
       </div>
 
-      {/* Os destinos. Botão e não arrastar: a tela funciona sem JavaScript, e é
-          a mesma razão de todo formulário daqui. */}
-      {destinos.length > 0 && (
-        <form className="mt-1.5 flex flex-wrap gap-1 pl-6">
-          <input type="hidden" name="id" value={p.id} />
-          <CampoDeVolta para={volta} />
-          {destinos.map((e) => (
-            /* ds-excecao: botão de SUBMIT com `formAction` próprio — `Btn` não o
-               carrega, e um formulário por destino duplicaria o campo `id`. */
-            <button
-              key={e}
-              type="submit"
-              formAction={acaoAvancarEtapa.bind(null, e)}
-              title={
-                ordem(e) < atual
-                  ? 'Voltar o pedido para esta etapa'
-                  : 'Avançar o pedido para esta etapa'
-              }
-              className="rounded border border-line px-1.5 py-0.5 text-nota text-ink-3 hover:border-purple-500 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500"
-            >
-              {ordem(e) < atual ? '←' : '→'}{' '}
-              {e === 'anunciado' ? 'pedido' : e === 'financeiro' ? 'financeiro' : 'reversão'}
-            </button>
-          ))}
-        </form>
-      )}
     </article>
   )
 }
 
 export function QuadroKanban({
   pedidos,
-  volta,
+  poderes,
 }: {
   pedidos: readonly PedidoNoQuadro[]
-  volta: string
+  poderes: PoderesDeArraste
 }) {
   const porPosicao = new Map(POSICOES.map((p) => [p.id, [] as PedidoNoQuadro[]]))
   for (const p of pedidos) porPosicao.get(p.posicao)?.push(p)
 
   return (
-    <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4 md:p-5">
+    <Arraste>
       {POSICOES.map((pos) => {
         const itens = porPosicao.get(pos.id) ?? []
-        const terminal = pos.tipo !== 'etapa'
         const soma = itens.reduce((s, p) => s + Number(p.mrrCentavos ?? 0), 0)
         return (
-          <section
+          <Coluna
             key={pos.id}
-            className={`flex h-full w-72 shrink-0 flex-col rounded-lg border ${
-              terminal ? 'border-dashed border-line bg-surface-2' : 'border-line bg-surface-2'
-            }`}
+            id={pos.id}
+            rotulo={pos.rotulo}
+            explica={pos.explica}
+            terminal={pos.tipo !== 'etapa'}
+            ponto={PONTO[pos.id] ?? 'bg-ink-4'}
+            contagem={itens.length}
+            soma={soma > 0 ? BRL(String(soma)) : null}
           >
-            <header className="flex shrink-0 items-start gap-2 px-3 py-2.5">
-              <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${PONTO[pos.id] ?? 'bg-ink-4'}`} />
-              {/* Duas LINHAS e não truncar. Os rótulos de lá são curtos ("Fila",
-                  "Aberta"); os nossos são os nomes aprovados do pedido do usuário
-                  — "Pedido de cancelamento ou desconto" tem 34 caracteres e
-                  truncava em "Pedido de cancelamento …", que não distingue nada.
-                  Inventar um segundo rótulo curto por coluna seria criar a lista
-                  duplicada que este repositório passa o tempo consertando. */}
-              <h3
-                className="min-w-0 flex-1 text-cartao font-semibold leading-snug text-ink-2 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
-                title={pos.explica}
-              >
-                {pos.rotulo}
-              </h3>
-              <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 font-mono text-nota text-ink-3">
-                {itens.length}
-              </span>
-            </header>
-
-            {soma > 0 && (
-              <p className="shrink-0 px-3 pb-1.5 text-nota tabular-nums text-ink-3">{BRL(String(soma))}</p>
-            )}
-
-            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
-              {itens.length === 0 ? (
-                <p className="px-1 py-3 text-center text-nota text-ink-4">
-                  {terminal ? 'nenhum desfecho aqui' : 'vazio'}
-                </p>
-              ) : (
-                itens.map((p) => <Cartao key={p.id} p={p} volta={volta} />)
-              )}
-            </div>
-          </section>
+            {itens.map((p) => (
+              <Cartao key={p.id} p={p} poderes={poderes} />
+            ))}
+          </Coluna>
         )
       })}
-    </div>
+    </Arraste>
   )
 }

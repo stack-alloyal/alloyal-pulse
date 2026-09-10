@@ -610,9 +610,37 @@ test('a escala nomeada do documento existe no preset', () => {
  * A regra confere cada `text-`/`bg-`/`border-`/`ring-` contra os degraus que o
  * preset declara de fato.
  */
-test('nenhuma classe de cor aponta para degrau que não existe', () => {
+/**
+ * Os degraus que o preset declara de fato, por família.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ESTE PORTÃO PASSOU MESES VARRENDO O NADA, e a causa é de uma linha.        │
+ * │                                                                            │
+ * │ A fatia era `slice(indexOf('---- Paleta Alloyal ----'), …)`, e essa string  │
+ * │ NUNCA existiu no preset — o cabeçalho de lá é `PALETA ALLOYAL` dentro de    │
+ * │ uma moldura. `indexOf` devolvia `-1`, `slice(-1, 7365)` devolvia string      │
+ * │ VAZIA, o mapa de degraus ficava vazio, e o laço caía no `if (!passos)        │
+ * │ continue` para TODA classe. Verde absoluto, zero verificação.               │
+ * │                                                                            │
+ * │ O que passou por baixo enquanto isso: `bg-purple-600`, `bg-blue-600` e      │
+ * │ `bg-pink-600` — três degraus que o preset não declara e que por isso caem   │
+ * │ no padrão do Tailwind, que é HEX FIXO. Exatamente o defeito que o comentário │
+ * │ do preset descreve ("funciona no claro por coincidência e fica ilegível no  │
+ * │ escuro"), e que este teste existia para impedir.                            │
+ * │                                                                            │
+ * │ Duas travas agora, e as duas são do mesmo tipo que o `há arquivos para      │
+ * │ varrer` no topo deste arquivo: a leitura tem de achar o cabeçalho, e tem de │
+ * │ devolver um número plausível de famílias. Portão que não consegue afirmar   │
+ * │ o que leu não tem direito de ficar verde.                                   │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+function degrausDoPreset() {
   const preset = readFileSync(join(RAIZ, 'packages', 'ui', 'tailwind-preset.ts'), 'utf8')
-  const paleta = preset.slice(preset.indexOf('---- Paleta Alloyal ----'), preset.indexOf('borderRadius:'))
+  const inicio = preset.indexOf('PALETA ALLOYAL')
+  const fim = preset.indexOf('borderRadius:')
+  assert.ok(inicio > -1, 'não achei o cabeçalho da paleta no preset')
+  assert.ok(fim > inicio, 'não achei o fim do bloco de cores no preset')
+  const paleta = preset.slice(inicio, fim)
 
   // Os degraus declarados por família, incluindo o DEFAULT (que é a família nua).
   const degraus = new Map()
@@ -625,20 +653,44 @@ test('nenhuma classe de cor aponta para degrau que não existe', () => {
     } else passos.add('DEFAULT')
     degraus.set(familia, passos)
   }
+  return degraus
+}
 
+/** Onde o texto usa um degrau que a família não tem. Devolve as ocorrências. */
+function degrausQuebrados(degraus, caminho, texto) {
+  const quebradas = []
+  for (const m of semComentarios(texto).matchAll(/\b(?:text|bg|border|ring|from|to|fill|stroke)-([a-z][a-z-]*?)-(\d{2,3})\b/g)) {
+    const [, familia, passo] = m
+    const passos = degraus.get(familia)
+    // Família que não é nossa (slate, gray, …) já é recusada pela regra da
+    // paleta padrão do Tailwind; aqui só interessa a NOSSA que não tem o degrau.
+    if (!passos || passos.has(passo)) continue
+    const linha = texto.slice(0, m.index).split('\n').length
+    quebradas.push(`${caminho}:${linha} — ${m[0]} (${familia} tem ${[...passos].sort().join(', ')})`)
+  }
+  return quebradas
+}
+
+test('a leitura da paleta do preset não sai vazia', () => {
+  const degraus = degrausDoPreset()
+  assert.ok(degraus.size >= 8, `li só ${degraus.size} famílias de cor no preset`)
+  // Três âncoras concretas: se a leitura quebrar de novo, ela quebra AQUI.
+  assert.ok(degraus.get('purple')?.has('500'), 'purple-500 tem de estar entre os degraus lidos')
+  assert.ok(degraus.get('purple')?.has('600') === false, 'purple-600 NÃO existe no preset')
+  assert.ok(degraus.get('surface')?.has('2'), 'surface-2 tem de estar entre os degraus lidos')
+})
+
+test('a regra de degrau ainda pega degrau inexistente', () => {
+  // Mutação: o teste de cima só vale se este achar o que ele procura.
+  const achados = degrausQuebrados(degrausDoPreset(), 'x.tsx', '<div className="bg-purple-600" />')
+  assert.equal(achados.length, 1, `devia achar bg-purple-600, achei ${achados.length}`)
+})
+
+test('nenhuma classe de cor aponta para degrau que não existe', () => {
+  const degraus = degrausDoPreset()
   const quebradas = []
   for (const { caminho, texto } of ARQUIVOS) {
-    for (const m of semComentarios(texto).matchAll(/\b(?:text|bg|border|ring|from|to|fill|stroke)-([a-z][a-z-]*?)-(\d{2,3})\b/g)) {
-      const [, familia, passo] = m
-      const passos = degraus.get(familia)
-      // Família que não é nossa (slate, gray, …) já é recusada pela regra da
-      // paleta padrão do Tailwind; aqui só interessa a NOSSA que não tem o degrau.
-      if (!passos || passos.has(passo)) continue
-      const linha = texto.slice(0, m.index).split('\n').length
-      quebradas.push(
-        `${caminho}:${linha} — ${m[0]} (${familia} tem ${[...passos].sort().join(', ')})`,
-      )
-    }
+    quebradas.push(...degrausQuebrados(degraus, caminho, texto))
   }
   assert.deepEqual(quebradas, [], `\n${quebradas.join('\n')}\n`)
 })
