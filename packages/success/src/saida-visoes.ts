@@ -388,6 +388,222 @@ export async function saidasSemRegistro(
   }))
 }
 
+// ═══ O FUNIL: o kanban que se preenche sozinho ═══════════════════════════════
+
+/**
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ POR QUE AS COLUNAS SÃO DE FATURAMENTO, E NÃO DO PIPELINE.                 │
+ * │                                                                            │
+ * │ O usuário pediu o fluxo em kanban e disse: "não quero que renderize vazio  │
+ * │ e sim mostre as evoluções". O quadro do pipeline não pode atender isso, e   │
+ * │ a razão é de definição, não de implementação: LEVANTAR A MÃO é alguém       │
+ * │ avisando que vai sair, e acontece ANTES de o dinheiro parar. O Omie só vê   │
+ * │ dinheiro. Nenhuma coluna de "levantou a mão" se preenche sozinha porque o   │
+ * │ sinal não existe nos dados.                                                │
+ * │                                                                            │
+ * │ E não é só o pipeline que está vazio. Medido em 10/09/2026:                 │
+ * │   metrics.signal · metrics.daily_snapshot · metrics.rfm_score → ZERO linha  │
+ * │ A faixa de risco da Carteira sai de `metrics.signal`, então ela também está │
+ * │ vazia — os cinco ciclos de sinais nunca foram implementados.                │
+ * │                                                                            │
+ * │ Sobra uma classificação que se preenche hoje: a derivada do FATURAMENTO e   │
+ * │ da INADIMPLÊNCIA, que são as duas cargas que de fato rodam todo dia.        │
+ * │ Medido: 398 contas, R$ 1.432.203,00, nenhuma coluna vazia.                  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ DUAS CAMADAS, e a de baixo nunca inventa decisão humana.                   │
+ * │                                                                            │
+ * │ A coluna afirma o que o DINHEIRO fez — atrasou, caiu, parou. O selo do      │
+ * │ cartão afirma o que alguém REGISTROU, e só aparece quando existe registro.  │
+ * │ Assim o quadro nasce cheio sem afirmar um aviso que ninguém deu: no dia um  │
+ * │ é risco medido e nenhum selo; conforme o time usa o formulário, os selos    │
+ * │ aparecem e o quadro passa a ser as duas coisas.                            │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ COLUNAS EXCLUSIVAS, e a ordem é a severidade.                              │
+ * │                                                                            │
+ * │ Cada conta cai em UMA coluna. A primeira versão desta medição tinha         │
+ * │ colunas sobrepostas — "em atraso" e "contraiu" eram subconjuntos de         │
+ * │ "faturando" — e as somas não fechavam com a base. Kanban cuja soma não       │
+ * │ fecha é kanban em que ninguém confia na contagem.                          │
+ * │                                                                            │
+ * │ `atraso_e_contracao` vem antes de `atraso` e de `contracao` por isso: é a    │
+ * │ conta que atrasa E encolhe ao mesmo tempo, e é a menor coluna (6 contas,     │
+ * │ R$ 41.173,33) e a mais informativa do quadro.                              │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export const COLUNAS_DO_FUNIL = [
+  {
+    id: 'parou',
+    rotulo: 'Parou de faturar',
+    proposito: 'o dinheiro não entrou, e ainda está dentro da janela de apuração',
+    tom: 'red',
+  },
+  {
+    id: 'atraso_e_contracao',
+    rotulo: 'Atraso e contração',
+    proposito: 'atrasa E encolhe ao mesmo tempo — a menor coluna, e a mais grave',
+    tom: 'red',
+  },
+  {
+    id: 'atraso',
+    rotulo: 'Em atraso',
+    proposito: 'título vencido além da carência de dois dias úteis',
+    tom: 'amber',
+  },
+  {
+    id: 'contracao',
+    rotulo: 'Contraindo',
+    proposito: 'continua pagando, e pagando menos do que pagava',
+    tom: 'amber',
+  },
+  {
+    id: 'saudavel',
+    rotulo: 'Sem sinal',
+    proposito: 'faturou, em dia, sem queda — nada a fazer aqui hoje',
+    tom: 'green',
+  },
+] as const
+
+export type ColunaDoFunil = (typeof COLUNAS_DO_FUNIL)[number]['id']
+
+/**
+ * Quantos meses de faturamento definem a base ATIVA do funil.
+ *
+ * Quatro e não doze: o funil é trabalho corrente, e conta que não fatura há um
+ * ano não é risco — já é saída, e vive na aba Reconciliação. Doze meses trariam
+ * as 794 saídas confirmadas para dentro do quadro e o entupiriam.
+ */
+export const MESES_DA_BASE_ATIVA = 4
+
+export interface ContaNoFunil {
+  readonly accountId: string
+  readonly razaoSocial: string
+  readonly coluna: ColunaDoFunil
+  readonly mrrCentavos: string
+  /** Quanto está vencido além da carência. Zero fora das colunas de atraso. */
+  readonly abertoCentavos: string
+  /** Dias do vencimento mais antigo em aberto. `null` sem atraso. */
+  readonly diasEmAtraso: number | null
+  /** Quanto o MRR caiu nos últimos meses. Zero sem contração. */
+  readonly quedaCentavos: string
+  /**
+   * A CAMADA DE CIMA: o estado do pedido, se alguém registrou um.
+   *
+   * `null` é o caso comum hoje — 398 de 398. E é `null` honesto: significa
+   * "ninguém disse nada", não "está tudo bem".
+   */
+  readonly estadoNoPipeline: string | null
+}
+
+/**
+ * O funil de saída, uma linha por conta ativa.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ A ORDEM É O SINAL DA PRÓPRIA COLUNA, e não o MRR. MEDIDO NA TELA.         │
+ * │                                                                            │
+ * │ A primeira versão ordenava tudo por MRR — o critério da Carteira, e certo   │
+ * │ lá. Aqui produziu isto, visto na renderização: a coluna "Em atraso" trazia  │
+ * │ entre os oito primeiros a "Vou De Meia · R$ 0,02 vencidos · 293 dias", ao   │
+ * │ lado da "OXXO · R$ 31.200,00 vencidos · 15 dias". Duas coisas de ordens de  │
+ * │ grandeza diferentes com o mesmo peso é o que ensina a desconfiar da coluna. │
+ * │                                                                            │
+ * │ A saída NÃO é piso de materialidade: seria outro número arbitrário para     │
+ * │ manter, e medido é 1 conta em 55 abaixo de R$ 100. Ordenar pelo sinal       │
+ * │ resolve sem escolher número nenhum — nas colunas de atraso pesa o VENCIDO,  │
+ * │ na de contração pesa a QUEDA, no resto pesa o MRR. O resíduo de dois        │
+ * │ centavos afunda para o fim da coluna, onde ele pertence, e continua lá para │
+ * │ quem procurar.                                                             │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * Respeita o escopo de carteira como as outras visões.
+ */
+export async function funilDeSaida(db: pg.Pool, id: Identidade): Promise<ContaNoFunil[]> {
+  const { rows } = await db.query(
+    `WITH base AS (
+       -- A última competência faturada de cada conta ativa, e o MRR dela.
+       SELECT DISTINCT ON (account_id) account_id, mrr_centavos, competencia
+         FROM analytics.mrr_faturado_mes
+        WHERE competencia >= date_trunc('month', current_date)
+                             - make_interval(months => ${MESES_DA_BASE_ATIVA})
+          AND mrr_centavos > 0
+        ORDER BY account_id, competencia DESC
+     ), atraso AS (
+       -- O MESMO recorte da inadimplência: carência de dois dias úteis, agora
+       -- com feriado (0058). Duplicar a regra aqui a faria divergir da tela de
+       -- inadimplência, e duas verdades sobre "estar em atraso" é pior que uma.
+       SELECT v.account_id,
+              sum(t.aberto_centavos) AS aberto,
+              max(current_date - t.vencimento) AS dias
+         FROM core.omie_titulo t
+         JOIN core.vinculo_cliente v ON v.chave = t.documento AND v.fonte = 'omie'
+        WHERE t.situacao NOT IN ('previsao', 'cancelado')
+          AND t.vencimento <= core.dia_util_antes(current_date, 2)
+          AND (t.pagamento IS NULL OR t.aberto_centavos > 0)
+        GROUP BY v.account_id
+     ), contracao AS (
+       SELECT account_id, abs(sum(valor_centavos)) AS queda
+         FROM fact.mrr_event
+        WHERE tipo = 'contracao'
+          AND competencia >= date_trunc('month', current_date) - interval '3 months'
+        GROUP BY account_id
+     ), parou AS (
+       -- Dentro da janela de maturidade: parou, e ainda pode voltar. Passada a
+       -- janela deixa de ser funil e vira saída confirmada, na Reconciliação.
+       SELECT DISTINCT account_id FROM fact.mrr_event
+        WHERE tipo = 'churn_pedido'
+          AND competencia > date_trunc('month', current_date)
+                            - make_interval(months => ${MESES_DE_MATURIDADE})
+     )
+     SELECT b.account_id::text AS account_id,
+            a2.razao_social,
+            b.mrr_centavos::text AS mrr,
+            COALESCE(at.aberto, 0)::text AS aberto,
+            at.dias::int AS dias,
+            COALESCE(ct.queda, 0)::text AS queda,
+            -- A severidade decide, e a ordem dos WHEN é a ordem das colunas.
+            CASE
+              WHEN p.account_id IS NOT NULL              THEN 'parou'
+              WHEN at.account_id IS NOT NULL
+               AND ct.account_id IS NOT NULL             THEN 'atraso_e_contracao'
+              WHEN at.account_id IS NOT NULL             THEN 'atraso'
+              WHEN ct.account_id IS NOT NULL             THEN 'contracao'
+              ELSE 'saudavel'
+            END AS coluna,
+            -- A camada de cima: só os estados ABERTOS. Pedido já encerrado não é
+            -- selo de trabalho, é história — e a conta dele já saiu da base ativa.
+            (SELECT c.estado FROM success.cancellation c
+              WHERE c.account_id = b.account_id
+                AND c.estado IN ('anunciado','financeiro','reversao','em_aviso')
+              ORDER BY c.criado_em DESC LIMIT 1) AS estado_pipeline
+       FROM base b
+       JOIN core.account a2 ON a2.id = b.account_id
+       LEFT JOIN atraso at ON at.account_id = b.account_id
+       LEFT JOIN contracao ct ON ct.account_id = b.account_id
+       LEFT JOIN parou p ON p.account_id = b.account_id
+      WHERE ($1::boolean OR a2.csm_email = $2)
+      ORDER BY CASE
+                 WHEN at.account_id IS NOT NULL THEN at.aberto
+                 WHEN ct.account_id IS NOT NULL THEN ct.queda
+                 ELSE b.mrr_centavos
+               END DESC,
+               b.mrr_centavos DESC`,
+    [daBase(id), id.email],
+  )
+  return rows.map((r) => ({
+    accountId: String(r['account_id']),
+    razaoSocial: String(r['razao_social'] ?? ''),
+    coluna: String(r['coluna']) as ColunaDoFunil,
+    mrrCentavos: String(r['mrr']),
+    abertoCentavos: String(r['aberto']),
+    diasEmAtraso: r['dias'] === null ? null : Number(r['dias']),
+    quedaCentavos: String(r['queda']),
+    estadoNoPipeline: r['estado_pipeline'] === null ? null : String(r['estado_pipeline']),
+  }))
+}
+
 // ═══ A COORTE ════════════════════════════════════════════════════════════════
 
 export interface MesDaCoorte {

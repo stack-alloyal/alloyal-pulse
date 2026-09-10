@@ -3,6 +3,7 @@ import {
   MOTIVOS_SAIDA,
   churnObservado,
   contasParaSaida,
+  funilDeSaida,
   coorteDeSaida,
   faltaParaEncerrar,
   listarSaidas,
@@ -25,7 +26,7 @@ import {
   acaoRenegociar,
   acaoReter,
 } from './acoes'
-import { Coorte, Meta, Quadro, Reconciliacao, Registrar } from './visoes'
+import { Coorte, Funil, Meta, Quadro, Reconciliacao, Registrar } from './visoes'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir, temEscopo } from '../../../lib/guarda'
@@ -340,7 +341,7 @@ function Linha({ s, podeAprovar }: { s: Saida; podeAprovar: boolean }) {
   )
 }
 
-const ABAS = ['quadro', 'lista', 'coorte', 'meta', 'reconciliacao'] as const
+const ABAS = ['quadro', 'funil', 'lista', 'coorte', 'meta', 'reconciliacao'] as const
 type Aba = (typeof ABAS)[number]
 
 export default async function Saidas({
@@ -361,7 +362,7 @@ export default async function Saidas({
      campos para receber "registrar saída exige acesso à fila de trabalho". */
   const podeRegistrar = id.permissoes.fila !== 'nenhum' || id.permissoes.configurar
 
-  const [saidas, resumo, pedidos, coorte, metas, contas, observado, semRegistro] =
+  const [saidas, resumo, pedidos, coorte, metas, contas, observado, semRegistro, funil] =
     await Promise.all([
     listarSaidas(pool(), id),
     // O resumo lê a base inteira: é número de receita, e receita não tem
@@ -388,6 +389,9 @@ export default async function Saidas({
     veReceita && aba === 'reconciliacao'
       ? saidasSemRegistro(pool(), id)
       : Promise.resolve([]),
+    /* O funil varre faturamento, inadimplência e contração das 398 contas ativas:
+       260ms medido, e não vale pagar isso em aba que não o mostra. */
+    aba === 'funil' ? funilDeSaida(pool(), id) : Promise.resolve([]),
   ])
 
   /* As três etapas de trabalho e o aviso correndo contam como ABERTAS: são os
@@ -483,6 +487,10 @@ export default async function Saidas({
         <Abas
           abas={[
             { chave: 'quadro', rotulo: 'Quadro', conta: pedidos.length },
+            /* Logo depois do Quadro, e FORA do `veReceita`: as colunas do funil
+               são risco de CONTA, e quem cuida de conta precisa vê-las. Coorte,
+               meta e reconciliação são número de receita e ficam atrás do gate. */
+            { chave: 'funil', rotulo: 'Funil' },
             { chave: 'lista', rotulo: 'Em andamento', conta: abertas.length },
             ...(veReceita
               ? [
@@ -517,6 +525,7 @@ export default async function Saidas({
           </>
         )}
 
+        {aba === 'funil' && <Funil contas={funil} />}
         {aba === 'coorte' && veReceita && <Coorte meses={coorte} />}
         {aba === 'reconciliacao' && veReceita && (
           <Reconciliacao meses={observado} contas={semRegistro} maturidade={MESES_DE_MATURIDADE} />

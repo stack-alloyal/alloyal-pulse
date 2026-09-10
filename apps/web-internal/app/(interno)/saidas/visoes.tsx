@@ -6,6 +6,8 @@ import {
   type LinhaDaMeta,
   type MesDaCoorte,
   type PedidoNoQuadro,
+  COLUNAS_DO_FUNIL,
+  type ContaNoFunil,
   type MesObservado,
   type SaidaSemRegistro,
 } from '@pulse/success'
@@ -360,6 +362,162 @@ function Coluna({
  * │ ensina a confiar no número errado.                                         │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
+/**
+ * ─── O funil: o kanban que se preenche sozinho ───────────────────────────────
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ DUAS CAMADAS, e a de baixo nunca inventa decisão humana.                   │
+ * │                                                                            │
+ * │ A COLUNA afirma o que o dinheiro fez — atrasou, encolheu, parou. O SELO    │
+ * │ afirma o que alguém registrou, e só existe quando existe registro. É o que  │
+ * │ deixa o quadro nascer cheio sem afirmar um aviso que ninguém deu.           │
+ * │                                                                            │
+ * │ Medido em 10/09/2026: 398 contas, R$ 1.432.203,00, zero selos. O `null` do  │
+ * │ selo é honesto — significa "ninguém disse nada", não "está tudo bem".       │
+ * │                                                                            │
+ * │ Ver `funilDeSaida` para por que as colunas não podem ser as do pipeline.    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const SELO: Record<string, string> = {
+  anunciado: 'pedido registrado',
+  financeiro: 'em informações financeiras',
+  reversao: 'em tentativa de reversão',
+  em_aviso: 'aviso prévio correndo',
+}
+
+/** Quantos cartões por coluna antes de resumir. O mesmo do quadro do pipeline. */
+const CARTOES_POR_COLUNA = 8
+
+function CartaoDoFunil({ c }: { c: ContaNoFunil }) {
+  return (
+    /* `min-w-0` AQUI TAMBÉM, e não só na coluna: o `<ul>` é grid, então o `<li>`
+       é item de grid e herda `min-width: auto` — ele cresce até caber o
+       `min-content` do nome, que com `white-space: nowrap` do `truncate` é o
+       texto INTEIRO. Pôr `min-w-0` só na coluna não bastou: medido na
+       renderização, 32 nomes seguiam vazando a borda do cartão. */
+    <li className="min-w-0 rounded-md border border-line bg-surface p-2">
+      <Link
+        href={`/contas/${c.accountId}`}
+        prefetch={false}
+        className="block truncate font-medium text-cartao text-purple-700 hover:underline"
+      >
+        {c.razaoSocial}
+      </Link>
+      <span className="mt-0.5 block text-nota tabular-nums text-ink-2">{BRL(c.mrrCentavos)}/mês</span>
+
+      {/* O SINAL da coluna, em número. "Em atraso" sem dizer quanto e há quantos
+          dias manda a pessoa abrir a conta para descobrir se é R$ 0,02 ou
+          R$ 31 mil — e medido, uma das 55 é de dois centavos. */}
+      {c.diasEmAtraso !== null && (
+        <span className="mt-0.5 block text-nota tabular-nums text-amber-800">
+          {BRL(c.abertoCentavos)} vencidos · {N(c.diasEmAtraso)} dias
+        </span>
+      )}
+      {Number(c.quedaCentavos) > 0 && (
+        <span className="mt-0.5 block text-nota tabular-nums text-ink-3">
+          caiu {BRL(c.quedaCentavos)}
+        </span>
+      )}
+
+      {/* A camada de cima. Ausente é o caso comum, e não se desenha nada: um
+          selo "sem registro" em 398 cartões seria ruído em todo o quadro. */}
+      {c.estadoNoPipeline !== null && (
+        <span className="mt-1 block">
+          <Badge tone="indigo">{SELO[c.estadoNoPipeline] ?? c.estadoNoPipeline}</Badge>
+        </span>
+      )}
+    </li>
+  )
+}
+
+export function Funil({ contas }: { contas: readonly ContaNoFunil[] }) {
+  const porColuna = new Map(COLUNAS_DO_FUNIL.map((c) => [c.id, [] as ContaNoFunil[]]))
+  for (const c of contas) porColuna.get(c.coluna)?.push(c)
+  const comSelo = contas.filter((c) => c.estadoNoPipeline !== null).length
+  const total = contas.reduce((s, c) => s + Number(c.mrrCentavos), 0)
+  /* As colunas que pedem ação hoje — todas menos "sem sinal". É o número que
+     responde "quanto do meu faturamento está dando sinal de saída". */
+  const emRisco = contas.filter((c) => c.coluna !== 'saudavel')
+
+  return (
+    <div className="grid gap-5">
+      <Card title="Funil de saída">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {COLUNAS_DO_FUNIL.map((col) => {
+            const itens = porColuna.get(col.id) ?? []
+            const soma = itens.reduce((s, c) => s + Number(c.mrrCentavos), 0)
+            return (
+              <div
+                key={col.id}
+                className={cn(
+                  /* `min-w-0` porque a trilha `1fr` do grid é `minmax(auto, 1fr)`:
+                     sem ele o conteúdo alarga a coluna e o `truncate` do nome não
+                     tem largura definida para cortar. Visto na renderização —
+                     "HINOVA MOBILE SERVICOS LT" vazava a borda sem elipse. */
+                  'min-w-0 rounded-md border-l-2 bg-surface-2 p-3',
+                  col.tom === 'red'
+                    ? 'border-l-red'
+                    : col.tom === 'amber'
+                      ? 'border-l-amber-700'
+                      : 'border-l-green',
+                )}
+              >
+                <h4 className="text-cartao font-semibold leading-snug text-ink">{col.rotulo}</h4>
+                <p className="mt-0.5 text-nota leading-snug text-ink-3">{col.proposito}</p>
+                <p className="mt-1.5 text-nota tabular-nums text-ink-2">
+                  {N(itens.length)} {itens.length === 1 ? 'conta' : 'contas'}
+                  {soma > 0 && <> · {BRL(String(soma))}</>}
+                </p>
+                <ul className="mt-2 grid gap-2">
+                  {itens.slice(0, CARTOES_POR_COLUNA).map((c) => (
+                    <CartaoDoFunil key={c.accountId} c={c} />
+                  ))}
+                  {itens.length > CARTOES_POR_COLUNA && (
+                    <li className="text-nota text-ink-3">
+                      e mais {N(itens.length - CARTOES_POR_COLUNA)}
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )
+          })}
+        </div>
+
+        <p className="mt-4 max-w-[80ch] text-meta leading-relaxed text-ink-3">
+          As colunas vêm do <strong className="font-semibold text-ink">faturamento</strong>: elas
+          dizem o que o dinheiro fez — atrasou, encolheu, parou. O{' '}
+          <strong className="font-semibold text-ink">selo</strong> do cartão diz o que alguém
+          registrou no fluxo, e só aparece quando há registro.{' '}
+          {comSelo === 0 ? (
+            <>
+              Hoje <strong className="font-semibold text-ink">nenhuma das {N(contas.length)}</strong>{' '}
+              tem registro — e cartão sem selo significa &ldquo;ninguém disse nada&rdquo;, não
+              &ldquo;está tudo bem&rdquo;.
+            </>
+          ) : (
+            <>
+              {N(comSelo)} de {N(contas.length)} têm registro no fluxo.
+            </>
+          )}{' '}
+          Coluna nenhuma afirma levantada de mão: levantar a mão é alguém{' '}
+          <strong className="font-semibold text-ink">avisando</strong>, e acontece antes de o
+          dinheiro parar — o faturamento não vê isso, e inventá-lo aqui seria pior que deixar
+          vazio.
+        </p>
+        <p className="mt-2 max-w-[80ch] text-meta leading-relaxed text-ink-3">
+          {N(emRisco.length)} de {N(contas.length)} contas dando algum sinal, somando{' '}
+          <strong className="font-semibold text-ink">
+            {BRL(String(emRisco.reduce((s, c) => s + Number(c.mrrCentavos), 0)))}
+          </strong>{' '}
+          de {BRL(String(total))} da base ativa. Quem já passou da janela de apuração não está
+          aqui: virou saída confirmada, e vive na aba{' '}
+          <strong className="font-semibold text-ink">Reconciliação</strong>.
+        </p>
+      </Card>
+    </div>
+  )
+}
+
 /**
  * ─── Reconciliação: o que o faturamento mostra e o fluxo não registrou ───────
  *
