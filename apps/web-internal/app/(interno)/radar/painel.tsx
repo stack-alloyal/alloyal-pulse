@@ -27,7 +27,8 @@ const EMOJI_DO_TIPO: Record<string, string> = { bug: '🐛', melhoria: '⚡', fe
 
 const ROTULO_DO_STATUS: Record<string, string> = {
   aberto: 'Em aberto',
-  em_andamento: 'Em andamento',
+  em_analise: 'Em análise',
+  em_andamento: 'Em desenvolvimento',
   aguardando_retorno: 'Aguardando retorno',
   realizado: 'Realizado',
   recusado: 'Recusado',
@@ -35,6 +36,10 @@ const ROTULO_DO_STATUS: Record<string, string> = {
 
 const TOM_DO_STATUS: Record<string, Tom> = {
   aberto: 'amber',
+  // Mesmo tom de 'em desenvolvimento': os tons do Badge são fechados e nenhum dos
+  // livres serve — 'slate' é a cor de recusado, e pintar análise de cinza mente.
+  // O rótulo é que separa os dois.
+  em_analise: 'blue',
   em_andamento: 'blue',
   // Roxo, o mesmo do Radar: a bola está com quem abriu, e isso tem que saltar no
   // meio de uma lista de âmbares e azuis.
@@ -377,7 +382,8 @@ export function PainelDoRadar() {
             >
               <option value="todos">Status: todos</option>
               <option value="aberto">Em aberto</option>
-              <option value="em_andamento">Em andamento</option>
+              <option value="em_analise">Em análise</option>
+              <option value="em_andamento">Em desenvolvimento</option>
               <option value="aguardando_retorno">Aguardando retorno</option>
               <option value="realizado">Realizado</option>
               <option value="recusado">Recusado</option>

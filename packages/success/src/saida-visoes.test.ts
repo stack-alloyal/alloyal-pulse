@@ -28,12 +28,15 @@ import {
   reter,
 } from './cancelamento.js'
 import {
+  MESES_DE_MATURIDADE,
+  churnObservado,
   contasParaSaida,
   coorteDeSaida,
   definirMeta,
   metaVersusRealizado,
   POSICOES,
   quadroDeSaida,
+  saidasSemRegistro,
 } from './saida-visoes.js'
 
 const ADMIN = process.env['DATABASE_URL_ADMIN']
@@ -445,4 +448,129 @@ describe('visões de saída', { skip: !ADMIN }, () => {
       [proximoTitulo++, documento, competencia, centavos],
     )
   }
+
+  /**
+   * ─── O churn observado no faturamento, e a reconciliação ───────────────────
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ POR QUE ESTAS VISÕES EXISTEM E O QUE ELAS NÃO SÃO.                      │
+   * │                                                                          │
+   * │ Em 28/08 as cinco visões deixaram de ler `fact.mrr_event` a pedido do    │
+   * │ usuário, com razão: o ledger não sabe POR QUE a receita parou. Em 10/09 o │
+   * │ usuário voltou ao ponto — a tela seguia zerada e um KPI prometia          │
+   * │ "saíram do FATURAMENTO" lendo a tabela manual.                           │
+   * │                                                                          │
+   * │ Estas duas leem o faturamento DE NOVO, e de propósito, mas em aba própria │
+   * │ e com nome próprio. O que estes testes guardam é justamente o que impede  │
+   * │ o número de mentir: a maturidade e a volta a faturar.                    │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  const churn = (accountId: string, competencia: string, centavos: number) =>
+    pool.query(
+      `INSERT INTO fact.mrr_event
+         (account_id, competencia, valor_centavos, tipo, origem, chave_natural)
+       VALUES ($1, $2::date, $3, 'churn_pedido', 'ops', $4)`,
+      [accountId, competencia, -centavos, `t:${accountId}:${competencia}`],
+    )
+
+  test('conta que VOLTOU a faturar não é saída — a ressalva medida em 19,1%', async () => {
+    /* Dos 1.035 eventos de churn do ledger de produção, 198 voltaram a faturar
+       depois: eram ritmo de cobrança, não saída. Cliente que passa a pagar
+       trimestralmente cai no ledger como churn todo mês em que não fatura.
+       Ler o ledger cru inflaria o churn em um quinto — e é ESTE filtro que
+       impede isso. */
+    const antigo = mes(-6)
+    await churn(acme, antigo, 100_00)
+    await churn(beta, antigo, 200_00)
+    // A Acme voltou a faturar depois; a Beta não.
+    await faturar(acme, mes(-4), 100_00)
+
+    const serie = await churnObservado(pool, 12)
+    const linha = serie.find((m) => m.mes === antigo)
+    assert.equal(linha?.contas, 1, 'a conta que voltou a faturar entrou como saída')
+    assert.equal(linha?.receitaPerdidaCentavos, '20000', 'somou a receita de quem voltou')
+  })
+
+  test('os meses dentro da maturidade vêm MADURO=false, e não zero', async () => {
+    /* Zero é uma afirmação: diria que ninguém saiu. A verdade é que ainda não se
+       sabe — medido, ~11% das contas voltam a faturar em até três meses. A tela
+       mostra "em apuração" por causa desta bandeira, e trocá-la por zero é o
+       jeito mais fácil de a tela voltar a mentir. */
+    await churn(acme, mes(0), 100_00)
+    const serie = await churnObservado(pool, 12)
+
+    const corrente = serie.find((m) => m.mes === mes(0))
+    assert.equal(corrente?.maduro, false, 'o mês corrente se declarou maduro')
+    assert.equal(corrente?.contas, 0, 'mês imaturo não pode contar conta nenhuma')
+
+    const velho = serie.find((m) => m.mes === mes(-MESES_DE_MATURIDADE))
+    assert.equal(velho?.maduro, true, `${MESES_DE_MATURIDADE} meses atrás deveria ser maduro`)
+
+    // E a fronteira: um mês antes da carência ainda é imaturo.
+    const naBorda = serie.find((m) => m.mes === mes(-MESES_DE_MATURIDADE + 1))
+    assert.equal(naBorda?.maduro, false, 'a fronteira da maturidade está deslocada')
+  })
+
+  test('a reconciliação lista quem parou de faturar SEM registro, e some quando registra', async () => {
+    /* O par que prova a utilidade da lista: a conta entra porque ninguém disse
+       por quê, e sai no instante em que alguém diz. É o que faz a lista encolher
+       conforme o time trabalha, em vez de virar mais um painel que ninguém mexe. */
+    const antigo = mes(-6)
+    await churn(acme, antigo, 500_00)
+    await churn(beta, antigo, 300_00)
+
+    const antes = await saidasSemRegistro(pool, LIDER)
+    assert.deepEqual(
+      antes.map((c) => c.razaoSocial).sort(),
+      ['Acme', 'Beta'],
+      'as duas contas sem registro deveriam estar na lista',
+    )
+    assert.equal(antes[0]?.total, 2, 'o total não bate com o que a lista devolveu')
+
+    // Alguém registra a saída da Acme.
+    await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      pedido: 'cancelar',
+      dataLevantada: new Date().toISOString().slice(0, 10),
+    })
+
+    const depois = await saidasSemRegistro(pool, LIDER)
+    assert.deepEqual(depois.map((c) => c.razaoSocial), ['Beta'], 'a Acme não saiu da lista')
+
+    // E a série passa a contá-la como registrada.
+    const serie = await churnObservado(pool, 12)
+    const linha = serie.find((m) => m.mes === antigo)
+    assert.equal(linha?.contas, 2)
+    assert.equal(linha?.comRegistro, 1, 'a série não viu o registro novo')
+  })
+
+  test('o TOTAL da lista é o de antes do limite, não o tamanho da página', async () => {
+    /* A primeira versão da tela mostrava "Sem registro no fluxo (200)" — a
+       contagem do que caiu na página, com cara de total. São 794 em produção.
+       Título que conta o próprio truncamento é o mesmo defeito do rótulo
+       "saíram do faturamento": afirma menos do que existe, sem avisar. */
+    const antigo = mes(-6)
+    await churn(acme, antigo, 100_00)
+    await churn(beta, antigo, 100_00)
+    await churn(semReceita, antigo, 100_00)
+
+    const pagina = await saidasSemRegistro(pool, LIDER, 2)
+    assert.equal(pagina.length, 2, 'o limite não foi respeitado')
+    assert.equal(pagina[0]?.total, 3, 'o total repetiu o tamanho da página em vez do total')
+  })
+
+  test('a reconciliação respeita o escopo de carteira', async () => {
+    // Mesmo recorte das outras visões: `base` vê tudo, `carteira` vê o seu.
+    const antigo = mes(-6)
+    await churn(acme, antigo, 100_00) // csm_email = ana@
+    await churn(beta, antigo, 100_00) // sem csm
+
+    assert.equal((await saidasSemRegistro(pool, LIDER)).length, 2, 'o líder deveria ver as duas')
+    assert.deepEqual(
+      (await saidasSemRegistro(pool, CSM)).map((c) => c.razaoSocial),
+      ['Acme'],
+      'a CSM deveria ver só a conta da carteira dela',
+    )
+  })
 })
