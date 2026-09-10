@@ -98,6 +98,11 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Cancelamento",
     icone: FileMinus,
     proposito: "Abrir e trabalhar um pedido, do card ao desfecho",
+    filhos: [
+      { href: "/cancelamento", rotulo: "Visão geral", proposito: "Quanto sai por mês, e quanto disso tem motivo" },
+      { href: "/cancelamento/kanban", rotulo: "Kanban", proposito: "O quadro, e onde se abre um card" },
+      { href: "/cancelamento/dados", rotulo: "Dados", proposito: "Conta por conta, com o que se sabe de cada uma" },
+    ],
   },
   {
     href: "/saidas",
