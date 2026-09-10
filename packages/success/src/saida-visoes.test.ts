@@ -28,8 +28,11 @@ import {
   reter,
 } from './cancelamento.js'
 import {
+  COLUNAS_DO_FUNIL,
+  MESES_DA_BASE_ATIVA,
   MESES_DE_MATURIDADE,
   churnObservado,
+  funilDeSaida,
   contasParaSaida,
   coorteDeSaida,
   definirMeta,
@@ -440,11 +443,20 @@ describe('visões de saída', { skip: !ADMIN }, () => {
         [accountId, documento],
       )
     }
+    /* `pagamento` PREENCHIDO, e isto foi um defeito do fixture achado em
+       10/09/2026: ele criava título `RECEBIDO` com `aberto_centavos = 0` e SEM
+       data de pagamento — forma que produção não tem. Medido: dos 21.808
+       títulos `recebido` do Omie, ZERO estão sem `pagamento`.
+
+       Custou o diagnóstico errado: o funil classificou como "em atraso" toda
+       conta que só havia faturado, e por um instante pareceu defeito da consulta
+       (ela aceita `pagamento IS NULL` como não pago, e está certa em fazê-lo).
+       Era o dado do teste que era irreal. */
     await pool.query(
       `INSERT INTO core.omie_titulo
          (codigo_titulo, documento, vencimento, valor_centavos, aberto_centavos,
-          status, categoria)
-       VALUES ($1, $2, ($3::date + 9), $4, 0, 'RECEBIDO', 'mensalidade')`,
+          status, categoria, pagamento)
+       VALUES ($1, $2, ($3::date + 9), $4, 0, 'RECEBIDO', 'mensalidade', ($3::date + 9))`,
       [proximoTitulo++, documento, competencia, centavos],
     )
   }
@@ -572,5 +584,179 @@ describe('visões de saída', { skip: !ADMIN }, () => {
       ['Acme'],
       'a CSM deveria ver só a conta da carteira dela',
     )
+  })
+
+  /**
+   * ─── O funil: o kanban que se preenche sozinho ─────────────────────────────
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ O QUE ESTES PORTÕES GUARDAM.                                            │
+   * │                                                                          │
+   * │ O funil existe porque o usuário pediu um kanban que "não renderize vazio  │
+   * │ e sim mostre as evoluções", e o quadro do pipeline não pode: levantar a    │
+   * │ mão é alguém AVISANDO, e acontece antes de o dinheiro parar.              │
+   * │                                                                          │
+   * │ Então as colunas viraram sinal de FATURAMENTO. O que pode dar errado nisso │
+   * │ é sempre a mesma coisa — a coluna afirmar mais do que o dado sustenta —, e │
+   * │ é isso que se guarda aqui: exclusividade (soma que fecha), severidade      │
+   * │ (a pior ganha), a fronteira da maturidade, e o selo do pipeline só quando  │
+   * │ há registro ABERTO.                                                      │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  const atrasar = async (accountId: string, vencimento: string, centavos: number) => {
+    const doc = documentos.get(accountId)
+    assert.ok(doc, 'a conta precisa de vínculo no Omie para poder atrasar')
+    await pool.query(
+      `INSERT INTO core.omie_titulo
+         (codigo_titulo, documento, status, vencimento, valor_centavos, aberto_centavos)
+       VALUES ($1, $2, 'ATRASADO', $3::date, $4, $4)`,
+      [900000 + proximoTitulo++, doc, vencimento, centavos],
+    )
+  }
+  const contrair = (accountId: string, competencia: string, centavos: number) =>
+    pool.query(
+      `INSERT INTO fact.mrr_event
+         (account_id, competencia, valor_centavos, tipo, origem, chave_natural)
+       VALUES ($1, $2::date, $3, 'contracao', 'ops', $4)`,
+      [accountId, competencia, -centavos, `ct:${accountId}:${competencia}`],
+    )
+
+  test('as colunas são EXCLUSIVAS e a soma fecha com a base ativa', async () => {
+    /* A primeira versão desta medição tinha colunas sobrepostas — "em atraso" e
+       "contraiu" eram subconjuntos de "faturando" — e a soma não fechava.
+       Kanban cuja soma não fecha é kanban em que ninguém confia na contagem. */
+    await faturar(acme, mes(-1), 400000)
+    await faturar(beta, mes(-1), 250000)
+    await atrasar(acme, mes(-2), 100000)
+
+    const f = await funilDeSaida(pool, LIDER)
+    assert.equal(f.length, 2, 'as duas contas com faturamento deveriam estar no funil')
+
+    // Cada conta em exatamente uma coluna, e toda coluna é uma das declaradas.
+    const ids = new Set(COLUNAS_DO_FUNIL.map((c) => c.id as string))
+    for (const c of f) assert.ok(ids.has(c.coluna), `coluna desconhecida: ${c.coluna}`)
+    const soma = COLUNAS_DO_FUNIL.reduce(
+      (n, col) => n + f.filter((c) => c.coluna === col.id).length,
+      0,
+    )
+    assert.equal(soma, f.length, 'há conta fora de coluna, ou em duas')
+  })
+
+  test('a severidade decide: atraso E contração vence os dois isolados', async () => {
+    await faturar(acme, mes(-1), 400000)
+    await faturar(beta, mes(-1), 250000)
+    await faturar(semReceita, mes(-1), 100000)
+    // Acme atrasa E contrai; Beta só atrasa; SemReceita só contrai.
+    await atrasar(acme, mes(-2), 50000)
+    await contrair(acme, mes(-1), 30000)
+    await atrasar(beta, mes(-2), 50000)
+    await contrair(semReceita, mes(-1), 30000)
+
+    const f = await funilDeSaida(pool, LIDER)
+    const de = (nome: string) => f.find((c) => c.razaoSocial === nome)?.coluna
+    assert.equal(de('Acme'), 'atraso_e_contracao', 'a conta com os dois sinais caiu na coluna fraca')
+    assert.equal(de('Beta'), 'atraso')
+    assert.equal(de('SemReceita'), 'contracao')
+  })
+
+  test('quem passou da maturidade SAI do funil — vira saída confirmada', async () => {
+    /* A fronteira que separa as duas telas. Dentro da janela, "parou de faturar"
+       é trabalho corrente e fica no funil, porque ainda pode voltar. Passada a
+       janela é saída confirmada e vive na Reconciliação. Sem esta fronteira as
+       794 saídas acumuladas desde 2021 entrariam no quadro e o entupiriam. */
+    await faturar(acme, mes(-1), 400000)
+    await faturar(beta, mes(-1), 250000)
+    // A Acme parou DENTRO da janela; a Beta parou antes dela.
+    await pool.query(
+      `INSERT INTO fact.mrr_event
+         (account_id, competencia, valor_centavos, tipo, origem, chave_natural)
+       VALUES ($1, $2::date, -1, 'churn_pedido', 'ops', 'p:a'),
+              ($3, $4::date, -1, 'churn_pedido', 'ops', 'p:b')`,
+      [acme, mes(-1), beta, mes(-MESES_DE_MATURIDADE - 1)],
+    )
+
+    const f = await funilDeSaida(pool, LIDER)
+    assert.equal(f.find((c) => c.razaoSocial === 'Acme')?.coluna, 'parou')
+    assert.notEqual(
+      f.find((c) => c.razaoSocial === 'Beta')?.coluna,
+      'parou',
+      'saída já madura continuou no funil em vez de virar confirmada',
+    )
+  })
+
+  test('o selo do pipeline aparece só com registro ABERTO', async () => {
+    /* A camada de cima nunca inventa: `null` significa "ninguém disse nada", e
+       não "está tudo bem". E pedido ENCERRADO não é selo de trabalho — é
+       história, e a conta dele já saiu da base ativa. */
+    await faturar(acme, mes(-1), 400000)
+    await faturar(beta, mes(-1), 250000)
+
+    const antes = await funilDeSaida(pool, LIDER)
+    assert.deepEqual(
+      antes.map((c) => c.estadoNoPipeline),
+      [null, null],
+      'apareceu selo sem ninguém ter registrado',
+    )
+
+    const id = await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      pedido: 'cancelar',
+      dataLevantada: new Date().toISOString().slice(0, 10),
+    })
+    const comSelo = await funilDeSaida(pool, LIDER)
+    assert.equal(
+      comSelo.find((c) => c.razaoSocial === 'Acme')?.estadoNoPipeline,
+      'anunciado',
+      'o selo não acompanhou o registro',
+    )
+
+    // Retido é desfecho: o selo tem de sair.
+    await reter(pool, LIDER, id, 'cliente aceitou a proposta e ficou')
+    const depois = await funilDeSaida(pool, LIDER)
+    assert.equal(
+      depois.find((c) => c.razaoSocial === 'Acme')?.estadoNoPipeline,
+      null,
+      'desfecho continuou selado como trabalho aberto',
+    )
+  })
+
+  test('a ordem da coluna de atraso é o VENCIDO, e não o MRR', async () => {
+    /* Medido na renderização: ordenando por MRR, a coluna "Em atraso" trazia
+       entre os oito primeiros uma conta com R$ 0,02 vencidos há 293 dias, ao
+       lado de outra com R$ 31.200,00. Duas ordens de grandeza com o mesmo peso é
+       o que ensina a desconfiar da coluna — e a saída não foi piso de
+       materialidade (outro número arbitrário), foi ordenar pelo sinal. */
+    await faturar(acme, mes(-1), 900000) // MRR alto, atraso ridículo
+    await faturar(beta, mes(-1), 100000) // MRR baixo, atraso grande
+    await atrasar(acme, mes(-2), 2)
+    await atrasar(beta, mes(-2), 500000)
+
+    const f = (await funilDeSaida(pool, LIDER)).filter((c) => c.coluna === 'atraso')
+    assert.deepEqual(
+      f.map((c) => c.razaoSocial),
+      ['Beta', 'Acme'],
+      'a coluna de atraso ordenou por MRR: o resíduo de dois centavos veio primeiro',
+    )
+  })
+
+  test('o funil respeita o escopo de carteira', async () => {
+    await faturar(acme, mes(-1), 400000) // csm_email = ana@
+    await faturar(beta, mes(-1), 250000) // sem csm
+    assert.equal((await funilDeSaida(pool, LIDER)).length, 2, 'o líder deveria ver as duas')
+    assert.deepEqual(
+      (await funilDeSaida(pool, CSM)).map((c) => c.razaoSocial),
+      ['Acme'],
+      'a CSM deveria ver só a conta da carteira dela',
+    )
+  })
+
+  test('a base ativa tem janela, e ela é menor que a do churn observado', async () => {
+    // Funil é trabalho corrente; conta que não fatura há muito tempo já é saída.
+    assert.ok(
+      MESES_DA_BASE_ATIVA >= MESES_DE_MATURIDADE,
+      'a base ativa não pode ser menor que a maturidade: a coluna "parou" ficaria vazia por construção',
+    )
+    assert.ok(MESES_DA_BASE_ATIVA <= 6, `${MESES_DA_BASE_ATIVA} meses traz saída velha para o quadro`)
   })
 })
