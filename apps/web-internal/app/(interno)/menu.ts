@@ -36,6 +36,28 @@ export interface ItemDeMenu {
    * e a hierarquia da declaração é a hierarquia da tela.
    */
   filhos?: readonly { href: string; rotulo: string; proposito: string }[];
+  /**
+   * O destino é DOCUMENTO, não tela do App Router — sai por `<a>`, sem `<Link>`.
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ MEDIDO em 09/09/2026, e o custo era em TODA tela.                       │
+   * │                                                                          │
+   * │ `/docs` é `route.ts` e devolve o PRD inteiro: 222 KB de HTML com o       │
+   * │ próprio <head>. O `<Link>` do Next 15 pré-carrega o que entra na janela, │
+   * │ e a lateral está em toda tela — então cada abertura de página buscava     │
+   * │ `/docs?_rsc=…` e recebia 227.592 bytes de `text/html` onde o router       │
+   * │ esperava payload RSC. Conferido no contêiner de produção.                │
+   * │                                                                          │
+   * │ Duas consequências. A visível: 222 KB por navegação, para nada. A que     │
+   * │ escondia a primeira: a requisição não fecha do ponto de vista do          │
+   * │ navegador, então `networkidle` nunca acontece — e foi isso que travou o   │
+   * │ `saida-ponta-a-ponta.mjs` no passo 1, num defeito que não era o dele.     │
+   * │                                                                          │
+   * │ `prefetch={false}` resolveria o tráfego e deixaria o clique passando pelo │
+   * │ router para falhar e cair em navegação dura. `<a>` é o que a rota é.      │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  externo?: true;
 }
 
 export const MENU: readonly ItemDeMenu[] = [
@@ -125,6 +147,7 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Documentos",
     icone: BookText,
     proposito: "O PRD e o que foi aprovado, atrás do SSO",
+    externo: true,
   },
   {
     href: "/gatilhos",

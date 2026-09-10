@@ -100,12 +100,44 @@ export async function acaoEncerrar(dados: FormData): Promise<void> {
   })
 }
 
-/** Move entre as três etapas de trabalho. */
-export async function acaoAvancarEtapa(dados: FormData): Promise<void> {
+/**
+ * Move entre as três etapas de trabalho.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O DESTINO VEM COMO ARGUMENTO, e não por `dados.get('para')`. MEDIDO.       │
+ * │                                                                            │
+ * │ A primeira versão lia um `<button type="submit" name="para" value=…>`, que  │
+ * │ é o que o HTML manda: o navegador inclui o par do botão CLICADO. Server     │
+ * │ Action não: o FormData que chega aqui não traz a entrada do submitter, e    │
+ * │ `dados.get('para')` voltava VAZIO.                                         │
+ * │                                                                            │
+ * │ O sintoma era enganoso — o banco recusava com violação de                   │
+ * │ `cancellation_estado_check`, e a primeira leitura foi que a restrição não   │
+ * │ conhecia o estado. Estava errada: o CHECK lista os oito estados, e a linha  │
+ * │ recusada tinha `estado` vazio. Foi o banco que impediu a corrupção.         │
+ * │                                                                            │
+ * │ `bind` resolve na raiz: o destino é fechado no servidor, não viaja em campo │
+ * │ de formulário, e o tipo é conferido em compilação.                          │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const ETAPAS = ['anunciado', 'financeiro', 'reversao'] as const
+export type EtapaDeTrabalho = (typeof ETAPAS)[number]
+
+export async function acaoAvancarEtapa(
+  para: EtapaDeTrabalho,
+  dados: FormData,
+): Promise<void> {
   const id = await exigir((p) => temEscopo(p.contas), 'mover pedido de saída')
   const saidaId = String(dados.get('id') ?? '')
-  const para = String(dados.get('para') ?? '') as 'anunciado' | 'financeiro' | 'reversao'
   await tentar(async () => {
+    /* VALIDA antes de tocar no banco. O tipo cobre o caminho da tela; isto cobre
+       o de fora dela, e a diferença é a mensagem: "etapa desconhecida" em vez de
+       um erro de restrição que não diz a quem clicou o que fazer. */
+    if (!(ETAPAS as readonly string[]).includes(para)) {
+      throw new TransicaoInvalidaError(
+        `etapa desconhecida: ${para || '(vazia)'}. As de trabalho são ${ETAPAS.join(', ')}`,
+      )
+    }
     await avancarEtapa(pool(), id, saidaId, para)
     return `pedido movido para ${para === 'anunciado' ? 'pedido' : para === 'financeiro' ? 'informações financeiras' : 'tentativa de reversão'}.`
   })
