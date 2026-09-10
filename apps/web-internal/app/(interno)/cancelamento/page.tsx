@@ -1,92 +1,81 @@
 /**
- * `/cancelamento` — a tela em que se OPERA um cancelamento.
+ * `/cancelamento` — a Visão Geral.
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ POR QUE UMA TELA PRÓPRIA, e não mais uma aba em Saídas.                   │
+ * │ O QUE ESTA PÁGINA RESPONDE: "quanto estamos perdendo, e sabemos por quê?" │
  * │                                                                            │
- * │ Pedido pelo usuário em 10/09/2026: "criar no menu um item de cancelamento  │
- * │ e inserir o fluxo de cancelamento nele, com fluxo de inserir um novo card   │
- * │ selecionando o cliente".                                                   │
+ * │ Os quatro KPI ficam como estavam — são o par de churns lado a lado, e a     │
+ * │ prosa entre eles explica por que contas e receita não fecham no mesmo mês.  │
  * │                                                                            │
- * │ E a divisão tem conteúdo além da organização. Antes, uma tela só respondia  │
- * │ duas perguntas de gente diferente: "o que eu faço agora com este pedido?"  │
- * │ (CS, todo dia) e "quanto perdemos e por quê?" (liderança, no fechamento).  │
- * │ Quem entrava para trabalhar um pedido passava por quatro abas de número.   │
+ * │ O gráfico é a parte nova, e ver `grafico.tsx` para por que a faixa "não     │
+ * │ apurado" é o assunto dele e não sobra de desenho.                          │
  * │                                                                            │
- * │ Agora: AQUI se opera — o quadro, o cadastro do card e os sete formulários  │
- * │ de cada pedido. Em `/saidas` se analisa — funil, coorte, meta e            │
- * │ reconciliação.                                                            │
- * └───────────────────────────────────────────────────────────────────────────┘
- *
- * ┌───────────────────────────────────────────────────────────────────────────┐
- * │ O CADASTRO É A PRIMEIRA COISA QUANDO O QUADRO ESTÁ VAZIO, e a última       │
- * │ quando não está.                                                          │
- * │                                                                            │
- * │ Quem abre a tela com pedidos no quadro veio trabalhar o que já existe; o   │
- * │ formulário embaixo não estorva. Quem abre com o quadro vazio não tem o que │
- * │ trabalhar — e aí o `Vazio` aponta para o formulário, que é a única ação     │
- * │ possível. Foi a lição de `a6b9e91`: a ação existia e nenhuma tela a         │
- * │ chamava, então a tela subiu zerada e ninguém soube por quê.                │
+ * │ A tabela de "últimos cancelamentos realizados" lê `estado = 'encerrado'`, e │
+ * │ em 10/09/2026 tem ZERO linha — encerrar exige três confirmações humanas     │
+ * │ (aviso, última cobrança, distrato) e ninguém percorreu o fluxo ainda. O     │
+ * │ vazio dela aponta para a tabela que TEM dado: a de Dados, com as 794        │
+ * │ contas que o faturamento viu sair.                                         │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-import { contasParaSaida, listarSaidas, quadroDeSaida } from '@pulse/success'
-import { Aviso, Card, Vazio } from '@pulse/ui'
+import {
+  graficoDeCancelamento,
+  listarSaidas,
+  resumoChurn,
+  rotuloDoMotivo,
+} from '@pulse/success'
+import { Aviso, Card, Kpi, KpiGrade, Table, Vazio } from '@pulse/ui'
+import Link from 'next/link'
 
-import { Linha } from './andamento'
-import { Quadro, Registrar } from '../saidas/visoes'
+import { Grafico } from './grafico'
+import { SubNav } from './subnav'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir, temEscopo } from '../../../lib/guarda'
 
 export const dynamic = 'force-dynamic'
 
-/** Esta tela, para as ações devolverem aqui e não em `/saidas`. */
-const AQUI = '/cancelamento'
+const REAIS = (c: string | null) =>
+  c === null
+    ? '—'
+    : (Number(c) / 100).toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        minimumFractionDigits: 2,
+      })
 
-export default async function Cancelamento({
+const DIA = (iso: string | null) => (iso === null ? '—' : iso.split('-').reverse().join('/'))
+
+export default async function VisaoGeral({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; erro?: string }>
+  searchParams: Promise<{ ok?: string; erro?: string; janela?: string }>
 }) {
   const q = await searchParams
-  const id = await exigir((p) => temEscopo(p.contas), 'fluxo de cancelamento')
+  const id = await exigir((p) => temEscopo(p.contas), 'visão geral do cancelamento')
+  /* 6 ou 12, e nada mais: janela livre por query seria consulta arbitrária vinda
+     da URL. O padrão é 12 — a pergunta do gráfico é de tendência. */
+  const janela: 6 | 12 = q.janela === '6' ? 6 : 12
 
-  /* A MESMA regra que `anunciar` aplica lá dentro, e não a do `exigir` da tela:
-     VER o fluxo pede escopo de contas, ABRIR um pedido pede acesso à fila.
-     Mostrar o formulário a quem só vê contas faria a pessoa preencher oito
-     campos para receber "registrar saída exige acesso à fila de trabalho". */
-  const podeRegistrar = id.permissoes.fila !== 'nenhum' || id.permissoes.configurar
-  const podeAprovar = id.permissoes.aprovaDistrato !== 'nao' || id.permissoes.configurar
   const hoje = new Date().toISOString().slice(0, 10)
+  const comp = `${hoje.slice(0, 7)}-01`
+  const veReceita = temEscopo(id.permissoes.receita)
 
-  const [saidas, pedidos, contas] = await Promise.all([
+  const [resumo, meses, saidas] = await Promise.all([
+    veReceita ? resumoChurn(pool(), comp) : null,
+    veReceita ? graficoDeCancelamento(pool(), janela) : Promise.resolve([]),
     listarSaidas(pool(), id),
-    quadroDeSaida(pool(), id),
-    podeRegistrar ? contasParaSaida(pool(), id) : Promise.resolve([]),
   ])
 
-  /* As três etapas de trabalho e o aviso correndo contam como ABERTAS: são os
-     pedidos que ainda pedem alguma coisa de alguém. Os quatro desfechos são
-     fechados — e `em_aviso` NÃO é desfecho: `TRANSICOES` lhe dá saída para
-     `retido` e `encerrado`, então o cliente ainda pode ser salvo. */
-  const abertas = saidas.filter(
-    (s) =>
-      s.estado === 'anunciado' ||
-      s.estado === 'financeiro' ||
-      s.estado === 'reversao' ||
-      s.estado === 'em_aviso',
-  )
-  const fechadas = saidas.filter(
-    (s) =>
-      s.estado === 'retido' ||
-      s.estado === 'desconto' ||
-      s.estado === 'renegociado' ||
-      s.estado === 'encerrado',
-  )
+  /* "Realizado" é `encerrado`, e só isso: os três desfechos que SALVAM o cliente
+     (retido, desconto, renegociado) não são cancelamento — contá-los aqui
+     afirmaria uma saída que não houve. */
+  const realizados = saidas
+    .filter((s) => s.estado === 'encerrado')
+    .slice(0, 10)
 
   return (
     <>
-      <Topo href={AQUI} />
+      <Topo href="/cancelamento" />
       <Corpo className="grid gap-5">
         {q.erro && (
           <Aviso tom="erro" papel="alert">
@@ -99,50 +88,83 @@ export default async function Cancelamento({
           </Aviso>
         )}
 
-        <Quadro pedidos={pedidos} volta={AQUI} />
+        <SubNav atual="geral" />
 
-        {pedidos.length === 0 && (
-          <Vazio
-            titulo="Nenhum pedido de cancelamento registrado."
-            porque="O quadro se preenche a partir do primeiro card cadastrado, no formulário abaixo. Enquanto isso, a aba Reconciliação em Saídas mostra o churn que o FATURAMENTO já enxerga — de quem o dinheiro parou de entrar, sem ninguém ter dito por quê."
-            acao={{ texto: 'Ver a reconciliação', href: '/saidas?aba=reconciliacao' }}
-          />
+        {resumo && (
+          <>
+            {/* Os dois churns lado a lado. Ver juntos é o ponto: o mês em que as
+                contas saem quase nunca é o mês em que a receita sai. */}
+            <KpiGrade>
+              <Kpi
+                rotulo={`Churn de contas · ${resumo.competencia}`}
+                valor={resumo.contasQueLevantaram}
+                nota={
+                  <>
+                    {REAIS(resumo.mrrQueLevantouCentavos)} levantaram a mão
+                    {resumo.retidasDepois > 0 && ` · ${resumo.retidasDepois} revertida(s) depois`}
+                  </>
+                }
+              />
+              <Kpi
+                rotulo={`Churn de receita · ${resumo.competencia}`}
+                valor={REAIS(resumo.mrrRealizadoCentavos)}
+                nota={`${resumo.contasComEfeito} conta(s) saíram pelo fluxo`}
+              />
+              <Kpi
+                rotulo="Saída comprometida"
+                valor={REAIS(resumo.mrrComprometidoCentavos)}
+                nota={`${resumo.contasComprometidas} conta(s) já perdidas ainda faturando`}
+                {...(Number(resumo.mrrComprometidoCentavos) > 0 ? { tom: 'amber' as const } : {})}
+              />
+              <Kpi
+                rotulo="Retido no mês"
+                valor={REAIS(resumo.mrrRetidoCentavos)}
+                nota={`${resumo.retidasNaCompetencia} saída(s) revertida(s)`}
+              />
+            </KpiGrade>
+
+            <p className="max-w-[80ch] text-meta leading-relaxed text-ink-3">
+              Contas e receita não fecham no mesmo mês, e a diferença é de propósito: um cliente que
+              levanta a mão hoje entra no churn de contas hoje, mas continua faturando durante todo o
+              aviso prévio. Reconhecer a perda no dia do anúncio subestima o trimestre; contar o
+              cliente como ativo até a última fatura esconde uma perda que já aconteceu — e que
+              ainda dava para reverter.
+            </p>
+
+            <Grafico meses={meses} janela={janela} />
+          </>
         )}
 
-        {podeRegistrar && <Registrar contas={contas} hoje={hoje} volta={AQUI} />}
-
-        <Card title={`Em andamento (${abertas.length})`}>
-          {abertas.length === 0 ? (
+        <Card title={`Últimos cancelamentos realizados (${realizados.length})`}>
+          {realizados.length === 0 ? (
             <Vazio
-              titulo="Nenhum pedido em andamento."
-              porque="Pedidos aparecem aqui enquanto pedem alguma coisa de alguém — confirmação de aviso, de última cobrança, ou a aprovação do distrato. Lista vazia é boa notícia, não erro de carregamento."
-              acao={{ texto: 'Ver a fila de trabalho', href: '/' }}
+              titulo="Nenhum cancelamento concluído pelo fluxo."
+              porque="Encerrar exige três confirmações humanas — aviso prévio, último mês de cobrança e aprovação do distrato — e nenhum pedido percorreu o fluxo até o fim. O que o FATURAMENTO já viu sair está na página Dados, conta por conta."
+              acao={{ texto: 'Ver os dados', href: '/cancelamento/dados' }}
               className="border-0 p-0"
             />
           ) : (
-            <ul className="grid gap-3">
-              {abertas.map((s) => (
-                <Linha key={s.id} s={s} podeAprovar={podeAprovar} volta={AQUI} />
-              ))}
-            </ul>
+            <Table
+              cols={['Conta', 'Levantou a mão', 'Receita parou em', 'MRR', 'Motivo', 'Origem']}
+              rows={realizados.map((s) => [
+                <Link
+                  href={`/contas/${s.accountId}`}
+                  prefetch={false}
+                  className="font-medium text-purple-700 hover:underline"
+                >
+                  {s.conta}
+                </Link>,
+                <span className="whitespace-nowrap tabular-nums">{DIA(s.dataLevantada)}</span>,
+                <span className="whitespace-nowrap tabular-nums">
+                  {s.competenciaEfeitoReceita ?? '—'}
+                </span>,
+                <span className="tabular-nums">{REAIS(s.mrrCentavosNaLevantada)}</span>,
+                <span>{s.motivo === null ? '—' : rotuloDoMotivo(s.motivo)}</span>,
+                <span>{s.origem === 'alloyal' ? 'Alloyal (PDD)' : 'Cliente'}</span>,
+              ])}
+            />
           )}
         </Card>
-
-        {/* Os desfechos ficam FECHADOS num `<details>`: são o que já aconteceu, e
-            acumulam para sempre. Em coluna aberta, em seis meses ninguém acha o
-            que está em andamento no meio do que está encerrado. */}
-        {fechadas.length > 0 && (
-          <details>
-            <summary className="cursor-pointer select-none text-corpo font-semibold text-ink-2 hover:text-ink">
-              {fechadas.length} com desfecho
-            </summary>
-            <ul className="mt-3 grid gap-3 opacity-75">
-              {fechadas.map((s) => (
-                <Linha key={s.id} s={s} podeAprovar={false} volta={AQUI} />
-              ))}
-            </ul>
-          </details>
-        )}
       </Corpo>
     </>
   )

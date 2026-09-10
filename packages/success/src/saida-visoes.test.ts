@@ -29,6 +29,8 @@ import {
 } from './cancelamento.js'
 import {
   COLUNAS_DO_FUNIL,
+  dadosDeCancelamento,
+  graficoDeCancelamento,
   MESES_DA_BASE_ATIVA,
   MESES_DE_MATURIDADE,
   churnObservado,
@@ -758,5 +760,185 @@ describe('visões de saída', { skip: !ADMIN }, () => {
       'a base ativa não pode ser menor que a maturidade: a coluna "parou" ficaria vazia por construção',
     )
     assert.ok(MESES_DA_BASE_ATIVA <= 6, `${MESES_DA_BASE_ATIVA} meses traz saída velha para o quadro`)
+  })
+
+  /**
+   * ─── As três páginas do Cancelamento ───────────────────────────────────────
+   *
+   * ┌─────────────────────────────────────────────────────────────────────────┐
+   * │ A INVARIANTE DO GRÁFICO: a soma das faixas nunca passa do total.        │
+   * │                                                                          │
+   * │ A altura da barra é o total MEDIDO no faturamento; as quatro faixas são o │
+   * │ que alguém REGISTROU. Se a soma das faixas passar do total, a barra       │
+   * │ transborda e o desenho passa a mentir — e é fácil acontecer, porque as    │
+   * │ duas pontas vêm de fontes diferentes e nada no banco as amarra.          │
+   * │                                                                          │
+   * │ O gráfico foi desenhado para que a diferença entre o total e a soma seja  │
+   * │ a faixa "não apurado". Este portão guarda essa diferença ser >= 0.        │
+   * └─────────────────────────────────────────────────────────────────────────┘
+   */
+  test('no gráfico, a soma das faixas nunca passa do total do mês', async () => {
+    const antigo = mes(-6)
+    await faturar(acme, mes(-1), 400000)
+    await churn(acme, antigo, 400000)
+    /* Um pedido que chega a uma FAIXA de verdade, e não só a `em_aviso`.
+       A primeira versão deste teste usava `confirmarAviso` +
+       `confirmarUltimaCobranca`, que deixam o estado em `em_aviso` — e `em_aviso`
+       não é nenhuma das quatro faixas. As quatro ficavam em zero, `0 <= total`
+       passava sempre, e o portão era CEGO: provado por mutação, forçar o total a
+       zero não o fez falhar.
+
+       `concederDesconto` leva a `desconto`, que é faixa, e grava
+       `competencia_efeito_receita` — que é a data pela qual o gráfico agrupa. */
+    const id = await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      pedido: 'desconto',
+      dataLevantada: antigo.slice(0, 10),
+      mrrCentavos: '400000',
+    })
+    await concederDesconto(pool, LIDER, id, {
+      mrrNovoCentavos: '100000',
+      competenciaEfeito: antigo.slice(0, 7),
+    })
+
+    // O par da asserção: sem uma faixa NÃO-ZERO, a invariante passaria vazia.
+    const antes = await graficoDeCancelamento(pool, 12)
+    const noMes = antes.find((m) => m.mes === antigo)
+    assert.ok(
+      Number(noMes?.descontoCentavos) > 0,
+      'o teste não produziu faixa alguma — a invariante mediria o vazio',
+    )
+
+    /* A invariante é sobre a PILHA DE SAIU, e só ela. Desconto e renegociação
+       ficam de fora porque o cliente CONTINUA pagando — foi este portão que
+       provou isso, falhando com desconto de R$ 4.000 num mês de total zero. */
+    const g = await graficoDeCancelamento(pool, 12)
+    for (const m of g) {
+      const naPilha = Number(m.clienteCentavos) + Number(m.pddCentavos)
+      assert.ok(
+        naPilha <= Number(m.totalCentavos),
+        `${m.mes}: Cliente+PDD somam ${naPilha} e o total é ${m.totalCentavos} — a barra transborda`,
+      )
+    }
+  })
+
+  test('desconto e renegociação NÃO entram na pilha de quem saiu', async () => {
+    /* O erro que o portão acima pegou, agora guardado dos dois lados: um cliente
+       com desconto continua na base e continua pagando. Se ele aparecer dentro
+       do total de quem saiu, o gráfico afirma uma perda que não houve — e é
+       exatamente o defeito que a meta tinha em 28/08. */
+    const antigo = mes(-6)
+    await faturar(acme, mes(-9), 400000)
+    const id = await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      pedido: 'desconto',
+      dataLevantada: antigo.slice(0, 10),
+      mrrCentavos: '400000',
+    })
+    await concederDesconto(pool, LIDER, id, {
+      mrrNovoCentavos: '100000',
+      competenciaEfeito: antigo.slice(0, 7),
+    })
+
+    const m = (await graficoDeCancelamento(pool, 12)).find((x) => x.mes === antigo)
+    assert.ok(Number(m?.descontoCentavos) > 0, 'o desconto não apareceu na sua própria série')
+    assert.equal(Number(m?.clienteCentavos), 0, 'o desconto entrou como cancelamento de cliente')
+    assert.equal(Number(m?.pddCentavos), 0, 'o desconto entrou como PDD')
+    assert.equal(
+      Number(m?.totalCentavos),
+      0,
+      'o cliente com desconto entrou no total de quem PAROU de faturar — ele continua pagando',
+    )
+  })
+
+  test('o gráfico marca como imaturo o que está dentro da carência', async () => {
+    /* Mesma razão do funil: afirmar saída no mês corrente é afirmar o que ainda
+       não se sabe. A tela desenha listra em vez de barra por causa desta
+       bandeira, e trocá-la por zero faria o gráfico dizer "ninguém saiu". */
+    const g = await graficoDeCancelamento(pool, 12)
+    assert.equal(g.at(-1)?.maduro, false, 'o mês corrente se declarou maduro')
+    assert.equal(
+      g.find((m) => m.mes === mes(-MESES_DE_MATURIDADE))?.maduro,
+      true,
+      `${MESES_DE_MATURIDADE} meses atrás deveria ser maduro`,
+    )
+  })
+
+  test('a janela do gráfico é a pedida, e a grade não tem buraco', async () => {
+    for (const meses of [6, 12]) {
+      const g = await graficoDeCancelamento(pool, meses)
+      assert.equal(g.length, meses, `pedi ${meses} meses e vieram ${g.length}`)
+      // Mês sem saída tem de vir com zero, e não faltar: barra ausente no meio
+      // do gráfico desalinha o eixo e some com o mês da leitura.
+      assert.ok(
+        g.every((m) => typeof m.totalCentavos === 'string'),
+        'há mês sem total na grade',
+      )
+    }
+  })
+
+  test('em Dados, coluna sem fonte vem NULL — e não zero', async () => {
+    /* `null` e `0` dizem coisas diferentes, e a tela desenha travessão para um e
+       número para o outro: travessão é "não sei", zero é "não houve". Trocar por
+       `COALESCE(..., 0)` no SQL apagaria a diferença e a tabela passaria a
+       afirmar que ninguém levantou a mão e ninguém teve desconto. */
+    /* O faturamento vem ANTES do churn, e isto foi um erro meu de fixture: com
+       `faturar(mes(-1))` depois de `churn(mes(-6))` a conta VOLTOU a faturar, e
+       `SAIU_DO_FATURAMENTO` a excluiu — corretamente. Era o dado do teste que
+       era irreal. */
+    await faturar(acme, mes(-9), 400000)
+    await churn(acme, mes(-6), 400000)
+
+    const d = await dadosDeCancelamento(pool, LIDER)
+    const linha = d.find((l) => l.razaoSocial === 'Acme')
+    assert.ok(linha, 'a conta que parou de faturar deveria estar na tabela')
+    assert.equal(linha.dataLevantada, null, 'inventou data de levantada')
+    assert.equal(linha.estado, null, 'inventou estado de pedido')
+    assert.equal(linha.descontoCentavos, null, 'inventou desconto')
+    // E o que TEM fonte vem preenchido.
+    assert.ok(linha.primeiroFaturamento, 'o primeiro faturamento deveria vir do Omie')
+    assert.ok(linha.competenciaQueParou, 'a competência que parou deveria vir do ledger')
+  })
+
+  test('Dados traz só quem saiu ou está saindo', async () => {
+    // A base inteira responderia outra pergunta — e em produção são 2.155 contas.
+    await faturar(acme, mes(-9), 400000) // faturou e PAROU
+    await faturar(beta, mes(-1), 250000) // faturando, sem pedido
+    await churn(acme, mes(-6), 400000)
+
+    const d = await dadosDeCancelamento(pool, LIDER)
+    assert.deepEqual(
+      d.map((l) => l.razaoSocial),
+      ['Acme'],
+      'a Beta não saiu nem está saindo, e entrou na tabela',
+    )
+
+    // Registrar um pedido na Beta a faz entrar, mesmo sem ter parado de faturar.
+    await anunciar(pool, LIDER, {
+      accountId: beta,
+      origem: 'cliente',
+      pedido: 'cancelar',
+      dataLevantada: new Date().toISOString().slice(0, 10),
+    })
+    assert.equal(
+      (await dadosDeCancelamento(pool, LIDER)).length,
+      2,
+      'a conta com pedido aberto deveria entrar na tabela',
+    )
+  })
+
+  test('Dados respeita o escopo de carteira', async () => {
+    await faturar(acme, mes(-9), 400000) // csm_email = ana@
+    await faturar(beta, mes(-9), 250000) // sem csm
+    await churn(acme, mes(-6), 400000)
+    await churn(beta, mes(-6), 250000)
+    assert.equal((await dadosDeCancelamento(pool, LIDER)).length, 2)
+    assert.deepEqual(
+      (await dadosDeCancelamento(pool, CSM)).map((l) => l.razaoSocial),
+      ['Acme'],
+      'a CSM deveria ver só a conta da carteira dela',
+    )
   })
 })

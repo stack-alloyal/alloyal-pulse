@@ -604,6 +604,208 @@ export async function funilDeSaida(db: pg.Pool, id: Identidade): Promise<ContaNo
   }))
 }
 
+// ═══ AS TRÊS PÁGINAS DO CANCELAMENTO ═════════════════════════════════════════
+
+/**
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O GRÁFICO TEM DUAS CAMADAS, E POR MEDIÇÃO — NÃO POR ESTILO.               │
+ * │                                                                            │
+ * │ O pedido foi "gráfico do Cancelamento mostrando o Total e as barras         │
+ * │ empilhadas como Desconto, Renegociação Financeira, Cancelamento Cliente e   │
+ * │ Cancelamento PDD". As QUATRO séries saem de `success.cancellation`, que em   │
+ * │ 10/09/2026 tem zero linha — o gráfico nasceria vazio inteiro.               │
+ * │                                                                            │
+ * │ Então o TOTAL vem do faturamento (o mesmo recorte de `churnObservado`: 3     │
+ * │ meses de maturidade e nunca voltou a faturar), e as quatro séries vêm do     │
+ * │ pipeline. A barra mostra o que se sabe HOJE e a decomposição enche conforme  │
+ * │ o time registra — e a diferença entre o total e a soma das partes é,         │
+ * │ literalmente, o que falta apurar.                                          │
+ * │                                                                            │
+ * │ É o mesmo princípio do selo do funil: a camada de baixo é medida, a de cima  │
+ * │ é humana, e nenhuma finge ser a outra.                                     │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+/**
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ AS QUATRO SÉRIES NÃO CABEM NUMA PILHA SÓ, e um portão provou isso.       │
+ * │                                                                            │
+ * │ O pedido foi "barras empilhadas como Desconto, Renegociação Financeira,    │
+ * │ Cancelamento Cliente e Cancelamento PDD". Empilhei as quatro dentro do     │
+ * │ total medido no faturamento, e o portão da invariante falhou com um caso   │
+ * │ real: desconto de R$ 4.000 num mês cujo total era ZERO.                    │
+ * │                                                                            │
+ * │ A causa é de conceito. O total conta quem PAROU de pagar. Desconto e       │
+ * │ renegociação são clientes que CONTINUAM pagando, menos — `concederDesconto`│
+ * │ grava `contracao`, não `churn_pedido`. Empilhá-los ali afirmaria como       │
+ * │ perdido um cliente que está na base, que é literalmente o erro que o       │
+ * │ commit de 28/08 tinha apontado na meta.                                    │
+ * │                                                                            │
+ * │ Então são DOIS grupos, e o gráfico desenha duas barras por mês:            │
+ * │   SAIU     = altura medida; dentro, Cliente + PDD + não apurado            │
+ * │   REDUZIU  = desconto + renegociação, ao lado e na mesma escala            │
+ * │                                                                            │
+ * │ Ver juntos é o ponto — as duas decisões competem pela mesma conversa com o │
+ * │ cliente —, mas somá-las seria dizer que perdemos quem ficou.               │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export interface MesDoGrafico {
+  readonly mes: string
+  /** SAIU: contas que pararam de faturar, maduras. É a altura da 1ª barra. */
+  readonly totalCentavos: string
+  readonly totalContas: number
+  /** Dentro de SAIU, e zero até alguém registrar o motivo. */
+  readonly clienteCentavos: string
+  readonly pddCentavos: string
+  /** REDUZIU: cliente que ficou pagando menos. Barra PRÓPRIA, fora do total. */
+  readonly descontoCentavos: string
+  readonly renegociadoCentavos: string
+  /** `false` nos meses dentro da carência: o total ainda não é afirmável. */
+  readonly maduro: boolean
+}
+
+/**
+ * O gráfico da Visão Geral: total medido e decomposição registrada.
+ *
+ * `meses` é 6 ou 12 — é o filtro que a tela oferece.
+ */
+export async function graficoDeCancelamento(
+  db: pg.Pool,
+  meses = 12,
+): Promise<MesDoGrafico[]> {
+  const { rows } = await db.query(
+    `WITH grade AS (
+       SELECT generate_series(
+                date_trunc('month', current_date) - make_interval(months => $1::int - 1),
+                date_trunc('month', current_date),
+                '1 month')::date AS mes
+     ), obs AS (
+       -- O total, do faturamento. Mesmo recorte de churnObservado.
+       SELECT e.competencia, e.account_id, abs(e.valor_centavos) AS valor
+         FROM fact.mrr_event e
+        WHERE ${SAIU_DO_FATURAMENTO}
+     ), pipe AS (
+       -- A decomposição, do pipeline. Pela competência de EFEITO, que é quando a
+       -- receita para — a mesma data que o total usa, senão as barras ficariam
+       -- em meses diferentes do total que as contém.
+       SELECT competencia_efeito_receita AS mes, estado, origem,
+              coalesce(mrr_centavos_na_levantada, 0) AS valor
+         FROM success.cancellation
+        WHERE competencia_efeito_receita IS NOT NULL
+     )
+     SELECT to_char(g.mes, 'YYYY-MM-DD') AS mes,
+            COALESCE((SELECT sum(o.valor) FROM obs o WHERE o.competencia = g.mes), 0)::text AS total,
+            COALESCE((SELECT count(*) FROM obs o WHERE o.competencia = g.mes), 0)::int AS total_contas,
+            COALESCE((SELECT sum(valor) FROM pipe WHERE mes = g.mes AND estado = 'desconto'), 0)::text AS desconto,
+            COALESCE((SELECT sum(valor) FROM pipe WHERE mes = g.mes AND estado = 'renegociado'), 0)::text AS renegociado,
+            COALESCE((SELECT sum(valor) FROM pipe WHERE mes = g.mes AND estado = 'encerrado' AND origem = 'cliente'), 0)::text AS cliente,
+            COALESCE((SELECT sum(valor) FROM pipe WHERE mes = g.mes AND estado = 'encerrado' AND origem = 'alloyal'), 0)::text AS pdd,
+            (g.mes <= date_trunc('month', current_date)
+                      - make_interval(months => ${MESES_DE_MATURIDADE}))::boolean AS maduro
+       FROM grade g ORDER BY g.mes`,
+    [meses],
+  )
+  return rows.map((r) => ({
+    mes: String(r['mes']),
+    totalCentavos: String(r['total']),
+    totalContas: Number(r['total_contas']),
+    descontoCentavos: String(r['desconto']),
+    renegociadoCentavos: String(r['renegociado']),
+    clienteCentavos: String(r['cliente']),
+    pddCentavos: String(r['pdd']),
+    maduro: Boolean(r['maduro']),
+  }))
+}
+
+export interface LinhaDeDados {
+  readonly accountId: string
+  readonly razaoSocial: string
+  /**
+   * PRIMEIRO FATURAMENTO, e não início de contrato.
+   *
+   * `core.contract` e `contracts.document` têm ZERO linha (medido em
+   * 10/09/2026), então não existe fonte para data de início de contrato. O que
+   * existe é a primeira competência faturada — 1.172 contas, a mais antiga em
+   * 2021-01.
+   *
+   * O nome do campo diz o que ele é. Chamá-lo de "início do contrato" seria o
+   * mesmo defeito do rótulo "saíram do faturamento": prometer uma fonte que não
+   * se tem.
+   */
+  readonly primeiroFaturamento: string | null
+  /** Do pipeline: quando o cliente avisou. `null` quando ninguém registrou. */
+  readonly dataLevantada: string | null
+  readonly mrrCentavos: string
+  /** Quanto de desconto foi concedido, se o desfecho foi desconto. */
+  readonly descontoCentavos: string | null
+  /** O estado do pedido, ou `null` — que significa "ninguém registrou". */
+  readonly estado: string | null
+  /** Competência em que o faturamento parou, pelo Omie. `null` se não parou. */
+  readonly competenciaQueParou: string | null
+}
+
+/**
+ * A tabela da página Dados: uma linha por conta que saiu ou está saindo.
+ *
+ * Junta as duas fontes numa linha só — o que o faturamento viu e o que alguém
+ * registrou — porque a pergunta da página é sobre a CONTA, e não sobre a fonte.
+ * As colunas que vêm de fonte vazia chegam `null`, e a tela mostra travessão em
+ * vez de zero: zero afirma "não houve", travessão diz "não sei".
+ */
+export async function dadosDeCancelamento(
+  db: pg.Pool,
+  id: Identidade,
+  limite = 300,
+): Promise<LinhaDeDados[]> {
+  const { rows } = await db.query(
+    `WITH saiu AS (
+       SELECT e.account_id, min(e.competencia) AS competencia
+         FROM fact.mrr_event e
+        WHERE ${SAIU_DO_FATURAMENTO}
+        GROUP BY e.account_id
+     ), inicio AS (
+       SELECT account_id, min(competencia) AS primeira
+         FROM analytics.mrr_faturado_mes WHERE mrr_centavos > 0
+        GROUP BY account_id
+     ), ult_mrr AS (
+       SELECT DISTINCT ON (account_id) account_id, mrr_centavos
+         FROM analytics.mrr_faturado_mes WHERE mrr_centavos > 0
+        ORDER BY account_id, competencia DESC
+     )
+     SELECT a.id::text AS account_id, a.razao_social,
+            to_char(i.primeira, 'YYYY-MM-DD') AS primeiro_faturamento,
+            to_char(c.data_levantada, 'YYYY-MM-DD') AS data_levantada,
+            COALESCE(c.mrr_centavos_na_levantada, m.mrr_centavos, 0)::text AS mrr,
+            CASE WHEN c.estado = 'desconto'
+                 THEN (c.mrr_centavos_na_levantada - COALESCE(c.mrr_novo_centavos, 0))::text
+            END AS desconto,
+            c.estado,
+            to_char(s.competencia, 'YYYY-MM-DD') AS parou
+       FROM core.account a
+       LEFT JOIN success.cancellation c ON c.account_id = a.id
+       LEFT JOIN saiu s ON s.account_id = a.id
+       LEFT JOIN inicio i ON i.account_id = a.id
+       LEFT JOIN ult_mrr m ON m.account_id = a.id
+      -- Só quem saiu ou está saindo: a tabela é de cancelamento, e a base inteira
+      -- (2.155 contas) responderia outra pergunta.
+      WHERE (c.id IS NOT NULL OR s.account_id IS NOT NULL)
+        AND ($1::boolean OR a.csm_email = $2)
+      ORDER BY COALESCE(c.data_levantada, s.competencia) DESC NULLS LAST,
+               COALESCE(c.mrr_centavos_na_levantada, m.mrr_centavos, 0) DESC
+      LIMIT $3`,
+    [daBase(id), id.email, limite],
+  )
+  return rows.map((r) => ({
+    accountId: String(r['account_id']),
+    razaoSocial: String(r['razao_social'] ?? ''),
+    primeiroFaturamento: r['primeiro_faturamento'] === null ? null : String(r['primeiro_faturamento']),
+    dataLevantada: r['data_levantada'] === null ? null : String(r['data_levantada']),
+    mrrCentavos: String(r['mrr']),
+    descontoCentavos: r['desconto'] === null ? null : String(r['desconto']),
+    estado: r['estado'] === null ? null : String(r['estado']),
+    competenciaQueParou: r['parou'] === null ? null : String(r['parou']),
+  }))
+}
+
 // ═══ A COORTE ════════════════════════════════════════════════════════════════
 
 export interface MesDaCoorte {
