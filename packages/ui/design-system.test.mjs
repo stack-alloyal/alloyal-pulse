@@ -319,22 +319,69 @@ test('as cores do template de e-mail são as mesmas de estilo.css', () => {
  * contra os padrões do `Login.tsx`. Mexer num sem mexer no outro quebra o CI, em
  * vez de sair só no navegador de quem for entrar.
  */
-const SIGN_IN = join(RAIZ, 'infra', 'oauth2-templates', 'sign_in.html')
+const TEMPLATES = join(RAIZ, 'infra', 'oauth2-templates')
+const SIGN_IN = join(TEMPLATES, 'sign_in.html')
+const ERRO = join(TEMPLATES, 'error.html')
 
-test('as cores da tela do oauth2-proxy são as mesmas de estilo.css', () => {
-  const html = readFileSync(SIGN_IN, 'utf8')
+/**
+ * A PASTA, e não uma lista de arquivos.
+ *
+ * A primeira versão deste portão nomeava `sign_in.html`, e por isso não viu o
+ * `error.html` nascer em 09/09/2026 — nem teria visto o terceiro template. O
+ * oauth2-proxy carrega por nome de arquivo (`sign_in.html`, `error.html`,
+ * `robots.txt`), então quem acrescentar um quarto acrescenta uma tela que a
+ * pessoa vê, e ela tem de entrar aqui sozinha.
+ */
+const TELAS_DO_PROXY = readdirSync(TEMPLATES).filter((n) => n.endsWith('.html'))
+
+test('há telas do oauth2-proxy para conferir', () => {
+  // O par de "há arquivos para varrer": com a pasta vazia todo teste abaixo
+  // passaria medindo nada.
+  assert.ok(TELAS_DO_PROXY.length >= 2, `achei ${TELAS_DO_PROXY.length} template(s) em oauth2-templates`)
+  for (const obrigatoria of ['sign_in.html', 'error.html']) {
+    assert.ok(TELAS_DO_PROXY.includes(obrigatoria), `falta ${obrigatoria} — o proxy serviria o template embutido dele`)
+  }
+})
+
+test('as cores das telas do oauth2-proxy são as mesmas de estilo.css', () => {
   const tokens = coresDoTema()
 
-  // Só o bloco `:root`, que é onde moram as cores do tema. Fora dele há as
-  // quatro do Google (marca de terceiro, proibido repintar) e `#fff`.
-  const raiz = html.match(/:root \{([^}]*)\}/)
-  assert.ok(raiz, 'não achei o bloco :root em sign_in.html')
+  for (const nome of TELAS_DO_PROXY) {
+    const html = readFileSync(join(TEMPLATES, nome), 'utf8')
+    // Só o bloco `:root`, que é onde moram as cores do tema. Fora dele há as
+    // quatro do Google (marca de terceiro, proibido repintar) e `#fff`.
+    const raiz = html.match(/:root \{([^}]*)\}/)
+    assert.ok(raiz, `não achei o bloco :root em ${nome}`)
 
-  for (const [, nome, hex] of raiz[1].matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{3,8})/g)) {
-    assert.ok(
-      tokens.has(hex.toLowerCase()),
-      `a variável "${nome}" da tela de entrada é ${hex}, que não existe em estilo.css`,
-    )
+    for (const [, variavel, hex] of raiz[1].matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{3,8})/g)) {
+      assert.ok(
+        tokens.has(hex.toLowerCase()),
+        `a variável "${variavel}" de ${nome} é ${hex}, que não existe em estilo.css`,
+      )
+    }
+  }
+})
+
+test('as telas do proxy trazem a MESMA marca — uma cópia, não duas', () => {
+  /* O favicon e o wordmark vão embutidos em cada template, porque o oauth2-proxy
+     só entrega os templates dele: um href para /favicon.png cairia na `location /`
+     do nginx e devolveria HTML no lugar da imagem. Cópia embutida envelhece, e
+     duas cópias envelhecem em ritmos diferentes — foi assim que a tela do Publi
+     e a do Allvoice divergiram. Este portão exige que sejam byte a byte iguais. */
+  const marca = (nome) => {
+    const html = readFileSync(join(TEMPLATES, nome), 'utf8')
+    return {
+      favicon: html.match(/<link rel="icon"[^>]*>/)?.[0],
+      wordmark: html.match(/<svg[^>]*viewBox="0 0 114 38"[^>]*fill="#16161a">[\s\S]*?<\/svg>/)?.[0],
+    }
+  }
+  const referencia = marca('sign_in.html')
+  assert.ok(referencia.favicon && referencia.wordmark, 'não li favicon/wordmark do sign_in.html')
+
+  for (const nome of TELAS_DO_PROXY) {
+    const m = marca(nome)
+    assert.equal(m.favicon, referencia.favicon, `o favicon de ${nome} divergiu do sign_in.html`)
+    assert.equal(m.wordmark, referencia.wordmark, `o wordmark de ${nome} divergiu do sign_in.html`)
   }
 })
 
@@ -360,6 +407,88 @@ test('o texto da tela do oauth2-proxy é o mesmo do Login.tsx', () => {
   for (const e of etiquetas) {
     assert.ok(html.includes(`<span>${e}</span>`), `a tela de entrada não traz a etiqueta "${e}"`)
   }
+})
+
+/**
+ * ─── A tela de erro do proxy ─────────────────────────────────────────────────
+ *
+ * `error.html` reconhece o 403 da janela de login vencida pela mensagem EXATA
+ * que o oauth2-proxy manda, porque o FuncMap dos templates dele só registra
+ * `ToUpper` e `ToLower` — não há `contains` para casar por pedaço.
+ *
+ * Acoplamento a uma string de terceiro precisa de guarda: numa troca de versão
+ * a frase muda, o `eq` deixa de casar em silêncio e a página volta a dizer
+ * "algo deu errado" para quem só precisava entrar de novo. Nada quebra, nada
+ * avisa — é exatamente a classe de defeito que este arquivo existe para pegar.
+ *
+ * Então a string fica presa à VERSÃO em que foi lida. Subir a imagem quebra
+ * aqui, com o recado de onde reconferir.
+ */
+const CSRF_VENCIDO = 'Login Failed: Unable to find a valid CSRF token. Please try again.'
+const VERSAO_CONFERIDA = 'v7.15.3'
+
+test('a mensagem do CSRF vencido é a da versão do proxy que está no compose', () => {
+  const compose = readFileSync(join(RAIZ, 'infra', 'docker-compose.yml'), 'utf8')
+  const versao = compose.match(/image:\s*quay\.io\/oauth2-proxy\/oauth2-proxy:(\S+)/)?.[1]
+  assert.ok(versao, 'não achei a imagem do oauth2-proxy no compose')
+  assert.equal(
+    versao,
+    VERSAO_CONFERIDA,
+    `o proxy subiu para ${versao}. Reconfira a frase do CSRF em pkg/app/pagewriter/error_page.go ` +
+      `e em oauthproxy.go dessa tag, e atualize CSRF_VENCIDO e VERSAO_CONFERIDA aqui.`,
+  )
+
+  const html = readFileSync(ERRO, 'utf8')
+  assert.ok(
+    html.includes(`(eq .Message "${CSRF_VENCIDO}")`),
+    'error.html não casa mais a frase do CSRF — o 403 de tempo esgotado cairia no ramo genérico',
+  )
+})
+
+test('cada ramo da tela de erro tem título e uma saída', () => {
+  /* Os ramos de 401, 403 genérico e 404 NÃO são alcançáveis por requisição nesta
+     configuração — `/oauth2/<desconhecido>` cai na tela de entrada e
+     `/oauth2/auth` responde 401 sem corpo. Os dois que dão para provar contra o
+     binário (a janela vencida e o 500) foram renderizados à mão em 09/09/2026.
+     Para os outros três, o que se pode garantir sem um interpretador de template
+     Go é o que costuma faltar: título, ação e tag fechada. */
+  const html = readFileSync(ERRO, 'utf8')
+
+  const chave = html.indexOf('{{ if $expirou }}')
+  const fim = html.indexOf('{{ end }}', chave)
+  assert.ok(chave > 0 && fim > chave, 'não achei a cadeia de ramos por status em error.html')
+
+  const ramos = html
+    .slice(chave, fim)
+    .split(/\{\{ (?:else if [^}]*|else) \}\}/)
+    .map((r) => r.replace(/\{\{[^}]*\}\}/g, '').trim())
+    .filter(Boolean)
+
+  assert.equal(ramos.length, 5, `esperava 5 ramos (tempo, 401, 403, 404, resto); li ${ramos.length}`)
+
+  for (const [i, ramo] of ramos.entries()) {
+    const conta = (re) => (ramo.match(re) ?? []).length
+    assert.equal(conta(/<h1>/g), 1, `o ramo ${i} não tem exatamente um <h1>`)
+    assert.ok(conta(/class="botao"/g) >= 1, `o ramo ${i} não oferece saída nenhuma`)
+    for (const tag of ['a', 'p', 'h1']) {
+      assert.equal(
+        conta(new RegExp(`<${tag}[ >]`, 'g')),
+        conta(new RegExp(`</${tag}>`, 'g')),
+        `o ramo ${i} tem <${tag}> sem fechar`,
+      )
+    }
+  }
+})
+
+test('a tela de erro não anuncia a versão do proxy nem exige JavaScript', () => {
+  /* Duas coisas que o template EMBUTIDO fazia e que motivaram substituí-lo: o
+     rodapé publica "OAuth2 Proxy version v7.15.3" numa página que qualquer um
+     alcança sem entrar, e a mensagem verdadeira só aparece clicando num card
+     que abre por script. */
+  const html = readFileSync(ERRO, 'utf8')
+  assert.ok(!html.includes('{{.Version}}'), 'a tela de erro voltou a publicar a versão do proxy')
+  assert.ok(!/<script/i.test(html), 'a tela de erro passou a depender de JavaScript')
+  assert.ok(html.includes('<details class="diag">'), 'o diagnóstico deixou de ser legível sem script')
 })
 
 /**
