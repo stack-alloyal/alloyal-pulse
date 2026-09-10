@@ -478,6 +478,127 @@ describe("carência em dias úteis", { skip: !ADMIN }, () => {
     await db.end();
   });
 
+  /**
+   * ─── O calendário de feriado (migração 0058) ───────────────────────────────
+   *
+   * A 0048 deixou a lacuna anotada e escreveu o risco: "uma lista incompleta
+   * erra em silêncio no dia em que alguém confia nela". Estes portões são a
+   * resposta — sobretudo o da COBERTURA, que é o que impede o silêncio.
+   */
+  test("a Páscoa é a de referência, e é dela que saem os quatro móveis", async () => {
+    /* Sem isto, um erro no algoritmo gregoriano desloca Carnaval, Sexta-feira
+       Santa e Corpus Christi todos juntos, e o calendário fica errado de um jeito
+       que ninguém percebe olhando a tabela — as datas PARECEM plausíveis.
+       2038 está aqui porque é Páscoa tardia (25/04), o extremo do intervalo. */
+    const referencia: Array<[number, string]> = [
+      [2019, "2019-04-21"], [2021, "2021-04-04"], [2022, "2022-04-17"],
+      [2024, "2024-03-31"], [2026, "2026-04-05"], [2027, "2027-03-28"],
+      [2030, "2030-04-21"], [2038, "2038-04-25"],
+    ];
+    for (const [ano, esperada] of referencia) {
+      const { rows } = await db.query<{ p: string }>(
+        "SELECT to_char(core.pascoa($1::int), 'YYYY-MM-DD') AS p",
+        [ano],
+      );
+      assert.equal(rows[0]?.p, esperada, `Páscoa de ${ano}`);
+    }
+
+    // E os móveis, derivados: Carnaval −48/−47, Sexta-feira Santa −2, Corpus +60.
+    const { rows } = await db.query<{ nome: string; data: string }>(
+      `SELECT nome, to_char(data, 'YYYY-MM-DD') AS data FROM core.feriado
+        WHERE tipo = 'bancario' AND data BETWEEN '2026-01-01' AND '2026-12-31'
+        ORDER BY data`,
+    );
+    assert.deepEqual(
+      rows.map((r) => [r.nome, r.data]),
+      [
+        ["Carnaval (segunda)", "2026-02-16"],
+        ["Carnaval (terça)", "2026-02-17"],
+        ["Sexta-feira Santa", "2026-04-03"],
+        ["Corpus Christi", "2026-06-04"],
+      ],
+    );
+  });
+
+  test("o feriado ESTENDE a carência — o caso que motivou a 0058", async () => {
+    /* Medido em 09/09/2026, e é o ponto que o usuário levantou: boleto que vence
+       na sexta só é confiável na terça. Se a SEGUNDA for feriado, passa a ser na
+       quarta — e a função antiga, contando a segunda como útil, punha na fila um
+       dia antes.
+
+       Aparecida cai numa SEGUNDA em 12/10/2026, e segunda é o vencimento mais
+       comum da base (2.306 títulos em 12 meses, 38,3%, R$ 13,0 mi). */
+    const corte = async (hoje: string) => {
+      const { rows } = await db.query<{ c: string }>(
+        "SELECT to_char(core.dia_util_antes($1::date, 2), 'YYYY-MM-DD') AS c",
+        [hoje],
+      );
+      return String(rows[0]?.c);
+    };
+    const VENCE_NA_SEXTA = "2026-10-09";
+
+    // Terça 13/10: ainda em carência, porque a segunda 12 não contou.
+    assert.ok(VENCE_NA_SEXTA > (await corte("2026-10-13")), "a terça pós-feriado já cobrava");
+    // Quarta 14/10: agora sim — o pagamento de sexta apareceu no Omie na terça,
+    // e o C20 das 04h10 da quarta o trouxe.
+    assert.ok(VENCE_NA_SEXTA <= (await corte("2026-10-14")), "a quarta deixou de cobrar");
+  });
+
+  test("dois feriados seguidos contam os dois — Carnaval", async () => {
+    /* O caso mais duro: banco fechado de sábado a terça. Carnaval de 2027 é
+       segunda 08 e terça 09/02, então quem vence na sexta 05 só tem o pagamento
+       visível na quarta 10, e carregado na quinta 11. */
+    const corte = async (hoje: string) => {
+      const { rows } = await db.query<{ c: string }>(
+        "SELECT to_char(core.dia_util_antes($1::date, 2), 'YYYY-MM-DD') AS c",
+        [hoje],
+      );
+      return String(rows[0]?.c);
+    };
+    const VENCE = "2027-02-05";
+    assert.ok(VENCE > (await corte("2027-02-10")), "a quarta de cinzas já cobrava");
+    assert.ok(VENCE <= (await corte("2027-02-11")), "a quinta deixou de cobrar");
+  });
+
+  test("A COBERTURA do calendário alcança 12 meses à frente", async () => {
+    /* ESTE é o portão que responde à ressalva da 0048.
+     *
+     * Fora do intervalo semeado a função degrada para só-fim-de-semana — o
+     * comportamento anterior à 0058, que é conhecido e tolerável, e não um número
+     * errado e plausível. Mas degradar em silêncio é o que a 0048 recusava, e é o
+     * que este teste impede: quando faltar um ano para o calendário acabar, quebra
+     * O CI, com o recado — e não a carência na tela.
+     */
+    const { rows } = await db.query<{ ate: string; quantos: string }>(
+      "SELECT to_char(ate, 'YYYY-MM-DD') AS ate, quantos::text FROM core.feriado_cobertura()",
+    );
+    const ate = String(rows[0]?.ate);
+    const limite = new Date();
+    limite.setFullYear(limite.getFullYear() + 1);
+    const alvo = limite.toISOString().slice(0, 10);
+    assert.ok(
+      ate >= alvo,
+      `o calendário de feriado termina em ${ate}, menos de 12 meses à frente (${alvo}). ` +
+        `Semeie mais anos com uma migração nova — a fórmula está em core.pascoa.`,
+    );
+    assert.ok(Number(rows[0]?.quantos) > 100, "o calendário está quase vazio — a semeadura falhou?");
+  });
+
+  test("dia_util_antes nunca devolve NULL, porque NULL vira tela VAZIA", async () => {
+    /* `t.vencimento <= NULL` não é erro: é ZERO LINHA. Uma janela curta demais
+       faria a tela de inadimplência mostrar nada, e nada parece "não há
+       inadimplência" em vez de "não sei responder". A janela é de 60 dias; isto
+       confere a folga de ponta a ponta, inclusive atravessando o Carnaval e a
+       Semana Santa, que é onde os dias úteis somem. */
+    const { rows } = await db.query<{ nulos: string }>(
+      `SELECT count(*)::text AS nulos
+         FROM generate_series('2026-01-01'::date, '2027-12-31'::date, '1 day') d,
+              generate_series(1, 10) n
+        WHERE core.dia_util_antes(d::date, n) IS NULL`,
+    );
+    assert.equal(rows[0]?.nulos, "0", "há dia/n em que a janela de 60 dias não alcança");
+  });
+
   test("dia_util_antes pula o fim de semana", async () => {
     const { rows } = await db.query(
       `SELECT to_char(core.dia_util_antes($1::date, 2), 'YYYY-MM-DD') AS corte,
