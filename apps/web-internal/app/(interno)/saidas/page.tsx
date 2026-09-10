@@ -1,5 +1,7 @@
 import {
+  MESES_DE_MATURIDADE,
   MOTIVOS_SAIDA,
+  churnObservado,
   contasParaSaida,
   coorteDeSaida,
   faltaParaEncerrar,
@@ -8,6 +10,7 @@ import {
   quadroDeSaida,
   resumoChurn,
   rotuloDoMotivo,
+  saidasSemRegistro,
   type Saida,
 } from '@pulse/success'
 import { Abas, Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Select, Vazio, cn } from '@pulse/ui'
@@ -22,7 +25,7 @@ import {
   acaoRenegociar,
   acaoReter,
 } from './acoes'
-import { Coorte, Meta, Quadro, Registrar } from './visoes'
+import { Coorte, Meta, Quadro, Reconciliacao, Registrar } from './visoes'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir, temEscopo } from '../../../lib/guarda'
@@ -337,7 +340,7 @@ function Linha({ s, podeAprovar }: { s: Saida; podeAprovar: boolean }) {
   )
 }
 
-const ABAS = ['quadro', 'lista', 'coorte', 'meta'] as const
+const ABAS = ['quadro', 'lista', 'coorte', 'meta', 'reconciliacao'] as const
 type Aba = (typeof ABAS)[number]
 
 export default async function Saidas({
@@ -358,7 +361,8 @@ export default async function Saidas({
      campos para receber "registrar saída exige acesso à fila de trabalho". */
   const podeRegistrar = id.permissoes.fila !== 'nenhum' || id.permissoes.configurar
 
-  const [saidas, resumo, pedidos, coorte, metas, contas] = await Promise.all([
+  const [saidas, resumo, pedidos, coorte, metas, contas, observado, semRegistro] =
+    await Promise.all([
     listarSaidas(pool(), id),
     // O resumo lê a base inteira: é número de receita, e receita não tem
     // carteira. Quem não pode ver receita não chega a esta linha.
@@ -374,6 +378,15 @@ export default async function Saidas({
     // de select, e carregá-las na aba de coorte é consulta que ninguém lê.
     podeRegistrar && aba === 'quadro'
       ? contasParaSaida(pool(), id)
+      : Promise.resolve([]),
+    /* Só na aba da reconciliação, pelo mesmo motivo do select de contas: a lista
+       de sem-registro tem 794 linhas em produção, e varrer o ledger inteiro para
+       quem abriu o quadro é consulta que ninguém lê. */
+    veReceita && aba === 'reconciliacao'
+      ? churnObservado(pool(), 15)
+      : Promise.resolve([]),
+    veReceita && aba === 'reconciliacao'
+      ? saidasSemRegistro(pool(), id)
       : Promise.resolve([]),
   ])
 
@@ -424,7 +437,12 @@ export default async function Saidas({
               <Kpi
                 rotulo={`Churn de receita · ${resumo.competencia}`}
                 valor={REAIS(resumo.mrrRealizadoCentavos)}
-                nota={`${resumo.contasComEfeito} conta(s) saíram do faturamento`}
+                /* DIZIA "saíram do faturamento", e lia `success.cancellation` —
+                   a tabela do fluxo, alimentada à mão. A promessa era falsa desde
+                   28/08, quando as visões deixaram de ler o ledger, e foi ela que
+                   fez a tela parecer defeituosa em vez de vazia. O número do
+                   FATURAMENTO tem aba própria agora, com nome próprio. */
+                nota={`${resumo.contasComEfeito} conta(s) saíram pelo fluxo`}
               />
               <Kpi
                 rotulo="Saída comprometida"
@@ -470,6 +488,9 @@ export default async function Saidas({
               ? [
                   { chave: 'coorte', rotulo: 'Coorte' },
                   { chave: 'meta', rotulo: 'Meta' },
+                  /* Junto de coorte e meta, e não ao lado do quadro: é número de
+                     RECEITA, e quem não vê receita não vê nenhum dos três. */
+                  { chave: 'reconciliacao', rotulo: 'Reconciliação' },
                 ]
               : []),
           ]}
@@ -484,8 +505,8 @@ export default async function Saidas({
             {pedidos.length === 0 && (
               <Vazio
                 titulo="Nenhum pedido registrado."
-                porque="O quadro se preenche a partir do primeiro pedido de cancelamento ou desconto cadastrado, no formulário abaixo. Até então, a coorte mostra o churn derivado do faturamento — que sabe quando a receita parou, e não quando o cliente avisou."
-                acao={{ texto: 'Ver a coorte', href: '/saidas?aba=coorte' }}
+                porque="O quadro se preenche a partir do primeiro pedido de cancelamento ou desconto cadastrado, no formulário abaixo. Enquanto isso, a aba Reconciliação mostra o churn que o FATURAMENTO já enxerga — de quem o dinheiro parou de entrar, sem ninguém ter dito por quê."
+                acao={{ texto: 'Ver a reconciliação', href: '/saidas?aba=reconciliacao' }}
               />
             )}
             {/* O cadastro fica DEPOIS do quadro, e não antes: quem abre a tela
@@ -497,6 +518,9 @@ export default async function Saidas({
         )}
 
         {aba === 'coorte' && veReceita && <Coorte meses={coorte} />}
+        {aba === 'reconciliacao' && veReceita && (
+          <Reconciliacao meses={observado} contas={semRegistro} maturidade={MESES_DE_MATURIDADE} />
+        )}
         {aba === 'meta' && veReceita && (
           <Meta linhas={metas} podeDefinir={id.permissoes.configurar} />
         )}

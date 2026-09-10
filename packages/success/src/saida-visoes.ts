@@ -219,6 +219,175 @@ export async function contasParaSaida(
   }))
 }
 
+// ═══ O CHURN OBSERVADO, E A RECONCILIAÇÃO ════════════════════════════════════
+
+/**
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ POR QUE ESTE BLOCO EXISTE, e por que ele NÃO substitui o pipeline.        │
+ * │                                                                            │
+ * │ Em 28/08/2026 as cinco visões deixaram de ler `fact.mrr_event` a pedido do │
+ * │ usuário, e a razão era boa: o ledger é derivado do faturamento e não sabe  │
+ * │ POR QUE a receita parou. O commit registrou o preço — "a coorte começa     │
+ * │ vazia e preenche conforme o time usa o pipeline".                          │
+ * │                                                                            │
+ * │ Em 10/09 o usuário voltou ao ponto: a tela continua zerada, e um dos KPI   │
+ * │ prometia "saíram do FATURAMENTO" lendo a tabela manual. A promessa quebrada │
+ * │ era real.                                                                  │
+ * │                                                                            │
+ * │ A saída não é escolher uma fonte: é mostrar as DUAS, nomeadas. O pipeline   │
+ * │ responde "quem levantou a mão e por quê"; o Omie responde "de quem o        │
+ * │ dinheiro parou de entrar". São perguntas diferentes e nenhuma substitui a   │
+ * │ outra — e a diferença entre elas é a lista de reconciliação, que é o que    │
+ * │ faz o pipeline ser usado.                                                  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ AS DUAS RESSALVAS, MEDIDAS — e é por elas que o número não é o ledger cru. │
+ * │                                                                            │
+ * │ 1. VOLTA A FATURAR. Dos 1.035 eventos `churn_pedido` do ledger, 198 (19,1%) │
+ * │    voltaram a faturar depois: não eram saída, eram ritmo de cobrança —      │
+ * │    cliente que passou a pagar trimestralmente cai no ledger como churn. Ler │
+ * │    o ledger cru inflaria o churn em um quinto.                             │
+ * │                                                                            │
+ * │ 2. MÊS RECENTE NÃO É JULGÁVEL. Medido: ~11% voltam em até 3 meses e ~8%     │
+ * │    depois. Daí a carência de `MESES_DE_MATURIDADE` — afirmar saída no mês   │
+ * │    corrente é afirmar o que ainda não se sabe.                              │
+ * │                                                                            │
+ * │ O custo da maturidade é explícito: os três últimos meses aparecem como "em  │
+ * │ apuração", e não como zero. Zero é uma afirmação; "em apuração" é a verdade.│
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export const MESES_DE_MATURIDADE = 3
+
+/**
+ * O recorte de saída observada, em UM lugar.
+ *
+ * Repetido entre a série e a lista, divergiria — é o mesmo motivo pelo qual
+ * `POSICAO` é um `CASE` só.
+ */
+const SAIU_DO_FATURAMENTO = `
+  e.tipo = 'churn_pedido'
+  AND e.competencia <= date_trunc('month', current_date) - make_interval(months => ${MESES_DE_MATURIDADE})
+  AND NOT EXISTS (
+    SELECT 1 FROM analytics.mrr_faturado_mes m
+     WHERE m.account_id = e.account_id
+       AND m.competencia > e.competencia
+       AND m.mrr_centavos > 0)`
+
+export interface MesObservado {
+  readonly mes: string
+  /** Contas cujo faturamento parou naquela competência, já maduras. */
+  readonly contas: number
+  readonly receitaPerdidaCentavos: string
+  /** Quantas delas têm registro no pipeline. A diferença é o que falta apurar. */
+  readonly comRegistro: number
+  /** Falso nos meses dentro da carência de maturidade: ainda não se sabe. */
+  readonly maduro: boolean
+}
+
+/**
+ * O churn que o FATURAMENTO mostra, mês a mês.
+ *
+ * Não substitui `coorteDeSaida`: aquela conta pedidos do pipeline pela data do
+ * anúncio, esta conta contas pela competência em que o dinheiro parou. Ver o
+ * bloco no topo deste arquivo para por que as duas coexistem.
+ */
+export async function churnObservado(db: pg.Pool, meses = 12): Promise<MesObservado[]> {
+  const { rows } = await db.query(
+    `WITH grade AS (
+       SELECT generate_series(
+                date_trunc('month', current_date) - make_interval(months => $1::int - 1),
+                date_trunc('month', current_date),
+                '1 month')::date AS mes
+     ), obs AS (
+       SELECT e.competencia, e.account_id, e.valor_centavos
+         FROM fact.mrr_event e
+        WHERE ${SAIU_DO_FATURAMENTO}
+     )
+     SELECT to_char(g.mes, 'YYYY-MM-DD') AS mes,
+            count(o.account_id)::int AS contas,
+            COALESCE(abs(sum(o.valor_centavos)), 0)::text AS receita,
+            count(o.account_id) FILTER (
+              WHERE EXISTS (SELECT 1 FROM success.cancellation c
+                             WHERE c.account_id = o.account_id)
+            )::int AS com_registro,
+            -- A carência: o mês só é maduro se já passou dela.
+            (g.mes <= date_trunc('month', current_date)
+                      - make_interval(months => ${MESES_DE_MATURIDADE}))::boolean AS maduro
+       FROM grade g
+       LEFT JOIN obs o ON o.competencia = g.mes
+      GROUP BY g.mes ORDER BY g.mes`,
+    [meses],
+  )
+  return rows.map((r) => ({
+    mes: String(r['mes']),
+    contas: Number(r['contas']),
+    receitaPerdidaCentavos: String(r['receita']),
+    comRegistro: Number(r['com_registro']),
+    maduro: Boolean(r['maduro']),
+  }))
+}
+
+export interface SaidaSemRegistro {
+  readonly accountId: string
+  readonly razaoSocial: string
+  readonly competencia: string
+  readonly receitaPerdidaCentavos: string
+  /** `true` se a conta ainda está marcada como ativa no cadastro. */
+  readonly aindaAtiva: boolean
+  /**
+   * O total ANTES do limite, repetido em cada linha pela janela.
+   *
+   * Existe porque a primeira versão desta lista mostrava "Sem registro (200)" —
+   * a contagem do que caiu na página, com cara de total. São 794. Título que
+   * conta o próprio truncamento é o mesmo defeito que o rótulo "saíram do
+   * faturamento" tinha: afirma menos do que existe, sem avisar.
+   */
+  readonly total: number
+}
+
+/**
+ * A LISTA DE RECONCILIAÇÃO: parou de faturar e ninguém disse por quê.
+ *
+ * É a peça que faltava para o pipeline ser usado. Medido em 10/09/2026: 302
+ * contas pararam de faturar em 13 meses, somando ~R$ 1,16 milhão, e ZERO tinham
+ * registro. O formulário existia, funcionava e estava vazio — porque ninguém
+ * sabia QUEM registrar.
+ *
+ * Respeita o escopo de carteira como as outras visões: `daBase` ou `csm_email`.
+ */
+export async function saidasSemRegistro(
+  db: pg.Pool,
+  id: Identidade,
+  limite = 200,
+): Promise<SaidaSemRegistro[]> {
+  const { rows } = await db.query(
+    `SELECT e.account_id::text AS account_id,
+            a.razao_social,
+            to_char(e.competencia, 'YYYY-MM-DD') AS competencia,
+            abs(e.valor_centavos)::text AS receita,
+            a.ativo AS ainda_ativa,
+            count(*) OVER ()::int AS total
+       FROM fact.mrr_event e
+       JOIN core.account a ON a.id = e.account_id
+      WHERE ${SAIU_DO_FATURAMENTO}
+        AND ($1::boolean OR a.csm_email = $2)
+        AND NOT EXISTS (SELECT 1 FROM success.cancellation c
+                         WHERE c.account_id = e.account_id)
+      ORDER BY e.competencia DESC, abs(e.valor_centavos) DESC
+      LIMIT $3`,
+    [daBase(id), id.email, limite],
+  )
+  return rows.map((r) => ({
+    accountId: String(r['account_id']),
+    razaoSocial: String(r['razao_social'] ?? ''),
+    competencia: String(r['competencia']),
+    receitaPerdidaCentavos: String(r['receita']),
+    aindaAtiva: Boolean(r['ainda_ativa']),
+    total: Number(r['total']),
+  }))
+}
+
 // ═══ A COORTE ════════════════════════════════════════════════════════════════
 
 export interface MesDaCoorte {

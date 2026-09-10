@@ -6,8 +6,10 @@ import {
   type LinhaDaMeta,
   type MesDaCoorte,
   type PedidoNoQuadro,
+  type MesObservado,
+  type SaidaSemRegistro,
 } from '@pulse/success'
-import { Badge, Btn, Card, Field, Select, Table, cn } from '@pulse/ui'
+import { Badge, Btn, Card, Field, Select, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
 import { acaoAvancarEtapa, acaoDefinirMeta, registrarPedido } from './acoes'
@@ -358,6 +360,160 @@ function Coluna({
  * │ ensina a confiar no número errado.                                         │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
+/**
+ * ─── Reconciliação: o que o faturamento mostra e o fluxo não registrou ───────
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ POR QUE ESTA ABA EXISTE, e por que ela não é "a coorte com outro nome".   │
+ * │                                                                            │
+ * │ A coorte conta PEDIDOS: quem levantou a mão, quando, e por quê. É manual e │
+ * │ começa vazia — foi a decisão de 28/08, e o preço estava escrito.           │
+ * │                                                                            │
+ * │ Esta conta CONTAS: de quem o dinheiro parou de entrar. Vem do faturamento, │
+ * │ é automática, e não sabe o motivo. As duas juntas respondem a pergunta que │
+ * │ nenhuma responde sozinha — "de quem paramos de receber sem saber por quê?" │
+ * │                                                                            │
+ * │ Medido em 10/09/2026, e é o número que justifica a aba: 794 contas pararam │
+ * │ de faturar somando R$ 2.178.523,85, e ZERO tinham registro. Dessas, 165    │
+ * │ seguem marcadas como ATIVAS no cadastro. O formulário existia, funcionava e │
+ * │ estava vazio — porque ninguém sabia quem registrar.                        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export function Reconciliacao({
+  meses,
+  contas,
+  maturidade,
+}: {
+  meses: readonly MesObservado[]
+  contas: readonly SaidaSemRegistro[]
+  maturidade: number
+}) {
+  const maduros = meses.filter((m) => m.maduro)
+  const totalContas = maduros.reduce((x, m) => x + m.contas, 0)
+  const totalReais = maduros.reduce((x, m) => x + Number(m.receitaPerdidaCentavos), 0)
+  const totalRegistrado = maduros.reduce((x, m) => x + m.comRegistro, 0)
+  const ativas = contas.filter((c) => c.aindaAtiva).length
+  /* O total vem da consulta, não do tamanho da página: são 794 em produção e a
+     página mostra 200. Contar o array diria 200 com cara de total. */
+  const total = contas[0]?.total ?? 0
+
+  return (
+    <div className="grid gap-5">
+      <Card title="Churn observado no faturamento">
+        <Table
+          cols={['Mês', 'Contas', 'Receita que parou', 'Com registro no fluxo', 'Sem registro']}
+          rows={meses.map((m) => [
+            <span className="whitespace-nowrap font-semibold tabular-nums">{MES(m.mes)}</span>,
+            /* Mês dentro da carência mostra "em apuração", NUNCA zero. Zero é uma
+               afirmação — diria que ninguém saiu, quando a verdade é que ainda não
+               se sabe: medido, ~11% das contas voltam a faturar em até 3 meses. */
+            m.maduro ? (
+              <span className="tabular-nums">{m.contas === 0 ? '—' : N(m.contas)}</span>
+            ) : (
+              <Badge tone="slate">em apuração</Badge>
+            ),
+            <span className="tabular-nums">
+              {m.maduro && m.contas > 0 ? BRL(m.receitaPerdidaCentavos) : '—'}
+            </span>,
+            <span className="tabular-nums">{m.maduro ? m.comRegistro || '—' : '—'}</span>,
+            <span className="tabular-nums">
+              {m.maduro && m.contas - m.comRegistro > 0 ? (
+                <strong className="font-semibold text-amber-800">{N(m.contas - m.comRegistro)}</strong>
+              ) : (
+                '—'
+              )}
+            </span>,
+          ])}
+        />
+        <p className="mt-3 max-w-[80ch] text-meta leading-relaxed text-ink-3">
+          Este número vem do <strong className="font-semibold text-ink">faturamento</strong>, e não
+          do fluxo: ele sabe <strong className="font-semibold text-ink">quando o dinheiro parou</strong>{' '}
+          de entrar, e não sabe por quê. Os últimos {N(maturidade)} meses ficam{' '}
+          <strong className="font-semibold text-ink">em apuração</strong> de propósito — medido, uma
+          conta em cada nove volta a faturar dentro de três meses, e chamar isso de saída seria
+          afirmar o que ainda não se sabe.{' '}
+          {totalContas > 0 && (
+            <>
+              No período maduro: {N(totalContas)} conta(s) e {BRL(String(totalReais))}, das quais{' '}
+              {totalRegistrado === 0 ? (
+                <strong className="font-semibold text-ink">nenhuma</strong>
+              ) : (
+                N(totalRegistrado)
+              )}{' '}
+              com registro no fluxo.
+            </>
+          )}
+        </p>
+      </Card>
+
+      <Card
+        title={
+          total > contas.length
+            ? `Sem registro no fluxo (${N(contas.length)} de ${N(total)})`
+            : `Sem registro no fluxo (${N(total)})`
+        }
+      >
+        {contas.length === 0 ? (
+          <Vazio
+            titulo="Todo churn do faturamento tem registro."
+            porque="Cada conta que parou de faturar tem um pedido no fluxo dizendo por quê. É o estado que esta aba existe para alcançar."
+            className="border-0 p-0"
+          />
+        ) : (
+          <>
+            <Table
+              cols={['Mês', 'Conta', 'Receita que parou', 'Cadastro']}
+              rows={contas.map((c) => [
+                <span className="whitespace-nowrap tabular-nums">{MES(c.competencia)}</span>,
+                /* `/contas/<id>`, e NÃO `/carteira/<id>`: a primeira versão desta
+                   linha apontava para uma rota que não existe, e devolvia 404 —
+                   achado pelo navegador, porque `curl` na página não segue link.
+                   `/carteira/base/<id>` é o cadastro; `/contas/<id>` é a página
+                   onde se age, e responde em 147ms contra 330ms.
+
+                   `prefetch={false}` porque são até 200 linhas: com o padrão, o
+                   Next pré-carrega toda conta que entra na janela — 200 páginas
+                   de conta para quem só quer ler a lista. É o mesmo defeito que o
+                   `/docs` do menu tinha, em escala maior. */
+                <Link
+                  href={`/contas/${c.accountId}`}
+                  prefetch={false}
+                  className="font-medium text-purple-700 hover:underline"
+                >
+                  {c.razaoSocial}
+                </Link>,
+                <span className="tabular-nums">{BRL(c.receitaPerdidaCentavos)}</span>,
+                /* "Ainda ativa" é o caso que mais custa: o painel AFIRMA que a
+                   conta está na base, e o dinheiro dela parou há meses. Ver a
+                   memória do vazamento do C18 — a escrita do cadastro nunca
+                   remove, então `ativo` sobrevive ao cliente. */
+                c.aindaAtiva ? (
+                  <Badge tone="amber">ainda ativa no cadastro</Badge>
+                ) : (
+                  <span className="text-ink-3">inativa</span>
+                ),
+              ])}
+            />
+            <p className="mt-3 max-w-[80ch] text-meta leading-relaxed text-ink-3">
+              De quem paramos de receber sem ninguém dizer por quê. Cada linha é um pedido de saída
+              que falta registrar — e é registrando que a coorte, a meta e o quadro saem do zero.
+              {ativas > 0 && (
+                <>
+                  {' '}
+                  <strong className="font-semibold text-amber-800">
+                    {N(ativas)} continua(m) marcada(s) como ativa(s) no cadastro
+                  </strong>{' '}
+                  — o painel afirma que estão na base, e o faturamento diz que pararam.
+                </>
+              )}
+            </p>
+          </>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 export function Coorte({ meses }: { meses: readonly MesDaCoorte[] }) {
   const temAnuncio = meses.some((m) => m.anunciados > 0)
   const totalChurn = meses.reduce((s, m) => s + Number(m.churnEfeitoCentavos), 0)
@@ -405,7 +561,8 @@ export function Coorte({ meses }: { meses: readonly MesDaCoorte[] }) {
           distância entre elas é o aviso prévio. À esquerda, o mês em que a{' '}
           <strong className="font-semibold text-ink">mão subiu</strong>. À direita, o mês em que a{' '}
           <strong className="font-semibold text-ink">receita para</strong> — apurado pelo próprio
-          fluxo, com as duas confirmações humanas, e não adivinhado do faturamento.{' '}
+          fluxo, com as duas confirmações humanas, e não adivinhado do faturamento. O que o faturamento
+          mostra está na aba <strong className="font-semibold text-ink">Reconciliação</strong>.{' '}
           {temAnuncio ? (
             <>
               No período: {BRL(totalAnunciado)} levantaram a mão e {BRL(totalChurn)} saíram do
