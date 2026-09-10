@@ -51,6 +51,7 @@
  */
 import {
   alvosDoCartao,
+  confirmacaoDoArraste,
   DIAS_PARA_ESTAGNAR,
   POSICOES,
   type PedidoNoQuadro,
@@ -59,7 +60,7 @@ import {
 } from '@pulse/success'
 import Link from 'next/link'
 
-import { Arraste, Coluna } from './arrastar'
+import { Arraste, Coluna, type TextoDaConfirmacao } from './arrastar'
 
 const BRL = (c: string | null) =>
   c === null
@@ -97,6 +98,11 @@ function Cartao({ p, poderes }: { p: PedidoNoQuadro; poderes: PoderesDeArraste }
       data-saida={p.id}
       data-posicao={p.posicao}
       data-alvos={alvos.join(' ')}
+      /* O nome e os dias viajam no cartão porque é o DIÁLOGO que os usa: o texto
+         de confirmação vem do servidor com `{cliente}` e `{dias}`, e quem sabe
+         qual cartão foi solto é o navegador. */
+      data-nome={p.razaoSocial}
+      data-aviso={p.avisoPrevioDias ?? ''}
       draggable={alvos.length > 0}
       title={
         alvos.length > 0
@@ -193,8 +199,16 @@ export function QuadroKanban({
   const porPosicao = new Map(POSICOES.map((p) => [p.id, [] as PedidoNoQuadro[]]))
   for (const p of pedidos) porPosicao.get(p.posicao)?.push(p)
 
+  /* Os textos de confirmação, calculados UMA vez para as oito colunas. Vão como
+     prop e não por import no componente de cliente: `confirmacaoDoArraste` mora
+     no pacote de domínio, e importá-lo de dentro do `'use client'` levaria o
+     domínio inteiro para o bundle do navegador. */
+  const confirmacoes = Object.fromEntries(
+    POSICOES.map((pos) => [pos.id, confirmacaoDoArraste(pos.id)]).filter(([, c]) => c !== null),
+  ) as Readonly<Record<string, TextoDaConfirmacao>>
+
   return (
-    <Arraste>
+    <Arraste confirmacoes={confirmacoes}>
       {POSICOES.map((pos) => {
         const itens = porPosicao.get(pos.id) ?? []
         const soma = itens.reduce((s, p) => s + Number(p.mrrCentavos ?? 0), 0)

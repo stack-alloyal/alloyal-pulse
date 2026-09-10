@@ -32,6 +32,8 @@ import {
 import {
   alvosDoCartao,
   colunaConhecida,
+  confirmacaoDoArraste,
+  MARCADORES_DA_CONFIRMACAO,
   movimento,
   rotuloDaColuna,
   type CartaoQueArrasta,
@@ -153,6 +155,74 @@ test('todo desfecho registrado é cartão parado', () => {
       assert.deepEqual(alvosDoCartao(cartao(e, origem), TUDO), [], `${e} (${origem}) tem alvo`)
     }
   }
+})
+
+test('nenhum desfecho se grava sem confirmação', () => {
+  /* ┌─────────────────────────────────────────────────────────────────────────┐
+     │ A INVARIANTE QUE FALTAVA, e ela nasceu de um caso de produção.          │
+     │                                                                          │
+     │ Em 10/09/2026 havia UM pedido na base: registrado por uma pessoa do time │
+     │ e movido no mesmo dia para `retido` — ponto final. Ela tentou mover de    │
+     │ novo, não conseguiu, e reportou como limitação. A recusa estava certa; o  │
+     │ defeito era antes: um arraste gravou algo irreversível sem perguntar.     │
+     │                                                                          │
+     │ Daqui em diante: toda coluna que NÃO é etapa de trabalho e que aceita     │
+     │ cartão tem de ter confirmação. Etapa não tem, de propósito — ela se       │
+     │ desfaz arrastando de volta, e era isso que o usuário pediu que fosse      │
+     │ livre. */
+  const semConfirmacao: string[] = []
+  const comConfirmacaoDemais: string[] = []
+  for (const pos of POSICOES) {
+    const c = confirmacaoDoArraste(pos.id)
+    const etapa = pos.tipo === 'etapa'
+    if (!etapa && c === null) semConfirmacao.push(pos.id)
+    if (etapa && c !== null) comConfirmacaoDemais.push(pos.id)
+  }
+  assert.deepEqual(semConfirmacao, [], 'desfecho alcançável por arraste e sem confirmação')
+  assert.deepEqual(comConfirmacaoDemais, [], 'etapa de trabalho não pede confirmação')
+
+  // E o alcançável de fato: todo alvo aprovado que não é etapa tem texto.
+  for (const estado of ESTADOS) {
+    for (const origem of ORIGENS) {
+      for (const a of alvosDoCartao(cartao(estado, origem), TUDO)) {
+        const tipo = POSICOES.find((p) => p.id === a)!.tipo
+        if (tipo === 'etapa') continue
+        assert.notEqual(confirmacaoDoArraste(a), null, `${estado} → ${a} grava sem perguntar`)
+      }
+    }
+  }
+})
+
+test('a confirmação segue os quatro elementos, e não diz "tem certeza"', () => {
+  /* O padrão §06 do design system: título é o que ACONTECE, corpo é por que
+     importa, saída é a alternativa, pergunta é o que se responde. "Tem certeza?"
+     é o anti-padrão que ensina a clicar em OK sem ler. */
+  for (const pos of POSICOES) {
+    const c = confirmacaoDoArraste(pos.id)
+    if (c === null) continue
+    for (const [campo, v] of Object.entries({
+      titulo: c.titulo,
+      corpo: c.corpo,
+      saida: c.saida,
+      pergunta: c.pergunta,
+    })) {
+      assert.ok(v.length >= 20, `${pos.id}.${campo} curto demais: "${v}"`)
+      assert.ok(!/tem certeza/i.test(v), `${pos.id}.${campo} caiu no "tem certeza"`)
+    }
+    // Todo marcador usado tem de estar na lista fechada que a tela sabe trocar.
+    const usados = [...`${c.titulo} ${c.corpo} ${c.saida} ${c.pergunta}`.matchAll(/\{\w+\}/g)].map(
+      (m) => m[0],
+    )
+    for (const u of usados) {
+      assert.ok(
+        (MARCADORES_DA_CONFIRMACAO as readonly string[]).includes(u),
+        `${pos.id} usa o marcador ${u}, que a tela não troca`,
+      )
+    }
+  }
+  // O desfecho sem volta foca o Cancelar; o que tem volta, não.
+  assert.equal(confirmacaoDoArraste('revertido')?.destrutiva, true)
+  assert.equal(confirmacaoDoArraste('cancelamento')?.destrutiva, false)
 })
 
 test('coluna que chega da rede passa por lista de permissão', () => {
