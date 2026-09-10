@@ -7,6 +7,7 @@ import {
   Database,
   DoorOpen,
   FileBarChart,
+  FileMinus,
   FileText,
   Inbox,
   Settings,
@@ -89,10 +90,20 @@ export const MENU: readonly ItemDeMenu[] = [
     proposito: "Janela de 90 dias, com a previsão medida",
   },
   {
+    /* A tela em que se OPERA um cancelamento: o quadro, o cadastro do card e os
+       formulários de cada pedido. Item PRÓPRIO e não sub-item de Saídas, porque
+       são perguntas de gente diferente — esta é "o que eu faço agora com este
+       pedido?", todo dia; Saídas é "quanto perdemos e por quê?", no fechamento. */
+    href: "/cancelamento",
+    rotulo: "Cancelamento",
+    icone: FileMinus,
+    proposito: "Abrir e trabalhar um pedido, do card ao desfecho",
+  },
+  {
     href: "/saidas",
     rotulo: "Saídas",
     icone: DoorOpen,
-    proposito: "O pipeline do churn, da levantada de mão ao desfecho",
+    proposito: "O churn medido: funil, coorte, meta e reconciliação",
   },
   {
     href: "/receita",

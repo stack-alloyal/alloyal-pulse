@@ -15,6 +15,19 @@ import { Badge, Btn, Card, Field, Select, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
 import { acaoAvancarEtapa, acaoDefinirMeta, registrarPedido } from './acoes'
+import { CAMPO_DE_VOLTA } from './volta'
+
+/**
+ * O campo escondido que diz para onde a ação devolve.
+ *
+ * Existe como componente para o nome do campo aparecer em UM lugar: dez
+ * formulários com a string à mão é a lista duplicada que diverge no primeiro
+ * rename. O valor é validado contra lista de permissão em `acoes.ts` — ver o
+ * comentário de `TELAS_DO_FLUXO` para por que não se sanitiza.
+ */
+export function CampoDeVolta({ para }: { para: string }) {
+  return <input type="hidden" name={CAMPO_DE_VOLTA} value={para} />
+}
 
 /**
  * As três visões do fluxo de saída: o quadro, a coorte e a meta.
@@ -63,9 +76,11 @@ const MES = (iso: string) => {
 export function Registrar({
   contas,
   hoje,
+  volta,
 }: {
   contas: readonly ContaParaSaida[]
   hoje: string
+  volta: string
 }) {
   const semMrr = contas.filter((c) => c.mrrCentavos === null).length
   return (
@@ -79,6 +94,7 @@ export function Registrar({
       ) : (
         <>
           <form action={registrarPedido} className="grid gap-3">
+            <CampoDeVolta para={volta} />
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-[22em] flex-1">
                 <Select label="Cliente" name="accountId" required defaultValue="">
@@ -202,7 +218,7 @@ export function Registrar({
  * │ para sair e ficou não é o mesmo que um cliente que nunca pensou em sair.     │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-export function Quadro({ pedidos }: { pedidos: readonly PedidoNoQuadro[] }) {
+export function Quadro({ pedidos, volta }: { pedidos: readonly PedidoNoQuadro[]; volta: string }) {
   const porPosicao = new Map(POSICOES.map((p) => [p.id, [] as PedidoNoQuadro[]]))
   for (const p of pedidos) porPosicao.get(p.posicao)?.push(p)
 
@@ -242,7 +258,7 @@ export function Quadro({ pedidos }: { pedidos: readonly PedidoNoQuadro[] }) {
       <Card title="Em trabalho">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {etapas.map((pos) => (
-            <Coluna key={pos.id} pos={pos} itens={porPosicao.get(pos.id) ?? []} />
+            <Coluna key={pos.id} pos={pos} itens={porPosicao.get(pos.id) ?? []} volta={volta} />
           ))}
         </div>
       </Card>
@@ -250,7 +266,7 @@ export function Quadro({ pedidos }: { pedidos: readonly PedidoNoQuadro[] }) {
       <Card title="Desfechos">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {desfechos.map((pos) => (
-            <Coluna key={pos.id} pos={pos} itens={porPosicao.get(pos.id) ?? []} />
+            <Coluna key={pos.id} pos={pos} itens={porPosicao.get(pos.id) ?? []} volta={volta} />
           ))}
         </div>
         <p className="mt-3 text-meta leading-relaxed text-ink-3">
@@ -273,9 +289,11 @@ const TOM_DA_POSICAO = {
 function Coluna({
   pos,
   itens,
+  volta,
 }: {
   pos: (typeof POSICOES)[number]
   itens: readonly PedidoNoQuadro[]
+  volta: string
 }) {
   const soma = itens.reduce((s, p) => s + Number(p.mrrCentavos ?? 0), 0)
   return (
@@ -303,6 +321,7 @@ function Coluna({
             {pos.tipo === 'etapa' && (
               <form className="mt-1.5 flex flex-wrap gap-1.5">
                 <input type="hidden" name="id" value={p.id} />
+                <CampoDeVolta para={volta} />
                 {/* A posição de trabalho mapeia 1:1 no estado, e só `pedido` tem
                     nome diferente do dele (`anunciado`). O botão da etapa atual
                     não aparece: mover para onde já se está é um clique que não faz
@@ -745,9 +764,11 @@ export function Coorte({ meses }: { meses: readonly MesDaCoorte[] }) {
 export function Meta({
   linhas,
   podeDefinir,
+  volta,
 }: {
   linhas: readonly LinhaDaMeta[]
   podeDefinir: boolean
+  volta: string
 }) {
   const semMeta = linhas.every((l) => l.metaCentavos === null)
   const ultima = linhas[linhas.length - 1]
@@ -819,6 +840,7 @@ export function Meta({
       {podeDefinir && (
         <Card title="Definir a meta de um mês">
           <form action={acaoDefinirMeta} className="flex flex-wrap items-end gap-2">
+            <CampoDeVolta para={volta} />
             <Field label="Competência" name="competencia" type="month" required className="w-40" />
             <Field
               label="Meta de churn (R$)"

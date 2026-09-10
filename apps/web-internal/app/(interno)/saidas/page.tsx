@@ -1,37 +1,32 @@
 import {
   MESES_DE_MATURIDADE,
-  MOTIVOS_SAIDA,
   churnObservado,
-  contasParaSaida,
   funilDeSaida,
   coorteDeSaida,
-  faltaParaEncerrar,
-  listarSaidas,
   metaVersusRealizado,
-  quadroDeSaida,
   resumoChurn,
-  rotuloDoMotivo,
   saidasSemRegistro,
-  type Saida,
 } from '@pulse/success'
-import { Abas, Aviso, Badge, Btn, Card, Field, Kpi, KpiGrade, Select, Vazio, cn } from '@pulse/ui'
-import { Check } from 'lucide-react'
+import { Abas, Aviso, Kpi, KpiGrade } from '@pulse/ui'
 
-import {
-  acaoConfirmarAviso,
-  acaoConfirmarCobranca,
-  acaoConfirmarMotivo,
-  acaoDesconto,
-  acaoEncerrar,
-  acaoRenegociar,
-  acaoReter,
-} from './acoes'
-import { Coorte, Funil, Meta, Quadro, Reconciliacao, Registrar } from './visoes'
+import { Coorte, Funil, Meta, Reconciliacao } from './visoes'
+import Link from 'next/link'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir, temEscopo } from '../../../lib/guarda'
 
 export const dynamic = 'force-dynamic'
+
+/** Centavos em reais, ou travessão. Os KPIs desta tela são os únicos que o usam
+ *  aqui — o resto do formato mora em `cancelamento/andamento.tsx`. */
+const REAIS = (c: string | null) =>
+  c === null
+    ? '—'
+    : (Number(c) / 100).toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        minimumFractionDigits: 2,
+      })
 
 /**
  * Saídas — o churn real, com as quatro datas visíveis.
@@ -45,303 +40,15 @@ export const dynamic = 'force-dynamic'
  * contra. O resto é registro.
  */
 
-const REAIS = (c: string | null) =>
-  c === null
-    ? '—'
-    : (Number(c) / 100).toLocaleString('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-      })
-
-const ESTADO: Record<string, { rotulo: string; tom: 'red' | 'amber' | 'green' | 'slate' }> = {
-  anunciado: { rotulo: 'Anunciado', tom: 'red' },
-  em_aviso: { rotulo: 'Em aviso', tom: 'amber' },
-  retido: { rotulo: 'Retido', tom: 'green' },
-  encerrado: { rotulo: 'Encerrado', tom: 'slate' },
-}
-
-const MES = (c: string | null) => c ?? '—'
-
-function janela(s: Saida): { texto: string; cor: string } {
-  if (s.estado === 'retido') return { texto: 'revertida', cor: 'text-green' }
-  if (s.estado === 'encerrado') return { texto: 'encerrada', cor: 'text-ink-3' }
-  if (s.dataFimAviso === null) {
-    return { texto: 'aviso prévio não confirmado', cor: 'text-red' }
-  }
-  const d = s.diasParaFimDoAviso ?? 0
-  if (d < 0) return { texto: `janela fechou há ${-d} d`, cor: 'text-ink-3' }
-  if (d === 0) return { texto: 'fecha hoje', cor: 'text-red' }
-  return { texto: `${d} d para reverter`, cor: d <= 15 ? 'text-red' : 'text-orange-700' }
-}
-
-/** A linha do tempo das quatro datas, com quem confirmou cada uma. */
-function Datas({ s }: { s: Saida }) {
-  // Numa saída revertida os dois últimos passos não estão PENDENTES, estão
-  // dispensados: a receita nunca saiu, e nunca haverá última cobrança. Dizer
-  // "aguarda o Financeiro" ali inventa uma tarefa que ninguém deve fazer — e
-  // alguém a faria, porque a tela pediu.
-  const revertida = s.estado === 'retido'
-  const passos = [
-    {
-      rotulo: '1 · Levantada',
-      valor: s.dataLevantada ?? (s.origem === 'alloyal' ? 'provisão' : '—'),
-      nota: [s.canal, s.quemComunicou].filter(Boolean).join(' · ') || null,
-      feito: s.dataLevantada !== null || s.origem === 'alloyal',
-    },
-    {
-      rotulo: '2 · Fim do aviso',
-      valor: s.dataFimAviso ?? '—',
-      nota: s.avisoConfirmadoPor
-        ? `${s.avisoPrevioDias} d · confirmado por ${s.avisoConfirmadoPor}`
-        : 'aguarda confirmação de CS ou Jurídico',
-      feito: s.avisoConfirmadoPor !== null,
-    },
-    {
-      rotulo: '3 · Última cobrança',
-      valor: MES(s.competenciaUltimaCobranca),
-      nota: s.cobrancaConfirmadaPor
-        ? `confirmado por ${s.cobrancaConfirmadaPor}`
-        : revertida
-          ? 'não se aplica — a saída foi revertida'
-          : 'aguarda confirmação do Financeiro',
-      feito: s.cobrancaConfirmadaPor !== null || revertida,
-    },
-    {
-      rotulo: '4 · Efeito na receita',
-      valor: MES(s.competenciaEfeitoReceita),
-      // Derivada, nunca digitada — senão um dia o churn de receita e a última
-      // cobrança discordam, e a diferença vira ajuste sem explicação.
-      nota: s.competenciaEfeitoReceita
-        ? 'derivada da última cobrança + 1'
-        : revertida
-          ? 'a receita nunca saiu'
-          : 'depende das duas confirmações',
-      feito: s.competenciaEfeitoReceita !== null || revertida,
-    },
-  ]
-  return (
-    <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      {passos.map((p) => (
-        <li
-          key={p.rotulo}
-          className={cn(
-            'rounded-md border bg-surface-2 px-3 py-2',
-            p.feito ? 'border-line' : 'border-dashed border-line-strong opacity-80',
-          )}
-        >
-          <span className="flex items-center gap-1 text-tabela font-semibold uppercase tracking-[0.08em] text-ink-3">
-            {p.feito && <Check className="h-3 w-3 text-green" />}
-            {p.rotulo}
-          </span>
-          <strong className="mt-0.5 block tabular-nums text-cartao font-bold text-ink">
-            {p.valor}
-          </strong>
-          {p.nota && <span className="mt-0.5 block text-nota text-ink-3">{p.nota}</span>}
-        </li>
-      ))}
-    </ol>
-  )
-}
-
-function Linha({ s, podeAprovar }: { s: Saida; podeAprovar: boolean }) {
-  const e = ESTADO[s.estado]!
-  const j = janela(s)
-  const aberta = s.estado === 'anunciado' || s.estado === 'em_aviso'
-  const falta = faltaParaEncerrar(s)
-
-  return (
-    <li
-      className={cn(
-        'rounded-lg border border-line border-l-[3px] bg-surface p-[14px] shadow-sm',
-        s.estado === 'anunciado' && 'border-l-red',
-        s.estado === 'em_aviso' && 'border-l-amber',
-        s.estado === 'retido' && 'border-l-green',
-      )}
-    >
-      <div className="flex flex-wrap items-baseline gap-2">
-        <strong className="text-cartao font-bold tracking-[-0.01em] text-ink">{s.conta}</strong>
-        <Badge tone={e.tom}>{e.rotulo}</Badge>
-        <span className="tabular-nums text-meta text-ink-3">
-          {REAIS(s.mrrCentavosNaLevantada)}/mês
-        </span>
-        {s.origem === 'alloyal' && <Badge>encerramento pela Alloyal</Badge>}
-        {s.motivo && <Badge tone="indigo">{rotuloDoMotivo(s.motivo)}</Badge>}
-        <span className={cn('ml-auto text-meta font-semibold', j.cor)}>{j.texto}</span>
-      </div>
-
-      <div className="mt-3">
-        <Datas s={s} />
-      </div>
-
-      {aberta && (
-        <div className="mt-3 grid gap-2 border-t border-line pt-3">
-          {!s.avisoConfirmadoPor && (
-            <form action={acaoConfirmarAviso} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="id" value={s.id} />
-              <Field
-                label="Aviso prévio (dias)"
-                name="avisoPrevioDias"
-                type="number"
-                min={0}
-                max={365}
-                defaultValue={s.avisoPrevioDias ?? 30}
-                required
-                className="w-24"
-              />
-              {/* O contrato diz N, mas há acordo, renúncia e prorrogação — e é o
-                  campo que mais desloca receita entre meses. */}
-              <Btn type="submit" variant="ghost">
-                Confirmar aviso
-              </Btn>
-            </form>
-          )}
-
-          {!s.cobrancaConfirmadaPor && (
-            <form action={acaoConfirmarCobranca} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="id" value={s.id} />
-              <Field
-                label="Última cobrança"
-                name="competencia"
-                type="month"
-                required
-                className="w-40"
-              />
-              <Btn type="submit" variant="ghost">
-                Confirmar cobrança (Financeiro)
-              </Btn>
-            </form>
-          )}
-
-          <form action={acaoReter} className="flex flex-wrap items-end gap-2">
-            <input type="hidden" name="id" value={s.id} />
-            <div className="min-w-[16em] flex-1">
-              <Field
-                label="Retenção"
-                name="nota"
-                type="text"
-                placeholder="O que reverteu? (opcional)"
-                maxLength={500}
-              />
-            </div>
-            <Btn type="submit" variant="ghost">
-              Registrar retenção
-            </Btn>
-          </form>
-
-          {/* ┌──────────────────────────────────────────────────────────────┐
-              │ OS DOIS DESFECHOS QUE SALVAM O CLIENTE PAGANDO MENOS.         │
-              │                                                               │
-              │ Ficam aqui, e não no quadro: os cartões do quadro têm largura  │
-              │ de coluna, e estes precisam de valor em reais e competência —  │
-              │ dois campos que decidem quanto e quando entra no ledger. Sem   │
-              │ formulário eles não existiam na tela, e as posições 5 e 6 do   │
-              │ pipeline eram inalcançáveis: o pedido só podia ser retido ou   │
-              │ encerrado, que é o mundo de dois desfechos que este fluxo veio │
-              │ substituir.                                                   │
-              └──────────────────────────────────────────────────────────────┘ */}
-          <form action={acaoDesconto} className="flex flex-wrap items-end gap-2">
-            <input type="hidden" name="id" value={s.id} />
-            <Field
-              label="Novo MRR (desconto)"
-              name="mrrNovo"
-              type="text"
-              inputMode="decimal"
-              placeholder="3.200,00"
-              required
-              className="w-40"
-            />
-            <Field label="Vale a partir de" name="competencia" type="month" required className="w-40" />
-            <div className="min-w-[14em] flex-1">
-              <Field label="Nota" name="nota" type="text" placeholder="o que foi combinado (opcional)" maxLength={500} />
-            </div>
-            <Btn type="submit" variant="ghost">
-              Conceder desconto
-            </Btn>
-          </form>
-
-          <form action={acaoRenegociar} className="flex flex-wrap items-end gap-2">
-            <input type="hidden" name="id" value={s.id} />
-            {/* MRR VAZIO é o caso comum: parcelar dívida muda quando o dinheiro
-                entra, não quanto entra por mês — e aí nada vai para o ledger de
-                receita. O campo é opcional por isso, e o placeholder diz. */}
-            <Field
-              label="Novo MRR (se mudou)"
-              name="mrrNovo"
-              type="text"
-              inputMode="decimal"
-              placeholder="vazio = mensal igual"
-              className="w-40"
-            />
-            <Field label="Vale a partir de" name="competencia" type="month" className="w-40" />
-            <div className="min-w-[14em] flex-1">
-              <Field label="Nota" name="nota" type="text" placeholder="prazo, parcelas, garantia" maxLength={500} />
-            </div>
-            <Btn type="submit" variant="ghost">
-              Renegociar
-            </Btn>
-          </form>
-
-          {/* O motivo confirmado é o que sustenta a análise, e o banco exige que
-              venha de OUTRA pessoa que não a que abriu o pedido. */}
-          <form action={acaoConfirmarMotivo} className="flex flex-wrap items-end gap-2">
-            <input type="hidden" name="id" value={s.id} />
-            <Select
-              label={s.motivoConfirmadoPor ? 'Motivo (confirmado)' : 'Confirmar motivo'}
-              name="motivo"
-              required
-              defaultValue={s.motivo ?? ''}
-              className="w-56"
-            >
-              <option value="" disabled>
-                escolha o motivo…
-              </option>
-              {MOTIVOS_SAIDA.map((m) => (
-                <option key={m.valor} value={m.valor}>
-                  {m.rotulo}
-                </option>
-              ))}
-            </Select>
-            <div className="min-w-[14em] flex-1">
-              <Field label="Detalhe" name="detalhe" type="text" placeholder="obrigatório em Outro" maxLength={500} />
-            </div>
-            <Btn type="submit" variant="ghost">
-              {s.motivoConfirmadoPor ? 'Corrigir motivo' : 'Confirmar motivo'}
-            </Btn>
-          </form>
-
-          {falta.length === 1 && falta[0]?.startsWith('aprovação') ? (
-            podeAprovar ? (
-              <form action={acaoEncerrar} className="flex flex-wrap items-center gap-3">
-                <input type="hidden" name="id" value={s.id} />
-                {/* Encerrar grava no ledger e não se desfaz: o botão diz isso. */}
-                <Btn type="submit" variant="danger">
-                  Aprovar e encerrar
-                </Btn>
-                <span className="text-meta text-ink-3">
-                  Grava o churn de receita em {MES(s.competenciaEfeitoReceita)}.
-                </span>
-              </form>
-            ) : (
-              <p className="text-meta text-ink-3">
-                Pronta para encerrar — falta a aprovação de quem tem alçada de distrato.
-              </p>
-            )
-          ) : (
-            <p className="text-meta text-ink-3">Para encerrar, falta: {falta.join('; ')}</p>
-          )}
-        </div>
-      )}
-
-      {s.estado === 'retido' && s.retidoPor && (
-        <p className="mt-2 text-meta text-ink-3">
-          Revertida em {s.retidoEm} por {s.retidoPor} — a receita nunca saiu.
-        </p>
-      )}
-    </li>
-  )
-}
-
-const ABAS = ['quadro', 'funil', 'lista', 'coorte', 'meta', 'reconciliacao'] as const
+/**
+ * Só ANÁLISE. Quadro, cadastro e a lista de andamento foram para
+ * `/cancelamento` em 10/09/2026 — ver o cabeçalho de lá para por que a divisão
+ * tem conteúdo e não é só organização.
+ *
+ * `funil` é a primeira porque é a única que tem dado hoje: o pipeline depende de
+ * alguém registrar, e `success.cancellation` está em zero linha.
+ */
+const ABAS = ['funil', 'coorte', 'meta', 'reconciliacao'] as const
 type Aba = (typeof ABAS)[number]
 
 export default async function Saidas({
@@ -351,38 +58,24 @@ export default async function Saidas({
 }) {
   const id = await exigir((p) => temEscopo(p.contas), 'saídas e churn')
   const q = await searchParams
-  const aba: Aba = ABAS.find((a) => a === q.aba) ?? 'quadro'
+  const aba: Aba = ABAS.find((a) => a === q.aba) ?? 'funil'
 
   const hoje = new Date().toISOString().slice(0, 10)
   const comp = q.competencia ? `${q.competencia}-01` : `${hoje.slice(0, 7)}-01`
   const veReceita = id.permissoes.receita !== 'nenhum' || id.permissoes.configurar
-  /* A MESMA regra que `anunciar` aplica lá dentro, e não a do `exigir` da página:
-     ver saídas pede escopo de contas, ABRIR uma pede acesso à fila. Mostrar o
-     formulário a quem só vê contas (o Comercial) faria a pessoa preencher oito
-     campos para receber "registrar saída exige acesso à fila de trabalho". */
-  const podeRegistrar = id.permissoes.fila !== 'nenhum' || id.permissoes.configurar
-
-  const [saidas, resumo, pedidos, coorte, metas, contas, observado, semRegistro, funil] =
-    await Promise.all([
-    listarSaidas(pool(), id),
+  const [resumo, coorte, metas, observado, semRegistro, funil] = await Promise.all([
     // O resumo lê a base inteira: é número de receita, e receita não tem
     // carteira. Quem não pode ver receita não chega a esta linha.
     veReceita ? resumoChurn(pool(), comp) : null,
-    quadroDeSaida(pool(), id),
     // Coorte e meta são número de RECEITA, como o resumo: quem não vê receita
     // não carrega nem a consulta. A aba também não aparece.
     veReceita ? coorteDeSaida(pool(), 12) : Promise.resolve([]),
     veReceita
       ? metaVersusRealizado(pool(), `${hoje.slice(0, 4)}-01`, hoje.slice(0, 7))
       : Promise.resolve([]),
-    // Só na aba do quadro, que é a única que mostra o formulário: são ~426 linhas
-    // de select, e carregá-las na aba de coorte é consulta que ninguém lê.
-    podeRegistrar && aba === 'quadro'
-      ? contasParaSaida(pool(), id)
-      : Promise.resolve([]),
     /* Só na aba da reconciliação, pelo mesmo motivo do select de contas: a lista
        de sem-registro tem 794 linhas em produção, e varrer o ledger inteiro para
-       quem abriu o quadro é consulta que ninguém lê. */
+       quem abriu o funil é consulta que ninguém lê. */
     veReceita && aba === 'reconciliacao'
       ? churnObservado(pool(), 15)
       : Promise.resolve([]),
@@ -394,25 +87,6 @@ export default async function Saidas({
     aba === 'funil' ? funilDeSaida(pool(), id) : Promise.resolve([]),
   ])
 
-  /* As três etapas de trabalho e o aviso correndo contam como ABERTAS: são os
-     pedidos que ainda pedem alguma coisa de alguém. Os quatro desfechos são
-     fechados. Antes a lista só conhecia dois estados de cada lado, e um pedido em
-     `financeiro` ou `reversao` não apareceria em nenhuma das duas listas. */
-  const abertas = saidas.filter(
-    (s) =>
-      s.estado === 'anunciado' ||
-      s.estado === 'financeiro' ||
-      s.estado === 'reversao' ||
-      s.estado === 'em_aviso',
-  )
-  const fechadas = saidas.filter(
-    (s) =>
-      s.estado === 'retido' ||
-      s.estado === 'desconto' ||
-      s.estado === 'renegociado' ||
-      s.estado === 'encerrado',
-  )
-  const podeAprovar = id.permissoes.aprovaDistrato !== 'nao' || id.permissoes.configurar
   const link = (a: Aba) =>
     `/saidas?aba=${a}${q.competencia ? `&competencia=${q.competencia}` : ''}`
 
@@ -486,12 +160,10 @@ export default async function Saidas({
             └───────────────────────────────────────────────────────────────────┘ */}
         <Abas
           abas={[
-            { chave: 'quadro', rotulo: 'Quadro', conta: pedidos.length },
-            /* Logo depois do Quadro, e FORA do `veReceita`: as colunas do funil
-               são risco de CONTA, e quem cuida de conta precisa vê-las. Coorte,
-               meta e reconciliação são número de receita e ficam atrás do gate. */
+            /* FORA do `veReceita`: as colunas do funil são risco de CONTA, e
+               quem cuida de conta precisa vê-las. Coorte, meta e reconciliação
+               são número de receita e ficam atrás do gate. */
             { chave: 'funil', rotulo: 'Funil' },
-            { chave: 'lista', rotulo: 'Em andamento', conta: abertas.length },
             ...(veReceita
               ? [
                   { chave: 'coorte', rotulo: 'Coorte' },
@@ -507,23 +179,17 @@ export default async function Saidas({
           iguais
         />
 
-        {aba === 'quadro' && (
-          <>
-            <Quadro pedidos={pedidos} />
-            {pedidos.length === 0 && (
-              <Vazio
-                titulo="Nenhum pedido registrado."
-                porque="O quadro se preenche a partir do primeiro pedido de cancelamento ou desconto cadastrado, no formulário abaixo. Enquanto isso, a aba Reconciliação mostra o churn que o FATURAMENTO já enxerga — de quem o dinheiro parou de entrar, sem ninguém ter dito por quê."
-                acao={{ texto: 'Ver a reconciliação', href: '/saidas?aba=reconciliacao' }}
-              />
-            )}
-            {/* O cadastro fica DEPOIS do quadro, e não antes: quem abre a tela
-                está trabalhando o que já existe. Só quando o quadro está vazio o
-                formulário é a primeira coisa a fazer — e aí o Vazio acima aponta
-                para ele. */}
-            {podeRegistrar && <Registrar contas={contas} hoje={hoje} />}
-          </>
-        )}
+        {/* Quem entra em Saídas procurando o fluxo precisa achar a porta. Sem
+            isto, a mudança de 10/09 esconderia o cadastro de quem sabia onde
+            ele estava — que é o pior jeito de reorganizar uma tela. */}
+        <p className="text-meta leading-relaxed text-ink-3">
+          Esta tela <strong className="font-semibold text-ink">analisa</strong>. Para trabalhar um
+          pedido — abrir um card, mover etapa, confirmar aviso ou encerrar — a tela é{' '}
+          <Link href="/cancelamento" className="font-medium text-purple-700 hover:underline">
+            Cancelamento
+          </Link>
+          .
+        </p>
 
         {aba === 'funil' && <Funil contas={funil} />}
         {aba === 'coorte' && veReceita && <Coorte meses={coorte} />}
@@ -531,40 +197,9 @@ export default async function Saidas({
           <Reconciliacao meses={observado} contas={semRegistro} maturidade={MESES_DE_MATURIDADE} />
         )}
         {aba === 'meta' && veReceita && (
-          <Meta linhas={metas} podeDefinir={id.permissoes.configurar} />
+          <Meta linhas={metas} podeDefinir={id.permissoes.configurar} volta="/saidas" />
         )}
 
-        {aba === 'lista' && (
-        <Card title={`Em andamento (${abertas.length})`}>
-          {abertas.length === 0 ? (
-            <Vazio
-              titulo="Nenhuma saída em andamento."
-              porque="Saídas aparecem aqui quando alguém registra uma levantada de mão, ou quando o Financeiro inicia um encerramento por inadimplência. Lista vazia é boa notícia, não erro de carregamento."
-              acao={{ texto: 'Ver a fila de trabalho', href: '/' }}
-              className="border-0 p-0"
-            />
-          ) : (
-            <ul className="grid gap-3">
-              {abertas.map((s) => (
-                <Linha key={s.id} s={s} podeAprovar={podeAprovar} />
-              ))}
-            </ul>
-          )}
-        </Card>
-        )}
-
-        {aba === 'lista' && fechadas.length > 0 && (
-          <details>
-            <summary className="cursor-pointer select-none text-corpo font-semibold text-ink-2 hover:text-ink">
-              {fechadas.length} com desfecho
-            </summary>
-            <ul className="mt-3 grid gap-3 opacity-75">
-              {fechadas.map((s) => (
-                <Linha key={s.id} s={s} podeAprovar={false} />
-              ))}
-            </ul>
-          </details>
-        )}
       </Corpo>
     </>
   )
