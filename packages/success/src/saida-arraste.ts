@@ -200,6 +200,115 @@ export function movimento(
   }
 }
 
+/**
+ * ─── A CONFIRMAÇÃO ANTES DE UM DESFECHO ─────────────────────────────────────
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ISTO EXISTE POR UM CASO REAL, medido em produção em 10/09/2026.           │
+ * │                                                                            │
+ * │ Havia UM pedido na base inteira: a conta Zanzar, registrada por uma pessoa │
+ * │ do time às 18h42 e movida no mesmo dia para `retido`. Ela então tentou      │
+ * │ mover o cartão de novo e não conseguiu — e reportou como "limitação de      │
+ * │ alguns fluxos de movimentação dos cards".                                  │
+ * │                                                                            │
+ * │ A recusa estava CORRETA: `TRANSICOES` declara `retido: []`, e até o          │
+ * │ `encerrar` recusa uma saída revertida ("se o cliente sair de novo, o        │
+ * │ caminho é uma saída nova"). O problema não é a regra — é que UM ARRASTE     │
+ * │ GRAVOU UM PONTO FINAL SEM PERGUNTAR. Com os botões antigos isso era muito   │
+ * │ menos provável: só as três etapas eram alcançáveis, e cada uma tinha um     │
+ * │ rótulo escrito. Ao abrir os desfechos para o gesto, eu tornei um            │
+ * │ escorregão de mouse suficiente para escrever algo que não se desfaz.        │
+ * │                                                                            │
+ * │ Então: etapa de trabalho continua LIVRE — é reversível e é o que o usuário  │
+ * │ pediu. Desfecho PERGUNTA. A assimetria é a informação: o que pede           │
+ * │ confirmação é exatamente o que não tem volta.                              │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * O texto segue os quatro elementos do `PedidoDeConfirmacao` do design system:
+ * `titulo` é o que VAI ACONTECER, `corpo` é por que importa, `saida` é a
+ * alternativa, `pergunta` é o que se responde. Nunca "tem certeza?".
+ *
+ * `{cliente}` e `{dias}` são os dois únicos marcadores, trocados por quem
+ * desenha o diálogo — o texto mora aqui porque a consequência é de domínio, e
+ * quem sabe o nome do cliente é a tela.
+ */
+export interface ConfirmacaoDeArraste {
+  readonly titulo: string
+  readonly corpo: string
+  readonly saida: string
+  readonly pergunta: string
+  /** Foco inicial no Cancelar. Verdadeiro quando o desfecho não se desfaz. */
+  readonly destrutiva: boolean
+}
+
+/** Os marcadores que a tela troca. Lista fechada, conferida por teste. */
+export const MARCADORES_DA_CONFIRMACAO = ['{cliente}', '{dias}'] as const
+
+const VOLTA_PARA_ETAPA =
+  'Para só mudar de etapa, solte numa das três primeiras colunas — aquelas se desfazem arrastando de volta.'
+
+/**
+ * O que perguntar antes de soltar em `para`. `null` = não pergunta.
+ *
+ * Etapa de trabalho devolve `null` porque o movimento se desfaz arrastando de
+ * volta; qualquer outra coluna devolve texto, e é isso que o portão confere.
+ */
+export function confirmacaoDoArraste(para: PosicaoDoQuadro): ConfirmacaoDeArraste | null {
+  switch (para) {
+    case 'pedido':
+    case 'financeiro':
+    case 'reversao':
+      return null
+
+    case 'revertido':
+      return {
+        titulo: 'Registrar a retenção de {cliente}',
+        corpo:
+          'A receita não sai e nada entra no ledger — a retenção é a métrica de vitória do CS. ' +
+          'E é PONTO FINAL: um pedido revertido não volta para etapa nenhuma, e nem o encerramento o aceita depois.',
+        saida: VOLTA_PARA_ETAPA,
+        pergunta: 'Registrar a retenção?',
+        destrutiva: true,
+      }
+
+    case 'renegociado':
+      return {
+        titulo: 'Registrar a renegociação de {cliente}',
+        corpo:
+          'Renegociação mexe em prazo ou parcela, não no mensal — arrastar não informa MRR novo, ' +
+          'então nada entra no ledger. E é PONTO FINAL: o pedido para aqui.',
+        saida:
+          'Se o mensal mudou, o caminho é o formulário do pedido em Em andamento, que cobra o MRR novo e a competência.',
+        pergunta: 'Registrar a renegociação?',
+        destrutiva: true,
+      }
+
+    case 'cancelamento':
+    case 'pdd':
+      return {
+        titulo: 'Confirmar o aviso prévio de {dias} dias de {cliente}',
+        corpo:
+          'O cancelamento passa a correr: a data de fim do aviso é gravada e a tentativa de reversão acaba. ' +
+          'É o campo que mais desloca receita entre meses.',
+        // Este é o único desfecho com volta, e vale dizer qual é.
+        saida: 'Dá para reverter depois: um pedido com aviso correndo ainda aceita a retenção.',
+        pergunta: 'Confirmar o aviso e deixar o cancelamento correr?',
+        destrutiva: false,
+      }
+
+    case 'desconto':
+      // O arraste nunca chega aqui — `movimento` recusa antes. O texto existe
+      // para o dia em que o desconto ganhar formulário no próprio soltar.
+      return {
+        titulo: 'Conceder desconto a {cliente}',
+        corpo: 'Entra no ledger como CONTRAÇÃO, com a diferença contra o MRR congelado na levantada.',
+        saida: 'Informe o MRR novo e a competência de efeito no formulário do pedido.',
+        pergunta: 'Conceder o desconto?',
+        destrutiva: true,
+      }
+  }
+}
+
 /** As colunas onde ESTE cartão pode cair. É o que a tela acende. */
 export function alvosDoCartao(
   de: CartaoQueArrasta,

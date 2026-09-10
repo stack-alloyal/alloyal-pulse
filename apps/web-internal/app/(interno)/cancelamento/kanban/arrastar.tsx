@@ -35,6 +35,26 @@
  * └───────────────────────────────────────────────────────────────────────────┘
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ETAPA É LIVRE, DESFECHO PERGUNTA — e a assimetria nasceu de um caso real. │
+ * │                                                                            │
+ * │ Em produção, em 10/09/2026, havia UM pedido: a conta Zanzar, registrada     │
+ * │ por alguém do time às 18h42 e movida no mesmo dia para `retido`. A pessoa   │
+ * │ tentou mover o cartão de novo, não conseguiu, e reportou como "limitação de │
+ * │ alguns fluxos de movimentação dos cards".                                  │
+ * │                                                                            │
+ * │ A recusa estava certa — `retido` é ponto final, e nem o encerramento aceita │
+ * │ uma saída revertida. O defeito estava ANTES: um arraste gravou o ponto      │
+ * │ final SEM PERGUNTAR. Com os botões antigos era muito menos provável, porque │
+ * │ só as três etapas eram alcançáveis e cada uma tinha rótulo escrito. Ao      │
+ * │ abrir os desfechos para o gesto, eu tornei um escorregão de mouse           │
+ * │ suficiente para escrever algo que não se desfaz.                           │
+ * │                                                                            │
+ * │ Então etapa continua LIVRE (é reversível, e é o que foi pedido) e desfecho  │
+ * │ abre o `Confirmar` do design system. O que pede confirmação é exatamente o  │
+ * │ que não tem volta — a assimetria é a informação.                            │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
  * │ A COLUNA QUE RECUSA AINDA ACEITA O SOLTAR, e é escolha e não descuido.    │
  * │                                                                            │
  * │ Dava para bloquear o `drop` nas colunas inválidas (basta não chamar          │
@@ -49,11 +69,26 @@
  * │ dizer não.                                                                 │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-import { Aviso, cn } from '@pulse/ui'
+import { Aviso, cn, Confirmar, type PedidoDeConfirmacao } from '@pulse/ui'
 import { useRouter } from 'next/navigation'
 import * as React from 'react'
 
 import { acaoMoverCard } from '../../saidas/acoes'
+
+/**
+ * O texto de confirmação por coluna, pronto do servidor.
+ *
+ * Chega como prop e não por import: `confirmacaoDoArraste` mora em
+ * `@pulse/success`, e importar o pacote de domínio aqui arrastaria o domínio
+ * inteiro para o bundle do navegador. São oito entradas, calculadas uma vez.
+ */
+export interface TextoDaConfirmacao {
+  readonly titulo: string
+  readonly corpo: string
+  readonly saida: string
+  readonly pergunta: string
+  readonly destrutiva: boolean
+}
 
 /** O cartão em voo: de onde saiu, e onde ele pode cair. */
 interface EmVoo {
@@ -65,6 +100,13 @@ interface Contexto {
   readonly voo: EmVoo | null
   readonly pendente: boolean
   readonly soltar: (para: string, saidaId: string) => void
+}
+
+/** O arraste esperando resposta do diálogo. */
+interface AConfirmar {
+  readonly para: string
+  readonly saidaId: string
+  readonly pedido: PedidoDeConfirmacao
 }
 
 const Ctx = React.createContext<Contexto>({
@@ -82,10 +124,18 @@ const Ctx = React.createContext<Contexto>({
  * o cartão traz escrito. É o que impede a tela de acender uma coluna que a ação
  * vai recusar.
  */
-export function Arraste({ children }: { children: React.ReactNode }) {
+export function Arraste({
+  children,
+  confirmacoes,
+}: {
+  children: React.ReactNode
+  /** Por id de coluna. Ausente = soltar ali não pergunta (etapa de trabalho). */
+  confirmacoes: Readonly<Record<string, TextoDaConfirmacao>>
+}) {
   const rota = useRouter()
   const [voo, setVoo] = React.useState<EmVoo | null>(null)
   const [msg, setMsg] = React.useState<{ ok?: string; erro?: string } | null>(null)
+  const [confirmar, setConfirmar] = React.useState<AConfirmar | null>(null)
   const [pendente, iniciar] = React.useTransition()
 
   function pegar(e: React.DragEvent) {
@@ -106,6 +156,45 @@ export function Arraste({ children }: { children: React.ReactNode }) {
     if (saidaId === '') return
     // Soltar na própria coluna é gesto abortado, não pedido: silêncio.
     if (voo !== null && voo.origem === para) return
+
+    /* O DESVIO PELO DIÁLOGO. O texto vem do servidor; o nome do cliente e os
+       dias de aviso vêm do próprio cartão, que os traz escritos — é por isso
+       que a substituição acontece aqui e não lá.
+       ┌─────────────────────────────────────────────────────────────────────┐
+       │ SÓ PERGUNTA O QUE VAI ACONTECER. A primeira versão abria o diálogo   │
+       │ pela coluna, sem olhar se ELA aceita este cartão — e o Desconto tem  │
+       │ texto de confirmação (para o dia em que ganhar formulário no soltar).│
+       │ Resultado, pego pelo teste de navegador: soltar em Desconto abria    │
+       │ "Conceder desconto a X?", a pessoa confirmava, e só então vinha a    │
+       │ recusa. Confirmar antes de recusar é pior que recusar.               │
+       │                                                                      │
+       │ `voo.alvos` é a lista que o SERVIDOR escreveu no cartão. Coluna fora │
+       │ dela vai direto à ação, que devolve o motivo escrito.                │
+       └─────────────────────────────────────────────────────────────────────┘ */
+    const texto = voo !== null && voo.alvos.includes(para) ? confirmacoes[para] : undefined
+    if (texto !== undefined) {
+      const cartao = document.querySelector(`[data-saida="${CSS.escape(saidaId)}"]`)
+      const nome = cartao?.getAttribute('data-nome') ?? 'este cliente'
+      const dias = cartao?.getAttribute('data-aviso') ?? '?'
+      const trocar = (t: string) => t.replaceAll('{cliente}', nome).replaceAll('{dias}', dias)
+      setMsg(null)
+      setConfirmar({
+        para,
+        saidaId,
+        pedido: {
+          titulo: trocar(texto.titulo),
+          corpo: trocar(texto.corpo),
+          saida: trocar(texto.saida),
+          pergunta: trocar(texto.pergunta),
+          destrutiva: texto.destrutiva,
+        },
+      })
+      return
+    }
+    executar(para, saidaId)
+  }
+
+  function executar(para: string, saidaId: string) {
     setMsg(null)
     iniciar(async () => {
       const r = await acaoMoverCard(saidaId, para)
@@ -145,6 +234,17 @@ export function Arraste({ children }: { children: React.ReactNode }) {
 
       {/* As medidas do Allvoice: largura fixa por coluna e rolagem horizontal. */}
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4 md:p-5">{children}</div>
+
+      <Confirmar
+        aberto={confirmar !== null}
+        pedido={confirmar?.pedido ?? null}
+        onCancelar={() => setConfirmar(null)}
+        onConfirmar={() => {
+          const c = confirmar
+          setConfirmar(null)
+          if (c !== null) executar(c.para, c.saidaId)
+        }}
+      />
     </div>
     </Ctx.Provider>
   )

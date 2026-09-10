@@ -104,6 +104,39 @@ const recado = async () => (await pg.locator('[aria-live="polite"]').innerText()
  * asserções do e2e de saída passaram com a TABELA VAZIA porque o trecho casava
  * com o próprio formulário.
  */
+const dialogo = () => pg.locator('[role="dialog"]')
+
+/**
+ * Arrasta para uma coluna de DESFECHO, que abre o diálogo do design system.
+ *
+ * Nasceu do caso da conta Zanzar: alguém do time moveu um cartão para `retido`
+ * — ponto final — e só descobriu depois que não havia volta. Etapa é livre;
+ * desfecho pergunta. As duas metades desta assimetria são medidas aqui.
+ */
+const arrastarConfirmando = async (nome, para, { confirmar }) => {
+  const antes = await recado()
+  await cartao(nome).dragTo(coluna(para))
+  await dialogo().waitFor({ state: 'visible', timeout: 10000 })
+  const texto = (await dialogo().innerText()).replace(/\s+/g, ' ').trim()
+  if (!confirmar) {
+    await dialogo().getByRole('button', { name: /cancelar|não/i }).click()
+    await dialogo().waitFor({ state: 'hidden', timeout: 10000 })
+    return { texto, recado: await recado() }
+  }
+  await dialogo().getByRole('button', { name: /registrar|confirmar|conceder/i }).click()
+  await pg.waitForFunction(
+    (a) => {
+      const t = (document.querySelector('[aria-live="polite"]')?.textContent ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+      return t !== '' && t !== a && !/movendo/i.test(t)
+    },
+    antes,
+    { timeout: 20000 },
+  )
+  return { texto, recado: await recado() }
+}
+
 const arrastar = async (nome, para) => {
   const antes = await recado()
   await cartao(nome).dragTo(coluna(para))
@@ -160,6 +193,8 @@ const arrastar = async (nome, para) => {
     (await posicaoDe('Padaria Bela Vista')) === 'financeiro',
     'o cartão foi para Informações financeiras',
   )
+  // Etapa é LIVRE: não abriu diálogo nenhum no caminho.
+  conferir(!(await dialogo().isVisible()), 'mover entre etapas não pede confirmação')
   conferir(/movido para Informações financeiras/i.test(r), 'a resposta diz para onde foi', r)
 
   /* ⚠ A ASSERÇÃO DA QUEIXA. Antes, cada movimento terminava em `redirect` e a
@@ -188,14 +223,27 @@ const arrastar = async (nome, para) => {
   conferir((await posicaoDe('Padaria Bela Vista')) === 'pedido', 'e o cartão não se mexeu')
 }
 
-// ─── 6. O desfecho pelo arraste: retenção ────────────────────────────────────
+// ─── 6. O desfecho PERGUNTA, e cancelar não grava nada ───────────────────────
 {
-  const r = await arrastar('Clinica Sao Rafael', 'revertido')
+  const c = await arrastarConfirmando('Clinica Sao Rafael', 'revertido', { confirmar: false })
+  conferir(/Registrar a retenção de Clinica Sao Rafael/i.test(c.texto), 'o diálogo nomeia o cliente')
+  conferir(/PONTO FINAL/i.test(c.texto), 'o diálogo diz que a retenção não tem volta')
+  conferir(/três primeiras colunas/i.test(c.texto), 'o diálogo oferece a alternativa')
+  conferir(!/tem certeza/i.test(c.texto), 'o diálogo não cai no "tem certeza"')
+  conferir(
+    (await posicaoDe('Clinica Sao Rafael')) === 'reversao',
+    'CANCELAR não gravou nada — o cartão ficou onde estava',
+  )
+}
+
+// ─── 6b. E confirmando, grava ────────────────────────────────────────────────
+{
+  const c = await arrastarConfirmando('Clinica Sao Rafael', 'revertido', { confirmar: true })
   conferir(
     (await posicaoDe('Clinica Sao Rafael')) === 'revertido',
-    'a reversão virou retenção pelo arraste',
+    'a reversão virou retenção pelo arraste confirmado',
   )
-  conferir(/retenção/i.test(r), 'e a resposta diz o que foi gravado', r)
+  conferir(/retenção/i.test(c.recado), 'e a resposta diz o que foi gravado', c.recado)
   // Agora ela é desfecho: parou de ser arrastável.
   conferir(
     (await cartao('Clinica Sao Rafael').getAttribute('draggable')) !== 'true',
@@ -216,6 +264,7 @@ const arrastar = async (nome, para) => {
   await cartao('Editora Lumen').dragTo(coluna('cancelamento'))
   await pg.waitForTimeout(1500)
   conferir((await recado()) === antes, 'soltar na própria coluna fica em silêncio', await recado())
+  conferir(!(await dialogo().isVisible()), 'e não abre diálogo')
   conferir(
     (await posicaoDe('Editora Lumen')) === 'cancelamento',
     'e o cartão continua onde estava',
@@ -239,7 +288,15 @@ const arrastar = async (nome, para) => {
   await pg.mouse.move(destino.x + destino.width / 2, destino.y + 120, { steps: 12 })
   await pg.screenshot({ path: `${FOTOS}/kanban-arrasto-em-voo.png`, fullPage: false })
   await pg.mouse.up()
-  console.log(`fotos em ${FOTOS}/kanban-arrasto.png e ${FOTOS}/kanban-arrasto-em-voo.png`)
+
+  // E o diálogo do desfecho, que é a trava que este arquivo passou a guardar.
+  await abrir()
+  await cartao('Padaria Bela Vista').dragTo(coluna('revertido'))
+  await dialogo().waitFor({ state: 'visible', timeout: 10000 })
+  await pg.screenshot({ path: `${FOTOS}/kanban-confirmar-desfecho.png`, fullPage: false })
+  await dialogo().getByRole('button', { name: /cancelar|não/i }).click()
+
+  console.log(`fotos em ${FOTOS}/kanban-arrasto*.png e ${FOTOS}/kanban-confirmar-desfecho.png`)
 }
 
 await navegador.close()
