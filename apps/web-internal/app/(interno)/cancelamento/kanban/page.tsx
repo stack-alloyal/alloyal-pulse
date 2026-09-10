@@ -24,6 +24,15 @@
  * └───────────────────────────────────────────────────────────────────────────┘
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O CARTÃO SE MOVE ARRASTANDO, e a tela não navega mais para isso.          │
+ * │                                                                            │
+ * │ A faixa de `?ok=`/`?erro=` daqui continua servindo o CADASTRO, que ainda    │
+ * │ redireciona — registrar uma levantada de mão é um formulário e tem de       │
+ * │ funcionar sem JavaScript. O ARRASTE responde dentro do próprio quadro, e é  │
+ * │ o `Arraste` que desenha a resposta dele. Ver `arrastar.tsx`.                │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
  * │ DOIS FILTROS PEDIDOS FICAM DESABILITADOS, e é honestidade e não preguiça.  │
  * │                                                                            │
  * │ Medido em 10/09/2026: `csm_email` é NULO em 2.155 contas de 2.155, então o  │
@@ -168,7 +177,7 @@ export default async function Kanban({
               ) : (
                 <Link
                   href={`${AQUI}?novo=1`}
-                  className="rounded-md bg-purple-600 px-3 py-1.5 text-meta font-semibold text-white hover:bg-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-purple-500"
+                  className="rounded-md bg-purple-500 px-3 py-1.5 text-meta font-semibold text-white hover:bg-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-purple-500"
                 >
                   Nova levantada de mão
                 </Link>
@@ -183,7 +192,16 @@ export default async function Kanban({
             </div>
           </div>
         ) : (
-          <QuadroKanban pedidos={visiveis} volta={AQUI} />
+          <QuadroKanban
+            pedidos={visiveis}
+            /* Os dois eixos que as funções de `@pulse/success` cobram. O
+               `configurar` entra no primeiro e NÃO no segundo, porque
+               `renegociar` não abre essa exceção. */
+            poderes={{
+              fila: id.permissoes.fila !== 'nenhum' || id.permissoes.configurar,
+              distrato: id.permissoes.aprovaDistrato !== 'nao',
+            }}
+          />
         )}
       </div>
     </>

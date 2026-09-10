@@ -147,14 +147,34 @@ export class SemPermissaoError extends Error {
  * `retido` e `encerrado` são terminais de propósito. Reabrir uma saída encerrada
  * moveria receita entre competências já congeladas; se o cliente voltar, o
  * evento certo é uma reativação nova, não a edição da saída antiga.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ ENTRE AS TRÊS ETAPAS O MOVIMENTO É NOS DOIS SENTIDOS, e esta tabela não   │
+ * │ dizia isso — corrigido em 10/09/2026.                                     │
+ * │                                                                            │
+ * │ Ela nasceu como lista PARA FRENTE, e por isso `financeiro → anunciado` e   │
+ * │ `reversao → financeiro` ficaram de fora. Mas o SQL de `avancarEtapa` sempre │
+ * │ aceitou qualquer uma das três (`estado IN (as três) AND estado <> $3`), e o │
+ * │ usuário pediu a volta com estas palavras: "a seta depois deveria ir ter a   │
+ * │ seta de pedido para voltar e não continuar".                               │
+ * │                                                                            │
+ * │ Ou seja: a tabela era a única das três fontes que discordava. Ela não        │
+ * │ guardava nada — `podeIr` só era chamado pelo próprio teste —, então a        │
+ * │ divergência era invisível. Agora ela é conferida contra o arraste em        │
+ * │ `saida-arraste.test.ts`, e uma etapa que entre torta quebra ali.            │
+ * │                                                                            │
+ * │ O que NÃO mudou: voltar de `em_aviso` para etapa continua proibido. Lá a    │
+ * │ `data_fim_aviso` já está gravada, e desfazer o aviso desloca receita entre  │
+ * │ meses sem deixar registro de que houve o desfazer.                          │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
 export const TRANSICOES: Readonly<Record<EstadoSaida, readonly EstadoSaida[]>> = {
   // Do pedido dá para ir direto ao desfecho: cliente que liga pedindo desconto e
   // aceita na mesma conversa não passa por etapa nenhuma, e obrigá-lo a passar
   // faria o registro ser feito depois — ou não ser feito.
   anunciado: ['financeiro', 'reversao', 'retido', 'desconto', 'renegociado', 'em_aviso'],
-  financeiro: ['reversao', 'retido', 'desconto', 'renegociado', 'em_aviso'],
-  reversao: ['retido', 'desconto', 'renegociado', 'em_aviso'],
+  financeiro: ['anunciado', 'reversao', 'retido', 'desconto', 'renegociado', 'em_aviso'],
+  reversao: ['anunciado', 'financeiro', 'retido', 'desconto', 'renegociado', 'em_aviso'],
   em_aviso: ['retido', 'encerrado'],
   // Os quatro desfechos são terminais. Reabrir moveria receita entre competências
   // já congeladas; se o cliente voltar, o evento certo é uma reativação nova.
@@ -709,6 +729,41 @@ export async function encerrar(
   } finally {
     cliente.release()
   }
+}
+
+/**
+ * Um pedido, pelo id, com o recorte da carteira.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ EXISTE PARA O ARRASTE, e o motivo é de SEGURANÇA e não de conveniência.   │
+ * │                                                                            │
+ * │ Arrastar um cartão para a coluna de cancelamento chama `confirmarAviso`,    │
+ * │ que grava o aviso prévio em dias — o campo que mais desloca receita entre   │
+ * │ meses. Se o número viesse do cliente junto do arraste, um POST forjado      │
+ * │ escreveria qualquer prazo sem passar por formulário nenhum.                 │
+ * │                                                                            │
+ * │ Então a ação LÊ o valor já gravado no pedido, aqui, e o arraste não carrega │
+ * │ dado nenhum além do id e da coluna de destino. O que o cliente manda é      │
+ * │ apenas PARA ONDE; o QUE se grava sai do banco.                             │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export async function saidaPorId(
+  db: pg.Pool,
+  id: Identidade,
+  saidaId: string,
+): Promise<Saida | null> {
+  if (id.permissoes.contas === 'nenhum') return null
+  const { rows } = await db.query<Saida>(
+    `SELECT ${COLUNAS}
+       FROM success.cancellation c
+       JOIN core.account a ON a.id = c.account_id
+      WHERE c.id = $1
+        AND ($2::boolean OR a.csm_email = $3)`,
+    [saidaId, id.permissoes.contas === 'base', id.email],
+  )
+  const s = rows[0]
+  if (!s) return null
+  return { ...s, diasParaFimDoAviso: s.diasParaFimDoAviso === null ? null : Number(s.diasParaFimDoAviso) }
 }
 
 export async function listarSaidas(

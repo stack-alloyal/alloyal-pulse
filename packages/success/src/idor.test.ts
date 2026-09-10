@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -342,6 +342,65 @@ test('o destino de volta é comparado com uma lista, e nunca sanitizado', () => 
     volta,
     /:\s*TELAS_DO_FLUXO\[0\]/,
     'o caso de falha não cai num destino da lista',
+  )
+
+  /* 4. A lista também é um TIPO.
+     ┌────────────────────────────────────────────────────────────────────────┐
+     │ ESTE PORTÃO FICOU VERDE COM O DEFEITO NA TELA, em 10/09/2026.          │
+     │                                                                         │
+     │ Quando o kanban virou `/cancelamento/kanban`, o caminho não entrou na    │
+     │ lista. `destinoDeVolta` fez o que devia — caiu no primeiro membro —, e o │
+     │ usuário viveu isto: "quando clico para movimentar o card ele volta para  │
+     │ a Visão Geral e tenho que ficar voltando para a aba Kanban".             │
+     │                                                                         │
+     │ O portão não pegou porque ele conferia que o formulário CARREGA o campo, │
+     │ nunca que o VALOR do campo está na lista. Conferir o valor exigiria      │
+     │ resolver constante de outro arquivo; o TIPO resolve de graça — com        │
+     │ `TelaDoFluxo`, caminho fora da lista não compila. O que resta ao portão   │
+     │ é garantir que o tipo continue existindo. */
+  assert.match(
+    volta,
+    /export type TelaDoFluxo = \(typeof TELAS_DO_FLUXO\)\[number\]/,
+    'a lista deixou de ser um tipo — sem ele, destino fora da lista volta a compilar',
+  )
+})
+
+test('toda tela do fluxo está na lista de destinos', () => {
+  /* O complemento do tipo, e é ele que pega o caso de 10/09 pelo outro lado: o
+     tipo recusa o valor que não está na lista, e isto recusa a TELA que existe e
+     ficou de fora. Aba nova sem entrada na lista é um redirecionamento que
+     aterrissa na aba errada — o defeito exato que o usuário reportou. */
+  const volta = readFileSync(VOLTA, 'utf8')
+  const telas = [...volta.match(/TELAS_DO_FLUXO = \[([^\]]*)\]/)![1]!.matchAll(/'([^']+)'/g)].map(
+    (m) => m[1]!,
+  )
+  const INTERNO = join(RAIZ, 'apps', 'web-internal', 'app', '(interno)')
+
+  const rotas: string[] = []
+  const varrer = (d: string, url: string) => {
+    for (const n of readdirSync(d, { withFileTypes: true })) {
+      if (!n.isDirectory()) continue
+      // Segmento dinâmico não é destino de volta: `[id]` não é uma tela, é uma
+      // família de telas, e nenhuma ação do fluxo devolve para uma delas.
+      if (n.name.startsWith('[') || n.name.startsWith('(')) continue
+      const filho = join(d, n.name)
+      const rota = `${url}/${n.name}`
+      if (existsSync(join(filho, 'page.tsx'))) rotas.push(rota)
+      varrer(filho, rota)
+    }
+  }
+  for (const raiz of ['cancelamento', 'saidas']) {
+    const d = join(INTERNO, raiz)
+    if (!existsSync(d)) continue
+    if (existsSync(join(d, 'page.tsx'))) rotas.push(`/${raiz}`)
+    varrer(d, `/${raiz}`)
+  }
+
+  assert.ok(rotas.length >= 3, `varri só ${rotas.length} telas do fluxo — o caminho mudou?`)
+  assert.deepEqual(
+    rotas.filter((r) => !telas.includes(r)),
+    [],
+    'tela do fluxo que não está em TELAS_DO_FLUXO',
   )
 })
 

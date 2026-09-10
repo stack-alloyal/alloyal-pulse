@@ -248,6 +248,10 @@ jobs:
           pnpm --filter @pulse/config build
           node --test --test-concurrency=1 packages/config/dist/sincronizar-core.test.js
           node --test packages/success/dist/idor.test.js
+          # A regra do arraste do quadro. Sem banco: é função pura, e a invariante
+          # que ela guarda — arraste nunca aprova o que TRANSICOES proíbe — é a
+          # primeira coisa que faz a tabela de transições guardar algo de verdade.
+          node --test packages/success/dist/saida-arraste.test.js
           pnpm --filter @pulse/config build
           node --test packages/config/dist/catalogo.test.js
           node --test packages/config/dist/hubspot-vinculo.test.js

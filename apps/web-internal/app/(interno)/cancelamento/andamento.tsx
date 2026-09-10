@@ -26,6 +26,7 @@ import { Badge, Btn, Field, Select, cn } from '@pulse/ui'
 import { Check } from 'lucide-react'
 
 import { CampoDeVolta } from '../saidas/visoes'
+import { type TelaDoFluxo } from '../saidas/volta'
 import {
   acaoConfirmarAviso,
   acaoConfirmarCobranca,
@@ -141,7 +142,7 @@ export function Linha({
 }: {
   s: Saida
   podeAprovar: boolean
-  volta: string
+  volta: TelaDoFluxo
 }) {
   const e = ESTADO[s.estado]!
   const j = janela(s)

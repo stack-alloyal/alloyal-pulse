@@ -49,12 +49,12 @@ const MES_CURTO = (iso: string) => {
  */
 const SAIU = [
   { chave: 'clienteCentavos', rotulo: 'Cancelamento Cliente', cor: 'bg-red' },
-  { chave: 'pddCentavos', rotulo: 'Cancelamento PDD', cor: 'bg-pink-600' },
+  { chave: 'pddCentavos', rotulo: 'Cancelamento PDD', cor: 'bg-pink' },
 ] as const
 
 const REDUZIU = [
   { chave: 'renegociadoCentavos', rotulo: 'Renegociação Financeira', cor: 'bg-amber-700' },
-  { chave: 'descontoCentavos', rotulo: 'Desconto', cor: 'bg-blue-600' },
+  { chave: 'descontoCentavos', rotulo: 'Desconto', cor: 'bg-blue' },
 ] as const
 
 export function Grafico({ meses, janela }: { meses: readonly MesDoGrafico[]; janela: 6 | 12 }) {

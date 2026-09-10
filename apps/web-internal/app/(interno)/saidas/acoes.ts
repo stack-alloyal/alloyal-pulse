@@ -3,20 +3,25 @@
 import {
   anunciar,
   avancarEtapa,
+  colunaConhecida,
   concederDesconto,
   confirmarAviso,
   confirmarMotivo,
   confirmarUltimaCobranca,
   definirMeta,
   encerrar,
+  movimento,
   renegociar,
   reter,
+  rotuloDaColuna,
+  saidaPorId,
   SemPermissaoError,
   TransicaoInvalidaError,
   type CanalAnuncio,
   type MotivoSaida,
   type OrigemSaida,
   type PedidoDeSaida,
+  type ResultadoDoArraste,
 } from '@pulse/success'
 import { redirect } from 'next/navigation'
 
@@ -145,6 +150,79 @@ export async function acaoAvancarEtapa(
     await avancarEtapa(pool(), id, saidaId, para)
     return `pedido movido para ${para === 'anunciado' ? 'pedido' : para === 'financeiro' ? 'informações financeiras' : 'tentativa de reversão'}.`
   }, voltarPara(dados))
+}
+
+/**
+ * Mover um cartão ARRASTANDO — e esta é a única ação do fluxo que NÃO redireciona.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O DEFEITO QUE ELA CONSERTA, na palavra de quem usou:                      │
+ * │ "quando clico para movimentar o card ele volta para a Visão Geral e tenho  │
+ * │ que ficar voltando para a aba Kanban".                                     │
+ * │                                                                            │
+ * │ A causa imediata era o kanban faltando na lista de `volta.ts` — já           │
+ * │ corrigida, e agora impossível de repetir porque `TelaDoFluxo` é um tipo.    │
+ * │ Mas a causa de fundo é que MOVER UM CARTÃO NÃO É NAVEGAR: mesmo acertando   │
+ * │ o destino, cada movimento recarregava a tela e perdia a rolagem do quadro.  │
+ * │                                                                            │
+ * │ Então aqui não há `tentar` e não há `redirect`: o retorno é um objeto, quem │
+ * │ chama é componente de cliente, e o quadro se atualiza no lugar.            │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O CLIENTE MANDA PARA ONDE, NUNCA O QUÊ.                                   │
+ * │                                                                            │
+ * │ Os dois argumentos são o id do pedido e o nome da coluna, e a coluna passa  │
+ * │ por lista de permissão. Tudo o que se GRAVA sai do banco: o aviso prévio em │
+ * │ dias vem de `saidaPorId`, não do arraste.                                   │
+ * │                                                                            │
+ * │ Isso é deliberado. `confirmarAviso` grava o campo que mais desloca receita  │
+ * │ entre meses; se o número viajasse junto do arraste, um POST forjado         │
+ * │ escreveria qualquer prazo sem passar por formulário nenhum.                 │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export async function acaoMoverCard(saidaId: string, para: string): Promise<ResultadoDoArraste> {
+  const id = await exigir((p) => temEscopo(p.contas), 'mover cartão no quadro')
+
+  const coluna = colunaConhecida(para)
+  if (coluna === null) return { erro: 'coluna desconhecida' }
+
+  const s = await saidaPorId(pool(), id, saidaId)
+  if (s === null) return { erro: 'pedido não encontrado, ou não é de conta da sua carteira' }
+
+  const mov = movimento(s, coluna, {
+    fila: id.permissoes.fila !== 'nenhum' || id.permissoes.configurar,
+    distrato: id.permissoes.aprovaDistrato !== 'nao',
+  })
+  if (!mov.ok) return { erro: mov.porque }
+
+  try {
+    switch (mov.faz) {
+      case 'etapa':
+        await avancarEtapa(pool(), id, saidaId, mov.virar)
+        return { ok: `${s.conta}: movido para ${rotuloDaColuna(coluna)}.` }
+      case 'reter':
+        await reter(pool(), id, saidaId)
+        return { ok: `${s.conta}: retenção registrada — a receita nunca saiu.` }
+      case 'renegociar':
+        await renegociar(pool(), id, saidaId, {})
+        return {
+          ok: `${s.conta}: renegociação registrada. Se o mensal mudou, informe o MRR novo no pedido.`,
+        }
+      case 'aviso':
+        // O `!` é o que `movimento` acabou de provar: o caso `null` volta como
+        // recusa antes de chegar aqui.
+        await confirmarAviso(pool(), id, saidaId, s.avisoPrevioDias!)
+        return {
+          ok: `${s.conta}: aviso prévio de ${s.avisoPrevioDias} dias confirmado — o cancelamento está correndo.`,
+        }
+    }
+  } catch (err) {
+    if (err instanceof TransicaoInvalidaError || err instanceof SemPermissaoError) {
+      return { erro: err.message }
+    }
+    throw err
+  }
 }
 
 /**

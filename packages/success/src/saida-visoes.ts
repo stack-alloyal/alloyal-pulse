@@ -2,7 +2,7 @@ import type pg from 'pg'
 
 import type { Identidade } from '@pulse/auth'
 
-import { DIAS_PARA_ESTAGNAR } from './cancelamento.js'
+import { DIAS_PARA_ESTAGNAR, type EstadoSaida, type OrigemSaida } from './cancelamento.js'
 
 /**
  * As três visões do fluxo de saída: o quadro, a coorte e a meta.
@@ -83,6 +83,26 @@ export interface PedidoNoQuadro {
   readonly accountId: string
   readonly razaoSocial: string
   readonly posicao: PosicaoDoQuadro
+  /**
+   * O estado CRU, ao lado da posição derivada — e não é redundância.
+   *
+   * A posição é o que a tela desenha; o estado é o que a máquina de estados
+   * aceita, e uma posição esconde dois estados: a coluna `cancelamento` guarda
+   * `em_aviso` (o aviso correndo, que ainda pode ser retido) e `encerrado` (o
+   * fim de linha). Sem o estado a tela não distingue os dois, e teria de proibir
+   * o arraste da coluna inteira — proibindo junto a retenção de um pedido que a
+   * `TRANSICOES` permite.
+   */
+  readonly estado: EstadoSaida
+  /**
+   * Quem iniciou a saída — e ela é o que separa as DUAS colunas de perda.
+   *
+   * `cancelamento` e `pdd` são o mesmo estado (`em_aviso`/`encerrado`) com
+   * origens diferentes, e a origem não é transição: se define ao registrar o
+   * pedido. Sem este campo o arraste não sabe em qual das duas o cartão vai
+   * cair, e a pessoa solta numa coluna para ver o cartão aparecer na outra.
+   */
+  readonly origem: OrigemSaida
   readonly pedido: 'cancelar' | 'desconto'
   readonly dataLevantada: string | null
   readonly mrrCentavos: string | null
@@ -105,7 +125,7 @@ export async function quadroDeSaida(
 ): Promise<PedidoNoQuadro[]> {
   const { rows } = await db.query(
     `SELECT c.id::text, c.account_id::text AS account_id, a.razao_social,
-            ${POSICAO} AS posicao, c.pedido,
+            ${POSICAO} AS posicao, c.estado, c.origem, c.pedido,
             to_char(c.data_levantada, 'YYYY-MM-DD')            AS data_levantada,
             c.mrr_centavos_na_levantada::text                  AS mrr,
             c.mrr_novo_centavos::text                          AS mrr_novo,
@@ -137,6 +157,8 @@ export async function quadroDeSaida(
       accountId: String(r['account_id']),
       razaoSocial: String(r['razao_social'] ?? ''),
       posicao,
+      estado: String(r['estado']) as EstadoSaida,
+      origem: String(r['origem']) as OrigemSaida,
       pedido: String(r['pedido']) as 'cancelar' | 'desconto',
       dataLevantada: (r['data_levantada'] as string | null) ?? null,
       mrrCentavos: r['mrr'] === null ? null : String(r['mrr']),
