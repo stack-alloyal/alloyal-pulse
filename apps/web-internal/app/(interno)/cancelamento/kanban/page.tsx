@@ -128,7 +128,10 @@ export default async function Kanban({
                 defaultValue={busca}
                 placeholder="Buscar cliente…"
                 aria-label="Buscar cliente"
-                className="w-40"
+                /* Era `w-40` (140px na raiz de 14px) e caberia "Transp…". Pedido do usuário
+                   depois de ver a tela: `w-72` são 252px, a mesma largura de uma coluna
+                   do quadro — cabe o nome inteiro de quase toda conta da base. */
+                className="w-72"
               />
             </form>
 
