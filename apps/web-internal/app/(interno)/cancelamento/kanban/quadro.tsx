@@ -37,7 +37,13 @@
  * │ terminais, e sem inventar convenção nova.                                  │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-import { DIAS_PARA_ESTAGNAR, POSICOES, type PedidoNoQuadro, rotuloDoMotivo } from '@pulse/success'
+import {
+  DIAS_PARA_ESTAGNAR,
+  ETAPAS_DE_TRABALHO,
+  POSICOES,
+  type PedidoNoQuadro,
+  rotuloDoMotivo,
+} from '@pulse/success'
 import Link from 'next/link'
 
 import { acaoAvancarEtapa } from '../../saidas/acoes'
@@ -72,10 +78,22 @@ function Cartao({ p, volta }: { p: PedidoNoQuadro; volta: string }) {
   /* Os destinos possíveis: as três etapas menos a atual. Só em coluna de etapa —
      desfecho é terminal, e oferecer movimento dali seria oferecer o impossível. */
   const destinos = etapa
-    ? (['anunciado', 'financeiro', 'reversao'] as const).filter(
-        (e) => e !== (p.posicao === 'pedido' ? 'anunciado' : p.posicao),
-      )
+    ? ETAPAS_DE_TRABALHO.filter((e) => e !== (p.posicao === 'pedido' ? 'anunciado' : p.posicao))
     : []
+  /* ┌─────────────────────────────────────────────────────────────────────────┐
+     │ A SETA MOSTRA A DIREÇÃO, e a primeira versão mostrava "→" nas duas.     │
+     │                                                                          │
+     │ O usuário viu na tela: num cartão em Informações financeiras, o botão de │
+     │ voltar para Pedido tinha "→ pedido" — a mesma seta de avançar. Ler "→    │
+     │ pedido" num cartão que JÁ passou do pedido diz o contrário do que a ação │
+     │ faz.                                                                    │
+     │                                                                          │
+     │ `ETAPAS_DE_TRABALHO` já declara a ordem (`anunciado`, `financeiro`,      │
+     │ `reversao`), então a direção se DERIVA dela — comparar o índice do        │
+     │ destino com o da posição atual. Uma lista de "quem volta para quem"       │
+     │ seria a segunda verdade que diverge no dia em que uma etapa entrar. */
+  const ordem = (e: string) => (ETAPAS_DE_TRABALHO as readonly string[]).indexOf(e)
+  const atual = ordem(p.posicao === 'pedido' ? 'anunciado' : p.posicao)
 
   return (
     <article className="group min-w-0 rounded-md border border-line bg-surface p-2.5 shadow-e1">
@@ -131,8 +149,14 @@ function Cartao({ p, volta }: { p: PedidoNoQuadro; volta: string }) {
       </div>
 
       {/* Linha 3: dinheiro à esquerda, tempo à direita — como o dono e o tempo de lá. */}
-      <div className="mt-1.5 flex min-w-0 items-center gap-2 pl-6 text-nota text-ink-2">
-        <span className="truncate tabular-nums">{BRL(p.mrrCentavos)}</span>
+      <div className="mt-1.5 flex min-w-0 items-baseline gap-2 pl-6 text-nota text-ink-2">
+        {/* O MRR em `text-cartao font-semibold`, e não em `text-nota` como o
+            resto da linha: é o número pelo qual se decide qual cartão trabalhar
+            primeiro, e estava do mesmo tamanho do motivo e do tempo. Pedido do
+            usuário depois de ver a tela. */}
+        <span className="truncate text-cartao font-semibold tabular-nums text-ink">
+          {BRL(p.mrrCentavos)}
+        </span>
         {/* O tempo só aparece quando NÃO está parado: no cartão parado, a linha
             2 já diz "Parado 24d" e repetir "24d" aqui gastaria o espaço mais
             escasso da tela com o mesmo número. No Allvoice as duas grandezas são
@@ -158,9 +182,15 @@ function Cartao({ p, volta }: { p: PedidoNoQuadro; volta: string }) {
               key={e}
               type="submit"
               formAction={acaoAvancarEtapa.bind(null, e)}
+              title={
+                ordem(e) < atual
+                  ? 'Voltar o pedido para esta etapa'
+                  : 'Avançar o pedido para esta etapa'
+              }
               className="rounded border border-line px-1.5 py-0.5 text-nota text-ink-3 hover:border-purple-500 hover:text-purple-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500"
             >
-              → {e === 'anunciado' ? 'pedido' : e === 'financeiro' ? 'financeiro' : 'reversão'}
+              {ordem(e) < atual ? '←' : '→'}{' '}
+              {e === 'anunciado' ? 'pedido' : e === 'financeiro' ? 'financeiro' : 'reversão'}
             </button>
           ))}
         </form>

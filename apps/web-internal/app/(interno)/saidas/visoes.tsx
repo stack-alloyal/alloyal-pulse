@@ -15,6 +15,7 @@ import { Badge, Btn, Card, Field, Select, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
 import { acaoAvancarEtapa, acaoDefinirMeta, registrarPedido } from './acoes'
+import { EscolherConta } from './escolher-conta'
 import { CAMPO_DE_VOLTA } from './volta'
 
 /**
@@ -95,20 +96,14 @@ export function Registrar({
         <>
           <form action={registrarPedido} className="grid gap-3">
             <CampoDeVolta para={volta} />
+            {/* O cliente em LINHA PRÓPRIA. Com o campo de busca mais a lista ele
+                ficou três vezes mais alto que um select comum, e no `items-end`
+                da mesma linha empurrava "Pedido" e "Origem" para o pé dele —
+                visto na renderização. */}
+            <div className="max-w-[34em]">
+              <EscolherConta contas={contas} />
+            </div>
             <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-[22em] flex-1">
-                <Select label="Cliente" name="accountId" required defaultValue="">
-                  <option value="" disabled>
-                    escolha o cliente…
-                  </option>
-                  {contas.map((c) => (
-                    <option key={c.accountId} value={c.accountId}>
-                      {c.razaoSocial}
-                      {c.mrrCentavos === null ? ' · MRR a informar' : ` · ${BRL(c.mrrCentavos)}/mês`}
-                    </option>
-                  ))}
-                </Select>
-              </div>
               <Select label="Pedido" name="pedido" defaultValue="cancelar" className="w-44">
                 <option value="cancelar">Cancelamento</option>
                 <option value="desconto">Desconto</option>
