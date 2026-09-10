@@ -287,3 +287,111 @@ test('toda rota de /docs resolve identidade antes de ler o arquivo', () => {
   )
 })
 
+
+/**
+ * ─── O destino de volta das ações do fluxo não pode ser um OPEN REDIRECT ─────
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ POR QUE ISTO PASSOU A EXISTIR EM 10/09/2026.                              │
+ * │                                                                            │
+ * │ O fluxo de cancelamento ganhou tela própria (`/cancelamento` opera,        │
+ * │ `/saidas` analisa), e as dez ações precisaram devolver para a tela de onde  │
+ * │ foram chamadas. O destino passou a vir de um CAMPO DE FORMULÁRIO.          │
+ * │                                                                            │
+ * │ Server Action é endpoint público: quem posta não é obrigado a ser a tela    │
+ * │ que desenhou o botão. `redirect(dados.get('voltarPara'))` mandaria uma      │
+ * │ pessoa autenticada para onde o atacante escrevesse — e o link sairia de     │
+ * │ dentro do Pulse, com a sessão viva.                                        │
+ * │                                                                            │
+ * │ A defesa é LISTA DE PERMISSÃO, e não saneamento de string: `//evil.com`,   │
+ * │ `https:evil.com` e `/\evil.com` passam por quase toda regex de "começa com │
+ * │ barra". Este portão guarda as três propriedades que sustentam isso.         │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const VOLTA = join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'saidas', 'volta.ts')
+const ACOES_DO_FLUXO = join(RAIZ, 'apps', 'web-internal', 'app', '(interno)', 'saidas', 'acoes.ts')
+
+test('o destino de volta é comparado com uma lista, e nunca sanitizado', () => {
+  const volta = readFileSync(VOLTA, 'utf8')
+
+  // 1. A lista existe e só tem caminho interno simples.
+  const bloco = volta.match(/TELAS_DO_FLUXO = \[([^\]]*)\]/)
+  assert.ok(bloco, 'não achei TELAS_DO_FLUXO em volta.ts')
+  const telas = [...bloco[1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!)
+  assert.ok(telas.length >= 1, 'a lista de telas está vazia')
+  for (const t of telas) {
+    assert.match(t, /^\/[a-z0-9-]+(\/[a-z0-9-]+)*$/, `"${t}" não é caminho interno simples`)
+  }
+
+  // 2. A comparação é por PERTENCIMENTO. `startsWith`, `replace` ou `match` aqui
+  //    seriam saneamento — e é assim que `//evil.com` entra.
+  assert.match(
+    volta,
+    /\.includes\(pedido\)/,
+    'a escolha do destino deixou de ser comparação com a lista',
+  )
+  for (const proibido of ['startsWith', 'replace(', 'match(', 'decodeURI']) {
+    assert.ok(
+      !volta.includes(proibido),
+      `volta.ts usa "${proibido}": destino de redirecionamento se compara com lista, não se conserta`,
+    )
+  }
+
+  // 3. O padrão é um membro da lista, e não o que veio no campo.
+  assert.match(
+    volta,
+    /:\s*TELAS_DO_FLUXO\[0\]/,
+    'o caso de falha não cai num destino da lista',
+  )
+})
+
+test('nenhuma ação do fluxo redireciona com valor de formulário cru', () => {
+  const acoes = readFileSync(ACOES_DO_FLUXO, 'utf8')
+  /* O `redirect` só pode receber o que saiu de `destinoDeVolta`. Interpolar
+     `dados.get(...)` num destino é exatamente o defeito que a lista evita, e é
+     fácil de reintroduzir "só para levar o id de volta". */
+  for (const m of acoes.matchAll(/redirect\(([^)]*)\)/g)) {
+    assert.ok(
+      !m[1]!.includes('dados.get'),
+      `redirect() recebeu valor de formulário direto: ${m[0]}`,
+    )
+  }
+  assert.match(acoes, /destinoDeVolta/, 'as ações deixaram de usar a lista de permissão')
+})
+
+test('todo formulário que chama ação do fluxo carrega o campo de volta', () => {
+  /* Formulário sem o campo não quebra: cai no primeiro da lista. Mas cai na tela
+     ERRADA, e é o tipo de defeito que ninguém reporta — a pessoa só acha que a
+     ferramenta é confusa. Então se confere, e não se confia. */
+  const dir = join(RAIZ, 'apps', 'web-internal', 'app', '(interno)')
+  const arquivos: string[] = []
+  const varrer = (d: string) => {
+    for (const n of readdirSync(d, { withFileTypes: true })) {
+      if (n.isDirectory()) varrer(join(d, n.name))
+      else if (n.name.endsWith('.tsx')) arquivos.push(join(d, n.name))
+    }
+  }
+  varrer(dir)
+
+  const faltando: string[] = []
+  for (const a of arquivos) {
+    const src = readFileSync(a, 'utf8')
+    /* SÓ os arquivos que importam as ações DO FLUXO. A primeira versão deste
+       portão varria todo `<form action={acao…}>` da app e deu DEZ falsos
+       positivos — biblioteca, contratos, relatórios e renovações têm ações
+       próprias, que redirecionam para a própria tela com destino fixo e não
+       têm o problema das duas casas. Portão que acusa o inocente é portão que
+       alguém desliga. */
+    if (!/from '(\.\.\/)?saidas\/acoes'|from '\.\/acoes'/.test(src)) continue
+    if (!src.includes('saidas/acoes') && !a.includes('saidas')) continue
+
+    // Cada `<form action={acao…}>` e seu conteúdo até o `</form>`.
+    for (const m of src.matchAll(/<form action=\{(acao\w+|registrarPedido)\}[\s\S]*?<\/form>/g)) {
+      if (!m[0].includes('CampoDeVolta')) {
+        faltando.push(`${relative(RAIZ, a)} — <form action={${m[1]}}>`)
+      }
+    }
+  }
+  assert.ok(arquivos.length > 20, 'não varri a app — o caminho mudou?')
+  assert.deepEqual(faltando, [], 'formulário de ação sem CampoDeVolta')
+})

@@ -20,6 +20,8 @@ import {
 } from '@pulse/success'
 import { redirect } from 'next/navigation'
 
+import { destinoDeVolta } from './volta'
+
 import { pool } from '../../../lib/db'
 import { exigir, temEscopo } from '../../../lib/guarda'
 
@@ -38,13 +40,15 @@ import { exigir, temEscopo } from '../../../lib/guarda'
  * uma resposta de produto; uma pilha de exceção não é.
  */
 
-async function tentar(fn: () => Promise<string>): Promise<never> {
+const voltarPara = destinoDeVolta
+
+async function tentar(fn: () => Promise<string>, volta: string): Promise<never> {
   let destino: string
   try {
-    destino = `/saidas?ok=${encodeURIComponent(await fn())}`
+    destino = `${volta}?ok=${encodeURIComponent(await fn())}`
   } catch (err) {
     if (err instanceof TransicaoInvalidaError || err instanceof SemPermissaoError) {
-      destino = `/saidas?erro=${encodeURIComponent(err.message)}`
+      destino = `${volta}?erro=${encodeURIComponent(err.message)}`
     } else {
       throw err
     }
@@ -64,7 +68,7 @@ export async function acaoConfirmarAviso(dados: FormData): Promise<void> {
       Number(dados.get('avisoPrevioDias')),
     )
     return 'aviso prévio confirmado'
-  })
+  }, voltarPara(dados))
 }
 
 export async function acaoConfirmarCobranca(dados: FormData): Promise<void> {
@@ -80,7 +84,7 @@ export async function acaoConfirmarCobranca(dados: FormData): Promise<void> {
       String(dados.get('competencia') ?? ''),
     )
     return `última cobrança confirmada · a receita sai em ${competenciaEfeitoReceita.slice(0, 7)}`
-  })
+  }, voltarPara(dados))
 }
 
 export async function acaoReter(dados: FormData): Promise<void> {
@@ -89,7 +93,7 @@ export async function acaoReter(dados: FormData): Promise<void> {
   await tentar(async () => {
     await reter(pool(), id, String(dados.get('id') ?? ''), nota || undefined)
     return 'retenção registrada — a receita nunca saiu'
-  })
+  }, voltarPara(dados))
 }
 
 export async function acaoEncerrar(dados: FormData): Promise<void> {
@@ -97,7 +101,7 @@ export async function acaoEncerrar(dados: FormData): Promise<void> {
   await tentar(async () => {
     const r = await encerrar(pool(), id, String(dados.get('id') ?? ''))
     return `encerrada · churn de receita em ${r.competenciaEfeitoReceita}`
-  })
+  }, voltarPara(dados))
 }
 
 /**
@@ -140,7 +144,7 @@ export async function acaoAvancarEtapa(
     }
     await avancarEtapa(pool(), id, saidaId, para)
     return `pedido movido para ${para === 'anunciado' ? 'pedido' : para === 'financeiro' ? 'informações financeiras' : 'tentativa de reversão'}.`
-  })
+  }, voltarPara(dados))
 }
 
 /**
@@ -170,7 +174,7 @@ export async function acaoDesconto(dados: FormData): Promise<void> {
       style: 'currency', currency: 'BRL',
     })
     return `desconto registrado. Entrou no ledger como CONTRAÇÃO de ${v} em ${r.competencia.slice(0, 7)} — não como churn, porque o cliente ficou.`
-  })
+  }, voltarPara(dados))
 }
 
 /** Renegociação: só gera evento de MRR se o mensal mudou. */
@@ -196,7 +200,7 @@ export async function acaoRenegociar(dados: FormData): Promise<void> {
     return r.contracaoCentavos === null
       ? 'renegociação registrada. O mensal não mudou, então nada entrou no ledger de receita — mexeu no recebível, que é a inadimplência.'
       : `renegociação registrada, com efeito no MRR. Entrou no ledger em ${competencia}.`
-  })
+  }, voltarPara(dados))
 }
 
 /** Confirma o motivo — e o gate de "outra pessoa" está em @pulse/success. */
@@ -208,7 +212,7 @@ export async function acaoConfirmarMotivo(dados: FormData): Promise<void> {
   await tentar(async () => {
     await confirmarMotivo(pool(), id, saidaId, { motivo, ...(detalhe ? { detalhe } : {}) })
     return 'motivo confirmado. É este campo que sustenta toda a análise de churn.'
-  })
+  }, voltarPara(dados))
 }
 
 /** Define a meta de churn de um mês. Exige `configurar`. */
@@ -224,7 +228,7 @@ export async function acaoDefinirMeta(dados: FormData): Promise<void> {
     }
     await definirMeta(pool(), id, competencia, String(centavos), nota || undefined)
     return `meta de ${competencia} definida.`
-  })
+  }, voltarPara(dados))
 }
 
 /** O registro da levantada passa a aceitar o tipo do pedido e o MRR digitado. */
@@ -256,5 +260,5 @@ export async function registrarPedido(dados: FormData): Promise<void> {
       ...(aviso ? { avisoPrevioDias: Number(aviso) } : {}),
     })
     return 'pedido registrado.'
-  })
+  }, voltarPara(dados))
 }

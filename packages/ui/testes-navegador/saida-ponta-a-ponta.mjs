@@ -159,16 +159,23 @@ const tem = (t, agulha) => t.toLowerCase().includes(agulha.toLowerCase())
 /** Casa, sem caixa. */
 const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags : re.flags + 'i').test(t)
 
+/* ⚠ DUAS TELAS desde 10/09/2026: `/cancelamento` OPERA (quadro, cadastro,
+   etapas, os sete formulários do pedido) e `/saidas` ANALISA (KPI, funil,
+   coorte, meta, reconciliação). Os passos abaixo dizem qual usam, e trocar
+   isso faz o teste medir a tela errada em vez de achar defeito. */
+const OPERA = '/cancelamento'
+const ANALISA = '/saidas'
+
 // ─── 1. O ponto de partida: tudo em zero ────────────────────────────────────
 {
-  const t = await textoDe('/saidas')
-  conferir(t.includes('Nenhum pedido registrado'), 'quadro começa vazio')
-  conferir(t.includes('Registrar levantada de mão'), 'o formulário de cadastro está na tela')
+  const t = await textoDe(OPERA)
+  conferir(tem(t, 'Nenhum pedido de cancelamento registrado'), 'quadro começa vazio')
+  conferir(tem(t, 'Registrar levantada de mão'), 'o formulário de cadastro está na tela')
 }
 
 // ─── 2. Cadastrar a levantada de mão ────────────────────────────────────────
 {
-  await pg.goto(BASE + '/saidas', { waitUntil: 'networkidle' })
+  await pg.goto(BASE + OPERA, { waitUntil: 'networkidle' })
 
   const opcoes = await pg.locator('select[name="accountId"] option').allInnerTexts()
   const aurora = opcoes.find((o) => o.includes('Transportadora Aurora'))
@@ -187,8 +194,12 @@ const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags 
   await pg.selectOption('select[name="motivo"]', 'custo')
   await pg.fill('input[name="quemComunicou"]', 'Diretora financeira do cliente')
 
+  /* A ação devolve para a tela de onde foi chamada, pelo campo `voltarPara` e a
+     lista de permissão em `saidas/volta.ts`. Conferir a URL aqui é o que prova
+     que o campo chegou: sem ele a ação cai no primeiro da lista, e o teste
+     seguiria verde na tela errada. */
   await Promise.all([
-    pg.waitForURL(/\/saidas/, { waitUntil: 'networkidle' }),
+    pg.waitForURL(/\/cancelamento/, { waitUntil: 'networkidle' }),
     pg.getByRole('button', { name: 'Registrar' }).click(),
   ])
 
@@ -200,9 +211,9 @@ const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags 
      registrado" ainda estava lá — e a asserção acusava um quadro vazio que, na
      recarga seguinte, já mostrava o pedido. Era o teste medindo o meio do
      caminho. */
-  const t = await textoDe('/saidas')
+  const t = await textoDe(OPERA)
   conferir(tem(t, 'Transportadora Aurora'), 'o cliente aparece no quadro')
-  conferir(!tem(t, 'Nenhum pedido registrado'), 'o quadro deixou de estar vazio')
+  conferir(!tem(t, 'Nenhum pedido de cancelamento registrado'), 'o quadro deixou de estar vazio')
   // MRR congelado do CONTRATO (R$ 12.500) e não do faturado — a conta tem os dois,
   // e o contrato vence na ordem de resolução de `anunciar`.
   conferir(casa(t, /R\$\s*12\.500,00/), 'o MRR foi congelado na levantada')
@@ -210,14 +221,14 @@ const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags 
 
 // ─── 3. Os KPI param de mostrar zero ────────────────────────────────────────
 {
-  const t = await textoDe('/saidas')
+  const t = await textoDe(ANALISA)
   conferir(casa(t, /churn de contas[^0-9]*(?:\d{4}-\d{2})?[^0-9]*1\b/), 'o KPI de churn de contas conta 1')
   conferir(tem(t, 'levantaram a mão'), 'e diz quanto MRR levantou a mão')
 }
 
 // ─── 4. A coorte pendura o pedido no mês do ANÚNCIO ─────────────────────────
 {
-  const t = await textoDe('/saidas?aba=coorte')
+  const t = await textoDe(`${ANALISA}?aba=coorte`)
   conferir(!tem(t, 'nenhuma levantada foi registrada ainda'), 'a coorte saiu do estado vazio')
   conferir(casa(t, /60 d/), 'o aviso prévio médio é o que foi digitado')
   conferir(tem(t, 'Churn no efeito'), 'a coluna de efeito existe')
@@ -226,11 +237,11 @@ const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags 
 
 // ─── 5. Avançar a etapa move a coluna do quadro ─────────────────────────────
 {
-  await pg.goto(BASE + '/saidas', { waitUntil: 'networkidle' })
+  await pg.goto(BASE + OPERA, { waitUntil: 'networkidle' })
   const botao = pg.getByRole('button', { name: '→ financeiro' }).first()
   conferir(await botao.isVisible(), 'o quadro oferece mover para Informações financeiras')
   await Promise.all([
-    pg.waitForURL(/\/saidas/, { waitUntil: 'networkidle' }),
+    pg.waitForURL(/\/cancelamento/, { waitUntil: 'networkidle' }),
     botao.click(),
   ])
   /* Relê, pelo mesmo motivo do passo 2. E a contagem NÃO fica colada ao rótulo:
@@ -238,7 +249,7 @@ const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags 
      `/Informações financeiras 1 pedido/` nunca casaria — media um layout que a
      tela não tem. O que prova a movimentação é o par rótulo→contagem na MESMA
      coluna, com a descrição no meio. */
-  const t = await textoDe('/saidas')
+  const t = await textoDe(OPERA)
   conferir(
     casa(t, /informações financeiras[^·]*?\b1 pedido/),
     'o pedido está agora na coluna de informações financeiras',
@@ -247,7 +258,7 @@ const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags 
 
 // ─── 6. A meta e o realizado, do mesmo pipeline ─────────────────────────────
 {
-  await pg.goto(BASE + '/saidas?aba=meta', { waitUntil: 'networkidle' })
+  await pg.goto(BASE + `${ANALISA}?aba=meta`, { waitUntil: 'networkidle' })
   const mes = new Date().toISOString().slice(0, 7)
   await pg.fill('input[name="competencia"]', mes)
   await pg.fill('input[name="meta"]', '50.000,00')
@@ -260,7 +271,7 @@ const casa = (t, re) => new RegExp(re.source, re.flags.includes('i') ? re.flags 
      no HTML e não está RENDERIZADA, e `innerText` não a vê. A meta havia
      gravado (conferido em success.meta_churn); o teste estava olhando a aba
      errada. */
-  const t = await textoDe('/saidas?aba=meta')
+  const t = await textoDe(`${ANALISA}?aba=meta`)
   conferir(casa(t, /R\$\s*50\.000,00/), 'a meta gravou e aparece na tabela')
   conferir(!tem(t, 'Nenhuma meta definida no período'), 'e o aviso de "sem meta" saiu')
   // O realizado continua zero: o pedido está em etapa de trabalho, a receita
