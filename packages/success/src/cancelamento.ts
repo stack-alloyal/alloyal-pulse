@@ -110,6 +110,21 @@ export type CanalAnuncio = 'email' | 'reuniao' | 'whatsapp' | 'formulario' | 'te
 export const MOTIVOS_SAIDA = [
   { valor: 'custo', rotulo: 'Custo', explica: 'preço, orçamento ou corte de despesa' },
   { valor: 'baixa_adesao', rotulo: 'Baixa adesão', explica: 'o clube não pegou na base' },
+  /* ┌───────────────────────────────────────────────────────────────────────┐
+     │ `desuso` ENTROU EM 10/09/2026, e a base é que pediu.                  │
+     │                                                                        │
+     │ O export do pipeline do HubSpot tem 485 tickets, e o motivo MAIS       │
+     │ COMUM deles — "Não está/ Não pretende mais utilizar o produto da       │
+     │ Lecupon", 198 de 485 — não cabia em nenhum dos nove valores que eu     │
+     │ havia escrito em agosto. Não é `baixa_adesao`, que é o clube não pegar │
+     │ na base: aqui é a EMPRESA decidindo parar. Sem este valor, 41% dos     │
+     │ cancelamentos da história entrariam como "outro".                      │
+     │                                                                        │
+     │ Com ele a lista tem 10, que é o teto que o próprio teste declara       │
+     │ ("taxonomia grande é preenchida no chute"). O próximo motivo exige      │
+     │ tirar um — e isso é a intenção do teto, não um acidente.               │
+     └───────────────────────────────────────────────────────────────────────┘ */
+  { valor: 'desuso', rotulo: 'Deixou de usar', explica: 'a empresa decidiu parar de usar o produto' },
   { valor: 'insatisfacao_produto', rotulo: 'Insatisfação com o produto', explica: 'falha, lacuna ou experiência' },
   { valor: 'insatisfacao_atendimento', rotulo: 'Insatisfação com o atendimento', explica: 'suporte ou relacionamento' },
   { valor: 'concorrente', rotulo: 'Foi para o concorrente', explica: 'trocou por outro fornecedor' },
