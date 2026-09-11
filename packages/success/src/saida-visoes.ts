@@ -111,7 +111,13 @@ export interface PedidoNoQuadro {
   readonly fimDoAviso: string | null
   readonly competenciaEfeito: string | null
   readonly motivo: string | null
+  /** O texto livre de quem registrou. Preenchido em 430 dos 445 — é onde mora o
+   *  "por quê" que a taxonomia de 10 valores não consegue carregar. */
+  readonly motivoDetalhe: string | null
   readonly motivoConfirmado: boolean
+  /** O "Ticket ID" do HubSpot, quando a linha veio da carga. Rastreabilidade:
+   *  quem quiser a conversa inteira sabe onde procurar. */
+  readonly ticketExterno: string | null
   readonly diasNaEtapa: number
   /** Parado além do prazo numa ETAPA. Desfecho não estagna. */
   readonly estagnado: boolean
@@ -152,7 +158,7 @@ export async function quadroDeSaida(
             c.aviso_previo_dias,
             to_char(c.data_fim_aviso, 'YYYY-MM-DD')            AS fim_aviso,
             to_char(c.competencia_efeito_receita, 'YYYY-MM')   AS efeito,
-            c.motivo,
+            c.motivo, c.motivo_detalhe, c.ticket_externo,
             (c.motivo_confirmado_por IS NOT NULL)              AS motivo_confirmado,
             greatest(0, (now()::date - c.etapa_desde::date))    AS dias_na_etapa,
             c.debito_aberto_na_levantada_centavos::text        AS divida
@@ -196,12 +202,86 @@ export async function quadroDeSaida(
       fimDoAviso: (r['fim_aviso'] as string | null) ?? null,
       competenciaEfeito: (r['efeito'] as string | null) ?? null,
       motivo: (r['motivo'] as string | null) ?? null,
+      motivoDetalhe: (r['motivo_detalhe'] as string | null) ?? null,
+      ticketExterno: (r['ticket_externo'] as string | null) ?? null,
       motivoConfirmado: r['motivo_confirmado'] === true,
       diasNaEtapa: dias,
       estagnado: emEtapa && dias >= DIAS_PARA_ESTAGNAR,
       dividaCentavos: r['divida'] === null ? null : String(r['divida']),
     }
   })
+}
+
+/**
+ * Os últimos cancelamentos, pelos mais RECENTES.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ EXISTE PORQUE A VISÃO GERAL ESTAVA CHAMANDO DE "ÚLTIMOS" OS PRIMEIROS.     │
+ * │                                                                            │
+ * │ Ela reusava `listarSaidas`, cuja ordem é `data_fim_aviso NULLS FIRST`       │
+ * │ ASCENDENTE — e essa ordem está certa para o que aquela função serve: a      │
+ * │ fila de trabalho põe na frente quem tem menos janela de reversão.           │
+ * │ Para uma lista de "últimos cancelamentos realizados" ela é exatamente ao    │
+ * │ contrário.                                                                 │
+ * │                                                                            │
+ * │ Com a tabela vazia ninguém via. Com os 444 tickets do HubSpot dentro, a     │
+ * │ tela passou a anunciar AGROCUPOM de 21/11/2023 como último cancelamento,    │
+ * │ enquanto os de verdade eram Avep Brasil (21/08/2026) e Gran Cursos          │
+ * │ (06/08/2026). Rótulo que promete uma coisa e mostra outra.                  │
+ * │                                                                            │
+ * │ Reusar uma consulta pela ORDEM dela é o defeito; a correção é uma consulta  │
+ * │ própria, com a ordem que o rótulo promete.                                  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * A ordem é pela data em que a RECEITA parou, e cai para a levantada quando
+ * aquela não existe: é a data que responde "quando este cliente saiu".
+ */
+export async function ultimosCancelamentos(
+  db: pg.Pool,
+  id: Identidade,
+  limite = 10,
+): Promise<
+  Array<{
+    readonly accountId: string
+    readonly conta: string
+    readonly dataLevantada: string | null
+    readonly receitaParouEm: string | null
+    readonly receitaParouDerivada: boolean
+    readonly mrrCentavos: string | null
+    readonly motivo: string | null
+    readonly origem: OrigemSaida
+  }>
+> {
+  if (id.permissoes.contas === 'nenhum') return []
+  const { rows } = await db.query(
+    `SELECT c.account_id::text AS conta_id, a.razao_social,
+            to_char(c.data_levantada, 'YYYY-MM-DD')          AS levantada,
+            to_char(c.competencia_efeito_receita, 'YYYY-MM') AS efeito,
+            -- Importado não tem a corrente de confirmações: a competência dele
+            -- foi DERIVADA do fim do aviso. A tela tem de poder dizer isso, em
+            -- vez de mostrar o número como se alguém o tivesse apurado.
+            (c.origem_do_registro <> 'humano')               AS derivada,
+            c.mrr_centavos_na_levantada::text                AS mrr,
+            c.motivo, c.origem
+       FROM success.cancellation c
+       JOIN core.account a ON a.id = c.account_id
+      WHERE c.estado = 'encerrado'
+        AND ($2::boolean OR a.csm_email = $1)
+      ORDER BY COALESCE(c.competencia_efeito_receita, c.data_levantada) DESC NULLS LAST,
+               c.data_levantada DESC NULLS LAST
+      LIMIT $3`,
+    [id.email, daBase(id), limite],
+  )
+  return rows.map((r) => ({
+    accountId: String(r['conta_id']),
+    conta: String(r['razao_social'] ?? ''),
+    dataLevantada: (r['levantada'] as string | null) ?? null,
+    receitaParouEm: (r['efeito'] as string | null) ?? null,
+    receitaParouDerivada: r['derivada'] === true,
+    mrrCentavos: r['mrr'] === null ? null : String(r['mrr']),
+    motivo: (r['motivo'] as string | null) ?? null,
+    origem: String(r['origem']) as OrigemSaida,
+  }))
 }
 
 // ═══ QUEM PODE LEVANTAR A MÃO ════════════════════════════════════════════════

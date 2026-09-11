@@ -71,6 +71,13 @@ const BRL = (c: string | null) =>
         minimumFractionDigits: 2,
       })
 
+/** `AAAA-MM-DD` em `DD/MM` — o ano só entra quando não é o corrente. */
+const HOJE = new Date().toISOString().slice(0, 10)
+const DATA = (d: string) =>
+  d.slice(0, 4) === HOJE.slice(0, 4)
+    ? `${d.slice(8, 10)}/${d.slice(5, 7)}`
+    : `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(2, 4)}`
+
 /** "3d", "12h", "8m" — o mesmo formato curto da coluna de tempo de lá. */
 const IDADE = (dias: number) => (dias >= 1 ? `${dias}d` : 'hoje')
 
@@ -133,7 +140,23 @@ function Cartao({ p, poderes }: { p: PedidoNoQuadro; poderes: PoderesDeArraste }
 
       {/* Linha 2: o motivo e o aviso prévio, em cinza pequeno. */}
       <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 pl-6">
-        <span className="truncate text-nota text-ink-3">
+        {/* O `title` carrega o que não cabe: o texto livre de quem registrou
+            (preenchido em 430 dos 445 — é onde está o "por quê" que uma
+            taxonomia de 10 valores não carrega) e o ticket de origem. Cartão de
+            252px não comporta um parágrafo; esconder o parágrafo inteiro
+            desperdiça o único campo que explica o caso. */}
+        <span
+          className="truncate text-nota text-ink-3"
+          title={
+            [
+              p.motivo === null ? null : rotuloDoMotivo(p.motivo),
+              p.motivoDetalhe,
+              p.ticketExterno === null ? null : `Ticket ${p.ticketExterno}`,
+            ]
+              .filter(Boolean)
+              .join('\n\n') || undefined
+          }
+        >
           {p.motivo === null ? 'motivo a classificar' : rotuloDoMotivo(p.motivo)}
         </span>
         {p.avisoPrevioDias !== null && (
@@ -170,8 +193,25 @@ function Cartao({ p, poderes }: { p: PedidoNoQuadro; poderes: PoderesDeArraste }
             resto da linha: é o número pelo qual se decide qual cartão trabalhar
             primeiro, e estava do mesmo tamanho do motivo e do tempo. Pedido do
             usuário depois de ver a tela. */}
-        <span className="truncate text-cartao font-semibold tabular-nums text-ink">
-          {BRL(p.mrrCentavos)}
+        {/* Quando há MRR novo — desconto e renegociação —, o cartão mostra a
+            TRAVESSIA: 3.200 → 1.000. Só o valor de origem faria o cartão de um
+            cliente que ficou pagando menos parecer o de um cliente que saiu
+            inteiro, e a diferença entre os dois é o assunto desta tela. */}
+        <span className="flex min-w-0 items-baseline gap-1">
+          <span
+            className={`truncate tabular-nums ${
+              p.mrrNovoCentavos === null
+                ? 'text-cartao font-semibold text-ink'
+                : 'text-nota text-ink-4 line-through'
+            }`}
+          >
+            {BRL(p.mrrCentavos)}
+          </span>
+          {p.mrrNovoCentavos !== null && (
+            <span className="truncate text-cartao font-semibold tabular-nums text-ink">
+              {BRL(p.mrrNovoCentavos)}
+            </span>
+          )}
         </span>
         {/* O tempo só aparece quando NÃO está parado: no cartão parado, a linha
             2 já diz "Parado 24d" e repetir "24d" aqui gastaria o espaço mais
@@ -185,6 +225,39 @@ function Cartao({ p, poderes }: { p: PedidoNoQuadro; poderes: PoderesDeArraste }
         )}
       </div>
 
+      {/* ┌───────────────────────────────────────────────────────────────────┐
+          │ LINHA 4 — AS DUAS DATAS, e elas só aparecem quando existem.         │
+          │                                                                     │
+          │ A levantada responde "há quanto tempo o cliente pediu" e o fim do   │
+          │ aviso responde "quando a receita para" — que é o que decide a ordem │
+          │ de trabalho de verdade, mais que o tempo de etapa. Estavam na        │
+          │ consulta desde sempre (`dataLevantada`, `fimDoAviso`) e o cartão as  │
+          │ ignorava: 426 dos 445 têm fim de aviso gravado.                     │
+          │                                                                     │
+          │ Renderizar a linha vazia quando não há data nenhuma gastaria 18px    │
+          │ do cartão mais apertado da tela para dizer nada.                     │
+          └───────────────────────────────────────────────────────────────────┘ */}
+      {(p.dataLevantada !== null || p.fimDoAviso !== null) && (
+        <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-2 pl-6 text-nota text-ink-4">
+          {p.dataLevantada !== null && (
+            <span className="tabular-nums" title="Quando o cliente levantou a mão">
+              pediu {DATA(p.dataLevantada)}
+            </span>
+          )}
+          {p.fimDoAviso !== null && (
+            <span
+              className={`tabular-nums ${p.fimDoAviso >= HOJE ? 'text-amber-800' : ''}`}
+              title={
+                p.fimDoAviso >= HOJE
+                  ? 'A receita ainda está entrando até esta data'
+                  : 'A receita parou nesta data'
+              }
+            >
+              {p.fimDoAviso >= HOJE ? 'receita até' : 'parou em'} {DATA(p.fimDoAviso)}
+            </span>
+          )}
+        </div>
+      )}
     </article>
   )
 }

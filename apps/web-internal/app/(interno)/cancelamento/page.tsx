@@ -19,7 +19,7 @@
  */
 import {
   graficoDeCancelamento,
-  listarSaidas,
+  ultimosCancelamentos,
   resumoChurn,
   rotuloDoMotivo,
 } from '@pulse/success'
@@ -60,18 +60,12 @@ export default async function VisaoGeral({
   const comp = `${hoje.slice(0, 7)}-01`
   const veReceita = temEscopo(id.permissoes.receita)
 
-  const [resumo, meses, saidas] = await Promise.all([
+  const [resumo, meses, realizados] = await Promise.all([
     veReceita ? resumoChurn(pool(), comp) : null,
     veReceita ? graficoDeCancelamento(pool(), janela) : Promise.resolve([]),
-    listarSaidas(pool(), id),
+    ultimosCancelamentos(pool(), id, 10),
   ])
 
-  /* "Realizado" é `encerrado`, e só isso: os três desfechos que SALVAM o cliente
-     (retido, desconto, renegociado) não são cancelamento — contá-los aqui
-     afirmaria uma saída que não houve. */
-  const realizados = saidas
-    .filter((s) => s.estado === 'encerrado')
-    .slice(0, 10)
 
   return (
     <>
@@ -155,10 +149,19 @@ export default async function VisaoGeral({
                   {s.conta}
                 </Link>,
                 <span className="whitespace-nowrap tabular-nums">{DIA(s.dataLevantada)}</span>,
+                /* O asterisco não é enfeite: a competência do que veio do
+                   HubSpot foi DERIVADA do fim do aviso, e não apurada pelas duas
+                   confirmações. Mostrar os dois números iguais, sem marca,
+                   afirmaria uma apuração que não houve. */
                 <span className="whitespace-nowrap tabular-nums">
-                  {s.competenciaEfeitoReceita ?? '—'}
+                  {s.receitaParouEm ?? '—'}
+                  {s.receitaParouEm !== null && s.receitaParouDerivada && (
+                    <span className="text-ink-4" title="Derivada do fim do aviso prévio — o registro veio do HubSpot, sem as duas confirmações">
+                      {' '}*
+                    </span>
+                  )}
                 </span>,
-                <span className="tabular-nums">{REAIS(s.mrrCentavosNaLevantada)}</span>,
+                <span className="tabular-nums">{REAIS(s.mrrCentavos)}</span>,
                 <span>{s.motivo === null ? '—' : rotuloDoMotivo(s.motivo)}</span>,
                 <span>{s.origem === 'alloyal' ? 'Alloyal (PDD)' : 'Cliente'}</span>,
               ])}

@@ -129,7 +129,8 @@ def lit(v):
 COLUNAS = ['ticket_externo', 'cnpj', 'nome', 'origem', 'estado', 'pedido', 'data_levantada',
            'canal', 'quem_comunicou', 'mrr_centavos', 'valor_do_desconto_centavos',
            'aviso_previo_dias', 'data_fim_aviso', 'motivo', 'motivo_detalhe',
-           'retido_em', 'etapa_desde', 'criado_em', 'derivou_fim_do_aviso']
+           'retido_em', 'etapa_desde', 'criado_em', 'derivou_fim_do_aviso',
+           'inicio_do_desconto']
 
 
 def main():
@@ -192,6 +193,7 @@ def main():
             dia(x.get(ETAPA[status])) or lev,
             dia(x.get('Data de criação')) or lev,
             derivou,
+            dia(x.get('[CSM] Data de Inicio do Desconto')),
         ])
 
     w = sys.stdout.write
@@ -308,7 +310,7 @@ INSERT INTO success.cancellation
   (ticket_externo, account_id, origem, estado, pedido, data_levantada, canal,
    quem_comunicou, mrr_centavos_na_levantada, mrr_novo_centavos, aviso_previo_dias,
    data_fim_aviso, motivo, motivo_detalhe, retido_em, etapa_desde, criado_em,
-   origem_do_registro)
+   competencia_ultima_cobranca, competencia_efeito_receita, origem_do_registro)
 SELECT t.ticket_externo, c.account_id, t.origem, t.estado, t.pedido, t.data_levantada::date,
        t.canal, t.quem_comunicou,
        -- O MRR do ticket, e o MEDIDO quando o ticket registrou zero. Dois casos,
@@ -319,7 +321,36 @@ SELECT t.ticket_externo, c.account_id, t.origem, t.estado, t.pedido, t.data_leva
             THEN t.mrr_centavos::bigint - t.valor_do_desconto_centavos::bigint END,
        t.aviso_previo_dias::int, t.data_fim_aviso::date,
        t.motivo, t.motivo_detalhe, t.retido_em::date, t.etapa_desde::timestamptz,
-       t.criado_em::timestamptz, 'carga_hubspot'
+       t.criado_em::timestamptz,
+       -- ┌─────────────────────────────────────────────────────────────────┐
+       -- │ A COMPETÊNCIA DE EFEITO, DERIVADA — e sem ela as telas ficam     │
+       -- │ vazias com a base cheia.                                          │
+       -- │                                                                   │
+       -- │ Medido em 11/09/2026, com 445 linhas carregadas: o campo estava   │
+       -- │ NULO em TODAS. E `graficoDeCancelamento` filtra                    │
+       -- │ `competencia_efeito_receita IS NOT NULL` — zero linha. O gráfico   │
+       -- │ da Visão Geral desenhava o vazio, o KPI de churn de receita        │
+       -- │ mostrava zero, e a coluna "Receita parou em" era uma fileira de    │
+       -- │ travessões. Três telas mudas por um campo nulo.                    │
+       -- │                                                                   │
+       -- │ A derivação é a mesma conta de `competenciaDeEfeito`: último mês   │
+       -- │ cobrado + 1. E o último mês cobrado é o do FIM DO AVISO — o texto  │
+       -- │ livre dos próprios tickets mostra a conta: "Data de encerramento   │
+       -- │ do contrato: 19/11/2026 … proporcional de Novembro - Vencimento    │
+       -- │ 19/12/2026". Cobra-se novembro, a receita para em dezembro.        │
+       -- │                                                                   │
+       -- │ Só para `encerrado`: nos outros estados a receita NÃO parou, e     │
+       -- │ datar uma saída que não houve é pior que não datar. Desconto e     │
+       -- │ renegociação usam o início do desconto, que é quando a contração   │
+       -- │ passa a valer — e o CHECK dispensa os dois das confirmações.       │
+       -- └─────────────────────────────────────────────────────────────────┘
+       CASE WHEN t.estado = 'encerrado' AND t.data_fim_aviso <> ''
+            THEN date_trunc('month', t.data_fim_aviso::date)::date END,
+       CASE WHEN t.estado = 'encerrado' AND t.data_fim_aviso <> ''
+            THEN (date_trunc('month', t.data_fim_aviso::date) + interval '1 month')::date
+            WHEN t.estado IN ('desconto','renegociado') AND t.inicio_do_desconto <> ''
+            THEN date_trunc('month', t.inicio_do_desconto::date)::date END,
+       'carga_hubspot'
   FROM t
   JOIN casamento c ON c.ticket_externo = t.ticket_externo
   LEFT JOIN (SELECT DISTINCT ON (account_id) account_id, mrr_centavos
@@ -334,7 +365,9 @@ ON CONFLICT (ticket_externo) WHERE ticket_externo IS NOT NULL DO UPDATE SET
   mrr_novo_centavos = EXCLUDED.mrr_novo_centavos,
   aviso_previo_dias = EXCLUDED.aviso_previo_dias, data_fim_aviso = EXCLUDED.data_fim_aviso,
   motivo = EXCLUDED.motivo, motivo_detalhe = EXCLUDED.motivo_detalhe,
-  retido_em = EXCLUDED.retido_em, etapa_desde = EXCLUDED.etapa_desde;
+  retido_em = EXCLUDED.retido_em, etapa_desde = EXCLUDED.etapa_desde,
+  competencia_ultima_cobranca = EXCLUDED.competencia_ultima_cobranca,
+  competencia_efeito_receita = EXCLUDED.competencia_efeito_receita;
 
 -- ── O que virou recusado depois de já ter entrado, sai ──────────────────────
 -- ┌───────────────────────────────────────────────────────────────────────────┐
