@@ -148,10 +148,29 @@ export default async function Kanban({
             tudo numa faixa fina com borda embaixo. */}
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-3 md:px-8">
           <div>
-            <h1 className="text-titulo font-semibold text-ink">Quadro</h1>
+            {/* ┌─────────────────────────────────────────────────────────┐
+                │ O VALOR É O TÍTULO, e "Quadro" virou a etiqueta em cima.  │
+                │                                                           │
+                │ Pedido do usuário depois de ver a tela com os 434 cartões  │
+                │ carregados: o total estava em `text-meta text-ink-3` — 12px │
+                │ cinza, do mesmo tamanho da contagem e do período, no meio   │
+                │ de uma frase com quatro pedaços. É o número pelo qual se    │
+                │ decide se o recorte que está na tela importa, e ele lia     │
+                │ como legenda.                                              │
+                │                                                           │
+                │ Agora usa `text-kpi` — 22px/700/-0.03em, o mesmo degrau dos │
+                │ KPI do design system —, com `tabular-nums` para os dígitos  │
+                │ não dançarem quando o filtro muda o valor. O mesmo ajuste   │
+                │ que o MRR do cartão recebeu, pelo mesmo motivo.            │
+                └─────────────────────────────────────────────────────────┘ */}
+            <h1 className="text-tabela uppercase text-ink-3">Quadro</h1>
+            {total > 0 ? (
+              <p className="mt-0.5 text-kpi tabular-nums text-ink">{BRL(String(total))}</p>
+            ) : (
+              <p className="mt-0.5 text-kpi tabular-nums text-ink-4">—</p>
+            )}
             <p className="mt-1 text-meta text-ink-3">
-              {visiveis.length} pedido(s){total > 0 && <> · {BRL(String(total))}</>} ·{' '}
-              {rotuloDaFaixa(periodo, faixa).toLowerCase()}
+              {visiveis.length} pedido(s) · {rotuloDaFaixa(periodo, faixa).toLowerCase()}
               {/* O recorte NUNCA esconde etapa de trabalho, e dizer isso aqui é o
                   que impede a regra de ser surpresa. Medido: "este trimestre"
                   esconderia os dois pedidos mais parados do quadro. */}

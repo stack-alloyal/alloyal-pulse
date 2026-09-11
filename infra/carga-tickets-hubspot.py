@@ -126,7 +126,7 @@ def lit(v):
     return "'" + str(v).replace("'", "''") + "'"
 
 
-COLUNAS = ['ticket_externo', 'cnpj', 'origem', 'estado', 'pedido', 'data_levantada',
+COLUNAS = ['ticket_externo', 'cnpj', 'nome', 'origem', 'estado', 'pedido', 'data_levantada',
            'canal', 'quem_comunicou', 'mrr_centavos', 'mrr_novo_centavos',
            'aviso_previo_dias', 'data_fim_aviso', 'motivo', 'motivo_detalhe',
            'retido_em', 'etapa_desde', 'criado_em', 'derivou_fim_do_aviso']
@@ -164,6 +164,7 @@ def main():
         mrr_novo = centavos(x.get('[CSM] Valor do Desconto')) if est == 'desconto' else None
         dentro.append([
             t, cnpj,
+            (x.get('Nome da empresa') or x.get('[PX] Razão Social Empresa') or '').strip(),
             'alloyal' if status.startswith('Cancelado Alloyal') or tipo == 'Cancelado pela Alloyal' else 'cliente',
             est,
             'desconto' if tipo in ('Desconto', 'Downgrade') else 'cancelar',
@@ -191,12 +192,59 @@ def main():
 
     # Daqui para baixo é o Postgres que decide: o casamento com a conta e o MRR
     # medido são consultas, e consulta é exata onde laço em Python é chute.
-    w('''
+    w("""
+-- ── Qual conta é a do ticket ─────────────────────────────────────────────────
+-- ┌───────────────────────────────────────────────────────────────────────────┐
+-- │ DUAS CHAVES, NESTA ORDEM: o CNPJ, e o NOME quando ele é ÚNICO.             │
+-- │                                                                            │
+-- │ Medido em 11/09/2026: dos 26 documentos que não casaram por CNPJ, 12 têm    │
+-- │ conta na base com o nome idêntico e CNPJ diferente — e os dois lados com    │
+-- │ dígito verificador VÁLIDO, ou seja, são CNPJ realmente distintos (matriz e  │
+-- │ filial, ou outra empresa do grupo). Decisão do usuário: vale a conta que o  │
+-- │ nome encontrou.                                                            │
+-- │                                                                            │
+-- │ O `HAVING count(DISTINCT ...) = 1` é a parte que não pode cair. "vileve"    │
+-- │ casa com CINCO contas — App Vileve, Pay, Asservir, Asprevimais e Benefícios │
+-- │ Cobap —, e escolher uma gravaria o cancelamento na empresa errada do mesmo  │
+-- │ grupo. Nome ambíguo fica de fora e sai no relatório.                        │
+-- │                                                                            │
+-- │ `starts_with` e não `LIKE`: nome de cliente com `%` ou `_` viraria curinga  │
+-- │ dentro do LIKE e casaria com meia base.                                     │
+-- └───────────────────────────────────────────────────────────────────────────┘
+CREATE TEMP TABLE casamento ON COMMIT DROP AS
+WITH por_cnpj AS (
+  SELECT t.ticket_externo, a.id AS account_id, 'cnpj'::text AS como
+    FROM t JOIN core.account a
+      ON regexp_replace(a.cnpj, '[^0-9]', '', 'g') = t.cnpj
+), candidatos AS (
+  SELECT t.ticket_externo, a.id AS account_id
+    FROM t JOIN core.account a
+      ON length(t.nome) >= 3
+     AND (lower(a.razao_social) = lower(t.nome)
+          OR starts_with(lower(a.razao_social), lower(t.nome) || ' ')
+          OR starts_with(lower(a.razao_social), lower(t.nome) || '-'))
+   WHERE NOT EXISTS (SELECT 1 FROM por_cnpj p WHERE p.ticket_externo = t.ticket_externo)
+), por_nome AS (
+  -- `min(uuid)` não existe no Postgres; e como o HAVING já garante candidato
+  -- ÚNICO, qualquer agregador serve — `min(account_id::text)::uuid` devolve o
+  -- mesmo valor que entrou.
+  SELECT ticket_externo, min(account_id::text)::uuid AS account_id, 'nome'::text AS como
+    FROM candidatos GROUP BY ticket_externo HAVING count(DISTINCT account_id) = 1
+)
+SELECT * FROM por_cnpj UNION ALL SELECT * FROM por_nome;
+
 -- ── O que NÃO vai entrar, e por quê ─────────────────────────────────────────
 CREATE TEMP TABLE recusado ON COMMIT DROP AS
-SELECT t.ticket_externo, t.cnpj,
+SELECT t.ticket_externo, t.cnpj, t.nome,
        CASE
-         WHEN a.id IS NULL THEN 'CNPJ válido sem conta em core.account'
+         WHEN c.account_id IS NULL AND EXISTS (
+                SELECT 1 FROM core.account a
+                 WHERE length(t.nome) >= 3
+                   AND (lower(a.razao_social) = lower(t.nome)
+                        OR starts_with(lower(a.razao_social), lower(t.nome) || ' ')
+                        OR starts_with(lower(a.razao_social), lower(t.nome) || '-')))
+           THEN 'nome casa com mais de uma conta'
+         WHEN c.account_id IS NULL THEN 'sem conta, nem por CNPJ nem por nome'
          -- `[CSM] Valor do Desconto` é ambíguo: em 5 dos 11 ele é IGUAL ao MRR,
          -- então não se sabe se é o valor novo ou o abatimento. O CHECK
          -- `desconto_tem_mrr_novo` fica forte de propósito e estes ficam fora:
@@ -209,10 +257,10 @@ SELECT t.ticket_externo, t.cnpj,
            THEN 'MRR zero e sem faturamento medido'
        END AS porque
   FROM t
-  LEFT JOIN core.account a ON regexp_replace(a.cnpj, '[^0-9]', '', 'g') = t.cnpj
+  LEFT JOIN casamento c ON c.ticket_externo = t.ticket_externo
   LEFT JOIN (SELECT DISTINCT ON (account_id) account_id, mrr_centavos
                FROM analytics.mrr_faturado_mes ORDER BY account_id, competencia DESC) m
-         ON m.account_id = a.id;
+         ON m.account_id = c.account_id;
 DELETE FROM recusado WHERE porque IS NULL;
 
 -- ── A carga ─────────────────────────────────────────────────────────────────
@@ -221,7 +269,7 @@ INSERT INTO success.cancellation
    quem_comunicou, mrr_centavos_na_levantada, mrr_novo_centavos, aviso_previo_dias,
    data_fim_aviso, motivo, motivo_detalhe, retido_em, etapa_desde, criado_em,
    origem_do_registro)
-SELECT t.ticket_externo, a.id, t.origem, t.estado, t.pedido, t.data_levantada::date,
+SELECT t.ticket_externo, c.account_id, t.origem, t.estado, t.pedido, t.data_levantada::date,
        t.canal, t.quem_comunicou,
        -- O MRR do ticket, e o MEDIDO quando o ticket registrou zero. Dois casos,
        -- e marcados: zero esconderia exatamente o churn que a tela mostra.
@@ -230,10 +278,10 @@ SELECT t.ticket_externo, a.id, t.origem, t.estado, t.pedido, t.data_levantada::d
        t.motivo, t.motivo_detalhe, t.retido_em::date, t.etapa_desde::timestamptz,
        t.criado_em::timestamptz, 'carga_hubspot'
   FROM t
-  JOIN core.account a ON regexp_replace(a.cnpj, '[^0-9]', '', 'g') = t.cnpj
+  JOIN casamento c ON c.ticket_externo = t.ticket_externo
   LEFT JOIN (SELECT DISTINCT ON (account_id) account_id, mrr_centavos
                FROM analytics.mrr_faturado_mes ORDER BY account_id, competencia DESC) m
-         ON m.account_id = a.id
+         ON m.account_id = c.account_id
  WHERE NOT EXISTS (SELECT 1 FROM recusado r WHERE r.ticket_externo = t.ticket_externo)
 ON CONFLICT (ticket_externo) WHERE ticket_externo IS NOT NULL DO UPDATE SET
   account_id = EXCLUDED.account_id, origem = EXCLUDED.origem, estado = EXCLUDED.estado,
@@ -247,6 +295,15 @@ ON CONFLICT (ticket_externo) WHERE ticket_externo IS NOT NULL DO UPDATE SET
 
 -- ── O relatório ─────────────────────────────────────────────────────────────
 \\echo ''
+\\echo '── como cada ticket achou a conta:'
+SELECT c.como, count(*) FROM casamento c
+  JOIN t ON t.ticket_externo = c.ticket_externo GROUP BY 1 ORDER BY 2 DESC;
+\\echo '── os que acharam pelo NOME (CNPJ do ticket difere do da conta):'
+SELECT t.nome, t.cnpj AS cnpj_do_ticket,
+       regexp_replace(a.cnpj, '[^0-9]', '', 'g') AS cnpj_da_conta, a.razao_social
+  FROM casamento c JOIN t ON t.ticket_externo = c.ticket_externo
+  JOIN core.account a ON a.id = c.account_id
+ WHERE c.como = 'nome' ORDER BY 1;
 \\echo '── recusados, por motivo:'
 SELECT porque, count(*) FROM recusado GROUP BY 1 ORDER BY 2 DESC;
 \\echo '── carregados, por posição do quadro:'
@@ -268,7 +325,7 @@ SELECT count(*) AS total, min(data_levantada) AS primeira, max(data_levantada) A
   \\echo '>>> DRY-RUN: desfazendo. Rode com -v gravar=1 para gravar.'
   ROLLBACK;
 \\endif
-''')
+""")
 
 
 if __name__ == '__main__':
