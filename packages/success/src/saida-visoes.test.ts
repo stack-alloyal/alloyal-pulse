@@ -24,6 +24,8 @@ import {
   avancarEtapa,
   concederDesconto,
   confirmarAviso,
+  confirmarMotivo,
+  encerrar,
   confirmarUltimaCobranca,
   reter,
 } from './cancelamento.js'
@@ -42,6 +44,7 @@ import {
   POSICOES,
   quadroDeSaida,
   saidasSemRegistro,
+  ultimosCancelamentos,
 } from './saida-visoes.js'
 
 const ADMIN = process.env['DATABASE_URL_ADMIN']
@@ -205,6 +208,47 @@ describe('visões de saída', { skip: !ADMIN }, () => {
     assert.equal(quadro[0]?.posicao, 'desconto', 'desfecho, e não etapa')
     assert.equal(quadro[0]?.mrrNovoCentavos, '3000000')
     assert.equal(quadro[0]?.estagnado, false, 'desfecho não estagna — só etapa estagna')
+  })
+
+  test('"últimos cancelamentos" traz os mais RECENTES, e não os primeiros', async () => {
+    /* ┌───────────────────────────────────────────────────────────────────────┐
+       │ O DEFEITO QUE ISTO TRANCA, achado em 11/09/2026 com a base cheia.     │
+       │                                                                        │
+       │ A Visão Geral reusava `listarSaidas`, cuja ordem é `data_fim_aviso`     │
+       │ ASCENDENTE — certa para a fila de trabalho, que põe na frente quem tem  │
+       │ menos janela de reversão, e exatamente ao contrário do que a palavra    │
+       │ "últimos" promete. Com a tabela vazia ninguém via; com 444 tickets      │
+       │ dentro, a tela anunciava um cancelamento de NOVEMBRO DE 2023 como o     │
+       │ último, tendo agosto de 2026 na base.                                   │
+       └───────────────────────────────────────────────────────────────────────┘ */
+    /* Os dois na MESMA conta, em sequência: o índice `cancellation_uma_em_curso`
+       só barra pedido ABERTO, então encerrar o primeiro libera o segundo. Evita
+       depender de uma segunda conta no cenário. */
+    const encerrarEm = async (levantada: string, competencia: string) => {
+      const id = await anunciar(pool, LIDER, {
+        accountId: acme,
+        origem: 'cliente',
+        dataLevantada: levantada,
+        // MRR explícito: uma das levantadas é de 2024, e o congelamento
+        // automático procura contrato vigente ou faturamento recente NAQUELA
+        // data — que o cenário não tem tão para trás.
+        mrrCentavos: '100000',
+      })
+      await confirmarMotivo(pool, OUTRO, id, { motivo: 'custo' })
+      await confirmarAviso(pool, LIDER, id, 30)
+      await confirmarUltimaCobranca(pool, LIDER, id, competencia)
+      await encerrar(pool, LIDER, id)
+    }
+    await encerrarEm('2024-01-10', '2024-02')
+    await encerrarEm('2026-08-20', '2026-09')
+
+    const lista = await ultimosCancelamentos(pool, LIDER, 10)
+    assert.equal(lista.length, 2)
+    assert.equal(lista[0]?.dataLevantada, '2026-08-20', 'o mais RECENTE vem primeiro')
+    assert.equal(lista[1]?.dataLevantada, '2024-01-10')
+    // E a marca de derivada é falsa para quem percorreu o fluxo com gente.
+    assert.equal(lista[0]?.receitaParouDerivada, false, 'registro humano não é derivado')
+    assert.ok(lista[0]?.receitaParouEm !== null, 'a competência apurada aparece')
   })
 
   test('o recorte de tempo nunca esconde etapa de trabalho', async () => {
