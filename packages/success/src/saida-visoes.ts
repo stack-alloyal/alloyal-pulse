@@ -118,10 +118,30 @@ export interface PedidoNoQuadro {
   readonly dividaCentavos: string | null
 }
 
+/**
+ * O quadro, com recorte de tempo opcional.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ O RECORTE NÃO ALCANÇA O QUE ESTÁ EM ANDAMENTO, e isto é medido.           │
+ * │                                                                            │
+ * │ Com os tickets do HubSpot: o recorte "este trimestre" esconderia DOIS      │
+ * │ pedidos em andamento — os de 20/03 e 25/05 —, e eles são exatamente os     │
+ * │ mais parados de todos, os que o quadro existe para puxar o olho.           │
+ * │                                                                            │
+ * │ Um kanban que esconde trabalho deixou de ser um kanban. Então o filtro     │
+ * │ recorta o HISTÓRICO — as cinco colunas de desfecho — e as três etapas de   │
+ * │ trabalho aparecem sempre, em qualquer período. A tela diz isso em voz alta │
+ * │ no subtítulo; não é regra escondida.                                      │
+ * │                                                                            │
+ * │ Para voltar ao recorte literal, é só tirar o `OR c.estado IN (...)` abaixo │
+ * │ — uma linha, e o teste `o recorte nunca esconde etapa de trabalho` cai     │
+ * │ junto, que é como deve ser.                                               │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
 export async function quadroDeSaida(
   db: pg.Pool,
   id: Identidade,
-  opcoes: { readonly desde?: string } = {},
+  opcoes: { readonly desde?: string | null; readonly ate?: string | null } = {},
 ): Promise<PedidoNoQuadro[]> {
   const { rows } = await db.query(
     `SELECT c.id::text, c.account_id::text AS account_id, a.razao_social,
@@ -139,14 +159,23 @@ export async function quadroDeSaida(
        FROM success.cancellation c
        JOIN core.account a ON a.id = c.account_id
       WHERE ($2::boolean OR a.csm_email = $1)
-        AND ($3::date IS NULL OR c.criado_em >= $3::date)
+        AND (c.estado IN ('anunciado', 'financeiro', 'reversao')
+             -- COALESCE porque data_levantada é NULA quando a origem é
+             -- Alloyal: o CHECK só a exige do cliente, e saída por crédito não
+             -- tem levantada de mão. Sem isto, todo cartão de PDD sumiria de
+             -- QUALQUER recorte: "NULL >= data" não é falso, é nulo. É o mesmo
+             -- COALESCE que confirmarAviso já usa, pelo mesmo motivo.
+             -- (Sem crase aqui: isto vive dentro de um template literal, e a
+             --  crase fechava a string — o build acusou na hora.)
+             OR (($3::date IS NULL OR COALESCE(c.data_levantada, c.criado_em::date) >= $3::date)
+                 AND ($4::date IS NULL OR COALESCE(c.data_levantada, c.criado_em::date) <= $4::date)))
       ORDER BY
         -- Etapas primeiro, e dentro delas o mais parado no topo: o quadro tem de
         -- puxar o olho para o que está esquecido, não para o que é recente.
         (c.estado IN ('anunciado', 'financeiro', 'reversao')) DESC,
         c.etapa_desde,
         c.mrr_centavos_na_levantada DESC NULLS LAST`,
-    [id.email, daBase(id), opcoes.desde ?? null],
+    [id.email, daBase(id), opcoes.desde ?? null, opcoes.ate ?? null],
   )
   return rows.map((r) => {
     const posicao = String(r['posicao']) as PosicaoDoQuadro

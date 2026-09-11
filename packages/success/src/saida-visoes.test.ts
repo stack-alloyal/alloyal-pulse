@@ -207,6 +207,55 @@ describe('visões de saída', { skip: !ADMIN }, () => {
     assert.equal(quadro[0]?.estagnado, false, 'desfecho não estagna — só etapa estagna')
   })
 
+  test('o recorte de tempo nunca esconde etapa de trabalho', async () => {
+    /* ┌───────────────────────────────────────────────────────────────────────┐
+       │ A REGRA QUE A MEDIÇÃO PEDIU, em 11/09/2026.                            │
+       │                                                                        │
+       │ O kanban ganhou filtro de período, e com os 485 tickets do HubSpot o    │
+       │ preset "este trimestre" ESCONDERIA dois pedidos em andamento — os de    │
+       │ 20/03 e 25/05 — que são justamente os mais parados do quadro, os que a  │
+       │ tela existe para puxar o olho.                                          │
+       │                                                                        │
+       │ Então o recorte alcança o HISTÓRICO e não o trabalho: as três etapas    │
+       │ aparecem em qualquer período. Este teste é o que impede alguém de       │
+       │ "simplificar" a consulta e reintroduzir o sumiço em silêncio.           │
+       └───────────────────────────────────────────────────────────────────────┘ */
+    const antigo = '2023-01-15'
+    const id = await anunciar(pool, LIDER, {
+      accountId: acme,
+      origem: 'cliente',
+      dataLevantada: antigo,
+    })
+
+    // Uma janela que não contém a levantada de jeito nenhum.
+    const janela = { desde: '2026-01-01', ate: '2026-12-31' }
+    const quadro = await quadroDeSaida(pool, LIDER, janela)
+    assert.equal(quadro.length, 1, 'pedido em andamento aparece fora da janela')
+    assert.equal(quadro[0]?.posicao, 'pedido')
+
+    // As outras duas etapas, pelo mesmo caminho.
+    await avancarEtapa(pool, LIDER, id, 'financeiro')
+    assert.equal((await quadroDeSaida(pool, LIDER, janela)).length, 1, 'financeiro também')
+    await avancarEtapa(pool, LIDER, id, 'reversao')
+    assert.equal((await quadroDeSaida(pool, LIDER, janela)).length, 1, 'reversão também')
+
+    // Virou DESFECHO: agora o recorte alcança, e ele some da janela errada.
+    await reter(pool, LIDER, id, undefined, antigo)
+    assert.equal(
+      (await quadroDeSaida(pool, LIDER, janela)).length,
+      0,
+      'desfecho de 2023 não aparece numa janela de 2026',
+    )
+    // E aparece na janela que o contém.
+    assert.equal(
+      (await quadroDeSaida(pool, LIDER, { desde: '2023-01-01', ate: '2023-12-31' })).length,
+      1,
+      'o mesmo desfecho aparece na janela certa',
+    )
+    // Sem recorte, aparece sempre.
+    assert.equal((await quadroDeSaida(pool, LIDER)).length, 1, 'sem janela, mostra tudo')
+  })
+
   test('o PDD é o mesmo estado do cancelamento, separado pela origem', async () => {
     /* ┌───────────────────────────────────────────────────────────────────────┐
        │ ENQUANTO ESTÁ ANUNCIADO, O PDD É UM PEDIDO — e isto é desenho, não      │

@@ -46,8 +46,16 @@
  * │ faria ela filtrar por nada.                                                │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-import { contasParaSaida, quadroDeSaida } from '@pulse/success'
-import { Aviso, Field, Select } from '@pulse/ui'
+import {
+  contasParaSaida,
+  dataConhecida,
+  faixaDoPeriodo,
+  PERIODOS,
+  periodoConhecido,
+  quadroDeSaida,
+  rotuloDaFaixa,
+} from '@pulse/success'
+import { Aviso, Btn, Field, Select } from '@pulse/ui'
 import Link from 'next/link'
 
 import { QuadroKanban } from './quadro'
@@ -74,7 +82,15 @@ const BRL = (c: string) =>
 export default async function Kanban({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; erro?: string; novo?: string; q?: string }>
+  searchParams: Promise<{
+    ok?: string
+    erro?: string
+    novo?: string
+    q?: string
+    periodo?: string
+    de?: string
+    ate?: string
+  }>
 }) {
   const q = await searchParams
   const id = await exigir((p) => temEscopo(p.contas), 'quadro de cancelamento')
@@ -83,8 +99,18 @@ export default async function Kanban({
   const busca = (q.q ?? '').trim()
   const hoje = new Date().toISOString().slice(0, 10)
 
+  /* O recorte de tempo. Tudo passa por lista de permissão antes de virar
+     consulta: `periodo` cai no padrão se não for um dos cinco, e as duas datas
+     só passam no formato `AAAA-MM-DD` — é `searchParams`, ou seja, entrada do
+     usuário, e uma data crua indo para `::date` é erro 500 em dia de sorte. */
+  const periodo = periodoConhecido(q.periodo)
+  const faixa = faixaDoPeriodo(periodo, hoje, {
+    desde: dataConhecida(q.de),
+    ate: dataConhecida(q.ate),
+  })
+
   const [pedidos, contas] = await Promise.all([
-    quadroDeSaida(pool(), id),
+    quadroDeSaida(pool(), id, faixa),
     cadastrando ? contasParaSaida(pool(), id) : Promise.resolve([]),
   ])
 
@@ -124,25 +150,98 @@ export default async function Kanban({
           <div>
             <h1 className="text-titulo font-semibold text-ink">Quadro</h1>
             <p className="mt-1 text-meta text-ink-3">
-              {visiveis.length} pedido(s){total > 0 && <> · {BRL(String(total))}</>} · do card ao
-              desfecho
+              {visiveis.length} pedido(s){total > 0 && <> · {BRL(String(total))}</>} ·{' '}
+              {rotuloDaFaixa(periodo, faixa).toLowerCase()}
+              {/* O recorte NUNCA esconde etapa de trabalho, e dizer isso aqui é o
+                  que impede a regra de ser surpresa. Medido: "este trimestre"
+                  esconderia os dois pedidos mais parados do quadro. */}
+              {periodo !== 'tudo' && <> · em andamento aparece sempre</>}
             </p>
           </div>
 
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <form method="GET">
-              <Field
-                type="search"
-                name="q"
-                defaultValue={busca}
-                placeholder="Buscar cliente…"
-                aria-label="Buscar cliente"
-                /* Era `w-40` (140px na raiz de 14px) e caberia "Transp…". Pedido do usuário
-                   depois de ver a tela: `w-72` são 252px, a mesma largura de uma coluna
-                   do quadro — cabe o nome inteiro de quase toda conta da base. */
-                className="w-72"
-              />
-            </form>
+          {/* ┌───────────────────────────────────────────────────────────────┐
+              │ UM FORMULÁRIO SÓ para busca e período, e não dois.             │
+              │                                                                │
+              │ Dois `<form method="GET">` lado a lado se apagam: submeter a   │
+              │ busca manda só `?q=`, e o período volta ao padrão sem ninguém  │
+              │ pedir. Junto, cada submissão carrega os dois — e continua       │
+              │ funcionando sem JavaScript, que é a regra desta tela.          │
+              └───────────────────────────────────────────────────────────────┘ */}
+          <form method="GET" className="ml-auto flex flex-wrap items-end gap-2">
+            <Field
+              type="search"
+              name="q"
+              defaultValue={busca}
+              placeholder="Buscar cliente…"
+              aria-label="Buscar cliente"
+              /* Era `w-40` (140px na raiz de 14px) e caberia "Transp…". Pedido do usuário
+                 depois de ver a tela: `w-72` são 252px, a mesma largura de uma coluna
+                 do quadro — cabe o nome inteiro de quase toda conta da base. */
+              className="w-72"
+            />
+
+            <Select name="periodo" defaultValue={periodo} aria-label="Período">
+              {PERIODOS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.rotulo}
+                </option>
+              ))}
+            </Select>
+
+            {/* ┌─────────────────────────────────────────────────────────────┐
+                │ AS DUAS DATAS FICAM SEMPRE NA TELA, e DESABILITADAS enquanto │
+                │ o período for um preset.                                      │
+                │                                                               │
+                │ Aparecer sempre é o que mostra qual faixa o preset está       │
+                │ usando — "este trimestre" vira 01/07 a hoje na cara da pessoa │
+                │ em vez de virar um recorte que ela adivinha.                  │
+                │                                                               │
+                │ Desabilitadas porque senão existe uma armadilha silenciosa:   │
+                │ dava para digitar duas datas com "Últimos 12 meses" no select │
+                │ e as datas seriam IGNORADAS — o servidor só olha as duas      │
+                │ quando o período é `personalizado`. A pessoa filtraria e veria │
+                │ o mesmo quadro, sem nenhuma pista do porquê.                   │
+                │                                                               │
+                │ Resolver isso "adivinhando" a intenção (se as datas mudaram,  │
+                │ virar personalizado) quebra no caso oposto: trocar o select    │
+                │ manda junto as datas VELHAS do preset anterior. Desabilitar é  │
+                │ determinístico, funciona sem JavaScript, e é o mesmo padrão    │
+                │ dos filtros de CS e tier logo abaixo — apagado com o motivo    │
+                │ no `title` diz as duas coisas ao mesmo tempo.                  │
+                └─────────────────────────────────────────────────────────────┘ */}
+            <Field
+              type="date"
+              name="de"
+              defaultValue={faixa.desde ?? ''}
+              aria-label="De"
+              disabled={periodo !== 'personalizado'}
+              title={
+                periodo === 'personalizado'
+                  ? 'Início da faixa'
+                  : 'Escolha "Período personalizado" para digitar as datas'
+              }
+              className={`w-[9.5rem] ${periodo !== 'personalizado' ? 'cursor-not-allowed text-ink-4' : ''}`}
+            />
+            <Field
+              type="date"
+              name="ate"
+              defaultValue={faixa.ate ?? ''}
+              aria-label="Até"
+              disabled={periodo !== 'personalizado'}
+              title={
+                periodo === 'personalizado'
+                  ? 'Fim da faixa'
+                  : 'Escolha "Período personalizado" para digitar as datas'
+              }
+              className={`w-[9.5rem] ${periodo !== 'personalizado' ? 'cursor-not-allowed text-ink-4' : ''}`}
+            />
+
+            <Btn type="submit" variant="ghost">
+              Filtrar
+            </Btn>
+          </form>
+
+          <div className="flex flex-wrap items-center gap-2">
 
             {/* Os dois que o usuário pediu e que não têm de onde sair. */}
             <Select

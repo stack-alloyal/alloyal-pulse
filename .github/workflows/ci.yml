@@ -252,6 +252,10 @@ jobs:
           # que ela guarda — arraste nunca aprova o que TRANSICOES proíbe — é a
           # primeira coisa que faz a tabela de transições guardar algo de verdade.
           node --test packages/success/dist/saida-arraste.test.js
+          # O recorte de tempo do quadro. Sem banco: é aritmética de calendário,
+          # e é onde virada de trimestre e 29 de fevereiro erram em silêncio —
+          # errando para menos, que é a falha que ninguém reporta.
+          node --test packages/success/dist/periodo.test.js
           pnpm --filter @pulse/config build
           node --test packages/config/dist/catalogo.test.js
           node --test packages/config/dist/hubspot-vinculo.test.js
