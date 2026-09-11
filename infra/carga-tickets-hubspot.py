@@ -127,7 +127,7 @@ def lit(v):
 
 
 COLUNAS = ['ticket_externo', 'cnpj', 'nome', 'origem', 'estado', 'pedido', 'data_levantada',
-           'canal', 'quem_comunicou', 'mrr_centavos', 'mrr_novo_centavos',
+           'canal', 'quem_comunicou', 'mrr_centavos', 'valor_do_desconto_centavos',
            'aviso_previo_dias', 'data_fim_aviso', 'motivo', 'motivo_detalhe',
            'retido_em', 'etapa_desde', 'criado_em', 'derivou_fim_do_aviso']
 
@@ -161,7 +161,22 @@ def main():
         elif fim is None and av is not None:
             fim, derivou = lev + timedelta(days=av), True
 
-        mrr_novo = centavos(x.get('[CSM] Valor do Desconto')) if est == 'desconto' else None
+        # ┌───────────────────────────────────────────────────────────────────┐
+        # │ É O ABATIMENTO, NÃO O MRR NOVO — provado pelo que o Omie cobrou.   │
+        # │                                                                    │
+        # │ Em 11/09/2026 comparei os 15 descontos com data contra a série     │
+        # │ mensal de `analytics.mrr_faturado_mes`, olhando o primeiro mês      │
+        # │ CHEIO depois do desconto. Placar: 8 casos batem com `MRR − valor`,  │
+        # │ ZERO batem com `valor`. Radio Capital 3.200 → 2.000 (valor 1.200),  │
+        # │ NOVO INGRESSO 5.021 → 3.199 (valor 1.822), ao centavo.              │
+        # │                                                                    │
+        # │ Os outros 5 são descontos que NUNCA SAÍRAM DO PAPEL: a cobrança     │
+        # │ não mudou um centavo depois da data — o AUTO VALE seguiu em         │
+        # │ R$ 3.000,00 por nove meses. E são exatamente os de `valor == MRR`:  │
+        # │ o mesmo descuido em dois sintomas, copiar o MRR no campo do         │
+        # │ desconto e não aplicar o desconto.                                  │
+        # └───────────────────────────────────────────────────────────────────┘
+        desconto = centavos(x.get('[CSM] Valor do Desconto')) if est == 'desconto' else None
         dentro.append([
             t, cnpj,
             (x.get('Nome da empresa') or x.get('[PX] Razão Social Empresa') or '').strip(),
@@ -170,7 +185,7 @@ def main():
             'desconto' if tipo in ('Desconto', 'Downgrade') else 'cancelar',
             lev, canal(x.get('[CS] Canal Utilizado')),
             (x.get('[CS] Email de quem pediu o cancelamento') or '').strip() or None,
-            centavos(x.get('[CS] MRR Atual')), mrr_novo, av, fim,
+            centavos(x.get('[CS] MRR Atual')), desconto, av, fim,
             MOTIVO.get((x.get('[CS] Motivo do Cancelamento') or '').strip()),
             (x.get('[CS] Descreva um pouco mais o que motivou o cancelamento') or '').strip()[:2000] or None,
             dia(x.get(ETAPA['Cancelamento Revertido'])) if est == 'retido' else None,
@@ -249,10 +264,35 @@ SELECT t.ticket_externo, t.cnpj, t.nome,
          -- então não se sabe se é o valor novo ou o abatimento. O CHECK
          -- `desconto_tem_mrr_novo` fica forte de propósito e estes ficam fora:
          -- gravar contração errada mexe no ledger que fecha o mês.
+         -- ┌─────────────────────────────────────────────────────────────┐
+         -- │ O DESCONTO SÓ ENTRA SE A COBRANÇA CONFIRMAR.                 │
+         -- │                                                               │
+         -- │ `valor >= MRR` é o campo mal preenchido — copiaram o MRR ali,│
+         -- │ e nesses 5 casos a cobrança nunca mudou.                      │
+         -- │                                                               │
+         -- │ A segunda condição é a que separa o resto: o MRR NOVO         │
+         -- │ (`MRR − valor`) tem de APARECER em algum mês faturado a       │
+         -- │ partir da levantada. É a camada medida corroborando a         │
+         -- │ registrada antes de o sistema gravar uma contração.           │
+         -- │                                                               │
+         -- │ Medido: dos 6 que entraram na carga de ontem, 4 aparecem      │
+         -- │ (CLUBSHARE 1.000, Meu Pet Club 3.000, Radio Capital 2.000,    │
+         -- │ Soul Clube 3.199) e 2 não — FASEGMED, cujo MRR de ticket      │
+         -- │ (1.200) discorda do faturado (3.000), e SONIC TELECOM, cuja   │
+         -- │ cobrança foi para 563,33 e parou. Esses dois saem, e a regra   │
+         -- │ que os tira não cita ticket nenhum pelo id.                    │
+         -- └─────────────────────────────────────────────────────────────┘
          WHEN t.estado = 'desconto'
-              AND (t.mrr_novo_centavos IS NULL
-                   OR t.mrr_novo_centavos::bigint >= COALESCE(t.mrr_centavos::bigint, 0))
-           THEN 'desconto com valor ambíguo'
+              AND (t.valor_do_desconto_centavos IS NULL
+                   OR t.valor_do_desconto_centavos::bigint >= COALESCE(t.mrr_centavos::bigint, 0))
+           THEN 'desconto com valor igual ou maior que o MRR'
+         WHEN t.estado = 'desconto' AND NOT EXISTS (
+                SELECT 1 FROM analytics.mrr_faturado_mes f
+                 WHERE f.account_id = c.account_id
+                   AND f.competencia >= date_trunc('month', t.data_levantada::date)
+                   AND abs(f.mrr_centavos
+                           - (t.mrr_centavos::bigint - t.valor_do_desconto_centavos::bigint)) <= 100)
+           THEN 'o MRR novo do desconto nunca apareceu na cobrança'
          WHEN COALESCE(NULLIF(t.mrr_centavos::bigint, 0), m.mrr_centavos) IS NULL
            THEN 'MRR zero e sem faturamento medido'
        END AS porque
@@ -274,7 +314,10 @@ SELECT t.ticket_externo, c.account_id, t.origem, t.estado, t.pedido, t.data_leva
        -- O MRR do ticket, e o MEDIDO quando o ticket registrou zero. Dois casos,
        -- e marcados: zero esconderia exatamente o churn que a tela mostra.
        COALESCE(NULLIF(t.mrr_centavos::bigint, 0), m.mrr_centavos),
-       t.mrr_novo_centavos::bigint, t.aviso_previo_dias::int, t.data_fim_aviso::date,
+       -- O MRR NOVO é derivado: o campo do HubSpot guarda o ABATIMENTO.
+       CASE WHEN t.estado = 'desconto'
+            THEN t.mrr_centavos::bigint - t.valor_do_desconto_centavos::bigint END,
+       t.aviso_previo_dias::int, t.data_fim_aviso::date,
        t.motivo, t.motivo_detalhe, t.retido_em::date, t.etapa_desde::timestamptz,
        t.criado_em::timestamptz, 'carga_hubspot'
   FROM t
@@ -293,7 +336,34 @@ ON CONFLICT (ticket_externo) WHERE ticket_externo IS NOT NULL DO UPDATE SET
   motivo = EXCLUDED.motivo, motivo_detalhe = EXCLUDED.motivo_detalhe,
   retido_em = EXCLUDED.retido_em, etapa_desde = EXCLUDED.etapa_desde;
 
+-- ── O que virou recusado depois de já ter entrado, sai ──────────────────────
+-- ┌───────────────────────────────────────────────────────────────────────────┐
+-- │ `ON CONFLICT DO UPDATE` conserta o que continua entrando; não remove o que │
+-- │ passou a ser recusado. Sem este DELETE, uma regra nova mais rigorosa       │
+-- │ deixaria para trás exatamente as linhas que ela existe para tirar.         │
+-- │                                                                            │
+-- │ Só apaga o que NINGUÉM TOCOU: qualquer ação humana preenche um dos quatro  │
+-- │ campos de autoria, e linha com trabalho de gente dentro não é da carga      │
+-- │ para apagar. Ela fica, e aparece no relatório.                              │
+-- └───────────────────────────────────────────────────────────────────────────┘
+-- CTE e não `CREATE TABLE AS DELETE`: o Postgres só aceita SELECT/VALUES
+-- depois do AS, e o DELETE precisa vir dentro de um WITH para o RETURNING
+-- poder ser materializado.
+CREATE TEMP TABLE apagados ON COMMIT DROP AS
+WITH removidas AS (
+  DELETE FROM success.cancellation c
+   USING recusado r
+   WHERE c.ticket_externo = r.ticket_externo
+     AND c.origem_do_registro = 'carga_hubspot'
+     AND c.retido_por IS NULL AND c.aprovado_por IS NULL
+     AND c.motivo_confirmado_por IS NULL AND c.aviso_confirmado_por IS NULL
+  RETURNING c.ticket_externo, c.account_id, r.porque
+)
+SELECT * FROM removidas;
+
 -- ── O relatório ─────────────────────────────────────────────────────────────
+\\echo '── linhas que SAÍRAM por uma regra nova:'
+SELECT r.porque, a.razao_social FROM apagados r JOIN core.account a ON a.id = r.account_id;
 \\echo ''
 \\echo '── como cada ticket achou a conta:'
 SELECT c.como, count(*) FROM casamento c
