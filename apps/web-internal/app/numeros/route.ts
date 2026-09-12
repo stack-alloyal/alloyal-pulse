@@ -1,7 +1,9 @@
+import { exigirSessao } from '../../lib/guarda'
+
 import { DOCUMENTO } from './documento'
 
 /**
- * `/numeros` — a única rota PÚBLICA da superfície interna.
+ * `/numeros` — os números da operação, ATRÁS DE LOGIN desde 12/09/2026.
  *
  * ┌───────────────────────────────────────────────────────────────────────────┐
  * │ NÃO CHAMA `exigir` NEM LÊ IDENTIDADE, e é isso que a torna aberta: a        │
@@ -15,15 +17,20 @@ import { DOCUMENTO } from './documento'
  * │ edições em dois lugares.                                                   │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
-export const dynamic = 'force-static'
+// Deixou de ser estática ao ganhar guarda: a sessão é conferida por requisição.
+export const dynamic = 'force-dynamic'
 
-export function GET() {
+export async function GET(): Promise<Response> {
+  await exigirSessao()
   return new Response(DOCUMENTO, {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       // Cinco minutos de cache na borda: é conteúdo fixo, e o número muda quando
       // alguém edita o arquivo, não a cada visita.
-      'cache-control': 'public, max-age=60, s-maxage=300',
+      // Sem cache de borda: agora é conteúdo autenticado, e cache público
+      // serviria os números a quem não tem sessão. Era o certo quando era
+      // público; é o errado agora.
+      'cache-control': 'private, no-store',
       // A página não embute nada de terceiros além da fonte, e não deve poder
       // ser embutida por ninguém.
       'x-frame-options': 'DENY',

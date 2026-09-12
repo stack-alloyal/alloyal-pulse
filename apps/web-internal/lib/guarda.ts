@@ -69,6 +69,26 @@ export async function identidadeDaSessao(): Promise<Identidade> {
   }
 }
 
+/**
+ * Exige SESSAO, e nao papel: autenticado pelo Google basta, mesmo sem papel no
+ * Pulse. Suspenso e 403, anonimo e 401.
+ *
+ * E a politica de /docs e, desde 12/09/2026, de /numeros - que deixou de ser
+ * publica no pen test. As duas telas sao "abertas a quem entrou pelo SSO", e
+ * `identidadeDaSessao` nao serve: ela transforma falta de papel em 403, e
+ * barraria o funcionario recem-chegado que ainda nao tem papel. A regra mora
+ * AQUI, num lugar so - duas copias seriam uma ficando para tras.
+ */
+export async function exigirSessao(): Promise<void> {
+  try {
+    await identidade()
+  } catch (err) {
+    if (err instanceof SemPapelError) return // autenticado, ainda sem papel: ok
+    if (err instanceof NaoAutenticadoError) unauthorized()
+    forbidden()
+  }
+}
+
 export const temEscopo = (e: Escopo) => e !== 'nenhum'
 
 /**

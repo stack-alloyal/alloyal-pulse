@@ -1,10 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { NaoAutenticadoError, SemPapelError } from '@pulse/auth'
-import { forbidden, unauthorized } from 'next/navigation'
 
-import { identidade } from '../../lib/identidade'
+import { exigirSessao } from '../../lib/guarda'
 
 /**
  * O mecanismo comum de `/docs` — a política de acesso e a leitura do arquivo.
@@ -33,17 +31,10 @@ import { identidade } from '../../lib/identidade'
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 export async function exigirSessaoParaDocumento(): Promise<void> {
-  try {
-    await identidade()
-  } catch (err) {
-    if (err instanceof SemPapelError) {
-      // Autenticada pelo Google, ainda sem papel: exatamente o público daqui.
-    } else if (err instanceof NaoAutenticadoError) {
-      unauthorized()
-    } else {
-      forbidden()
-    }
-  }
+  // A politica (sessao sim, papel nao) mora em lib/guarda.ts desde 12/09/2026,
+  // porque /numeros passou a usar a MESMA. Duas copias de uma regra sutil e uma
+  // delas ficando desatualizada, e a desatualizada e a que vaza.
+  await exigirSessao()
 }
 
 /**
