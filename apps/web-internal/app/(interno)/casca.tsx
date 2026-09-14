@@ -8,6 +8,7 @@ import { nomeDaPessoa } from '@pulse/config'
 import { AlavancaDaLateral } from './lateral-alavanca'
 import { GavetaDaLateral } from './lateral-gaveta'
 import { itemAtivo } from './menu'
+import { menuVisivel } from '../../lib/menu-visivel'
 import { Nav } from './nav'
 import { Perfil } from './perfil'
 import { NovidadesDoRadar } from './radar/novidades'
@@ -33,7 +34,8 @@ import { identidadeDaSessao } from '../../lib/guarda'
  * Elas estão em `--sidebar-w` e `--topbar-h` para não divergirem por engano.
  */
 
-export function Casca({ children }: { children: ReactNode }) {
+export async function Casca({ children }: { children: ReactNode }) {
+  const visiveis = (await menuVisivel()).map((m) => m.href)
   return (
     <div className="flex min-h-screen items-start">
       {/* ┌───────────────────────────────────────────────────────────────────┐
@@ -69,7 +71,7 @@ export function Casca({ children }: { children: ReactNode }) {
             <img src="/icon.svg" alt="" className="lateral-marca-icone mx-auto h-6 w-6" />
           </Link>
         </div>
-        <Nav />
+        <Nav visiveis={visiveis} />
         <AlavancaDaLateral />
         <div className="lateral-rodape mt-auto px-2 pt-4 text-nota leading-relaxed text-ink-4">
           Alloyal Pulse · ferramentas de operação
@@ -115,12 +117,14 @@ export async function Topo({
   const Icone = icone ?? item?.icone ?? BarChart3
   const eu = await identidadeDaSessao()
   const nome = await nomeDaPessoa(pool(), eu.email)
+  // Os mesmos hrefs visíveis da lateral: a gaveta mobile mostra os mesmos itens.
+  const visiveis = (await menuVisivel()).map((m) => m.href)
   return (
     <>
       <header className="sticky top-0 z-30 flex h-[62px] shrink-0 items-center gap-3 border-b border-line bg-surface px-4 md:px-8">
         {/* Só no telefone: o gatilho da gaveta, e o logo ao lado. No computador
             os dois somem — lá a lateral está sempre visível. */}
-        <GavetaDaLateral />
+        <GavetaDaLateral visiveis={visiveis} />
         <div className="md:hidden">
           <AlloyalLogo className="h-6" />
         </div>

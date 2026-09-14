@@ -3,6 +3,7 @@ import { Aviso, Badge, Btn, Card, Field } from '@pulse/ui'
 import Link from 'next/link'
 
 import { salvarAjuste } from './acoes'
+import { NavDeSecao, Secao } from './nav-de-secao'
 import { Corpo, Topo } from '../casca'
 import { pool } from '../../../lib/db'
 import { exigir } from '../../../lib/guarda'
@@ -89,11 +90,22 @@ export default async function Configuracoes({
           , com quem mudou e quando.
         </p>
 
+        {/* O submenu interno: um atalho por grupo. Vem antes dos boxes e gruda no
+            topo ao rolar, para a pessoa saltar entre "Fila de trabalho",
+            "Gatilhos" etc. sem procurar. Só os grupos que TÊM ajuste entram —
+            navegar para um box vazio seria levar a lugar nenhum. */}
+        <NavDeSecao
+          secoes={grupos
+            .filter((g) => CATALOGO.some((a) => a.grupo === g))
+            .map((g) => ({ id: `grupo-${g}`, rotulo: POR_GRUPO[g] }))}
+        />
+
         {grupos.map((g) => {
           const doGrupo = CATALOGO.filter((a) => a.grupo === g)
           if (doGrupo.length === 0) return null
           return (
-            <Card key={g} title={POR_GRUPO[g]}>
+            <Secao id={`grupo-${g}`} key={g}>
+            <Card title={POR_GRUPO[g]}>
               <div className="grid gap-5">
                 {doGrupo.map((a) => {
                   const gravado = mudados.get(a.chave)
@@ -149,6 +161,7 @@ export default async function Configuracoes({
                 })}
               </div>
             </Card>
+            </Secao>
           )
         })}
       </Corpo>

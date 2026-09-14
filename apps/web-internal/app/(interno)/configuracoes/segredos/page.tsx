@@ -1,5 +1,7 @@
 import { chaveMestraConfigurada } from '@pulse/auth'
 import { INTEGRACAO_DA_CHAVE, INTEGRACOES_SONDAVEIS, SEGREDOS, listarSegredos } from '@pulse/config'
+
+import { NavDeSecao, Secao } from '../nav-de-secao'
 import { Aviso, Badge, Btn, Card, Field } from '@pulse/ui'
 import { Lock, PlugZap } from 'lucide-react'
 
@@ -57,6 +59,22 @@ export default async function Segredos({
         }
       />
       <Corpo className="grid gap-5">
+        {/* O submenu interno: "Testar conexões" e um atalho por integração.
+            A página tem uma dezena de boxes de segredo — sem isto, achar o do
+            HubSpot é rolar caçando. As integrações vêm da lista sondável, e
+            "Outros" cobre segredo que não pertence a nenhuma delas. */}
+        <NavDeSecao
+          secoes={[
+            { id: 'testar', rotulo: 'Testar conexões' },
+            ...INTEGRACOES_SONDAVEIS.filter((i) =>
+              SEGREDOS.some((s) => INTEGRACAO_DA_CHAVE[s.chave] === i),
+            ).map((i) => ({ id: `int-${i}`, rotulo: i })),
+            ...(SEGREDOS.some((s) => !INTEGRACAO_DA_CHAVE[s.chave])
+              ? [{ id: 'int-outros', rotulo: 'Outros' }]
+              : []),
+          ]}
+        />
+
         {q.erro && (
           <Aviso tom="erro" papel="alert">
             {q.erro}
@@ -102,6 +120,7 @@ export default async function Segredos({
         {/* O teste por INTEGRAÇÃO e não por segredo: a credencial do CleverTap são três
             campos, e testar um sozinho não diz nada. Quem lê a tela pensa em "o
             CleverTap está funcionando?", não em "o passcode está certo?". */}
+        <Secao id="testar">
         <Card title="Testar as conexões agora">
           <div className="flex flex-wrap items-center gap-3">
             {INTEGRACOES_SONDAVEIS.map((i) => {
@@ -126,10 +145,29 @@ export default async function Segredos({
             token que estava certo.
           </p>
         </Card>
+        </Secao>
 
-        <div className="grid gap-4">
-          {SEGREDOS.map((s) => {
-            const g = porChave.get(s.chave)
+        {/* Os segredos, agrupados por integração para o submenu ter destino. A
+            ordem segue a das integrações sondáveis; "Outros" fecha a lista. */}
+        {[
+          ...INTEGRACOES_SONDAVEIS.map((i) => ({
+            id: `int-${i}`,
+            rotulo: i,
+            chaves: SEGREDOS.filter((sec) => INTEGRACAO_DA_CHAVE[sec.chave] === i),
+          })),
+          {
+            id: 'int-outros',
+            rotulo: 'Outros',
+            chaves: SEGREDOS.filter((sec) => !INTEGRACAO_DA_CHAVE[sec.chave]),
+          },
+        ]
+          .filter((grupo) => grupo.chaves.length > 0)
+          .map((grupo) => (
+            <Secao id={grupo.id} key={grupo.id} className="grid gap-3">
+              <h2 className="text-secao font-semibold capitalize text-ink-2">{grupo.rotulo}</h2>
+              <div className="grid gap-4">
+                {grupo.chaves.map((s) => {
+                  const g = porChave.get(s.chave)
             return (
               <Card
                 key={s.chave}
@@ -233,9 +271,11 @@ export default async function Segredos({
                   )}
                 </div>
               </Card>
-            )
-          })}
-        </div>
+                  )
+                })}
+              </div>
+            </Secao>
+          ))}
       </Corpo>
     </>
   )

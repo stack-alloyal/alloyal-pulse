@@ -112,14 +112,18 @@ function Filho({
  * Mesma pintura do NavLink do alloyal-publi: `bg-purple-50 text-purple-700`
  * no ativo, ícone em roxo, o resto em `ink-2`.
  */
-export function Nav() {
+export function Nav({ visiveis }: { visiveis?: readonly string[] } = {}) {
+  // Filtra o MENU ESTÁTICO por href. O array de hrefs é serializável; o MENU
+  // com os ícones (que são funções) não cruza a fronteira server→client, então
+  // ele fica aqui e o servidor manda só quais aparecem.
+  const itens = visiveis ? MENU.filter((m) => visiveis.includes(m.href)) : MENU
   const pathname = usePathname()
   const ativo = itemAtivo(pathname)?.href
   const { grupos, alternar } = usarGrupos()
 
   return (
     <nav className="flex flex-col gap-0.5">
-      {MENU.map((m) => {
+      {itens.map((m) => {
         const Icone = m.icone
         const isAtivo = m.href === ativo
         const dentro = pathname.startsWith(m.href)

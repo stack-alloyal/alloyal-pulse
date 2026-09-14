@@ -58,6 +58,17 @@ export interface ItemDeMenu {
    * │ router para falhar e cair em navegação dura. `<a>` é o que a rota é.      │
    * └─────────────────────────────────────────────────────────────────────────┘
    */
+  /**
+   * O status DECLARADO da tela: `pronto` aparece no menu; `em_construcao` fica
+   * fora por padrão. É o default — o admin pode inverter caso a caso em
+   * /configuracoes/acesso-do-menu, e o override vence este campo.
+   *
+   * Existe porque uma tela pode ir para produção pela metade — o ciclo por trás
+   * não roda, o dado não existe — e ficar no menu gera "eu deveria acessar
+   * isso?" em quem não devia nem ver. Marcar aqui é a forma de o DEV dizer "isto
+   * ainda não está pronto" sem esperar o admin descobrir.
+   */
+  status?: 'pronto' | 'em_construcao';
   externo?: true;
 }
 
@@ -190,6 +201,7 @@ export const MENU: readonly ItemDeMenu[] = [
       { href: "/configuracoes/omie", rotulo: "Omie", proposito: "A integração financeira" },
       { href: "/configuracoes/sincronizacao", rotulo: "Sincronização", proposito: "Os ciclos e o que entrou" },
       { href: "/configuracoes/historico", rotulo: "Histórico", proposito: "A trilha do que foi mudado" },
+      { href: "/configuracoes/acesso-do-menu", rotulo: "Acesso do menu", proposito: "O que aparece no menu, e o que está em construção" },
     ],
   },
 ];
@@ -205,4 +217,28 @@ export function itemAtivo(pathname: string): ItemDeMenu | undefined {
   return ordenado.find((m) =>
     m.href === "/" ? pathname === "/" : pathname.startsWith(m.href),
   );
+}
+
+/**
+ * O menu EFETIVO: aplica os overrides de visibilidade sobre o status declarado.
+ *
+ * Pura de propósito — recebe o mapa de overrides já lido do banco. Assim a
+ * regra ("override vence; sem override, `em_construcao` some") mora num lugar
+ * só, e tanto a casca (que filtra o que a Nav mostra) quanto a tela de acesso
+ * (que precisa saber o estado efetivo de cada item) usam a mesma.
+ */
+export function menuEfetivo(
+  overrides: ReadonlyMap<string, boolean>,
+): readonly ItemDeMenu[] {
+  return MENU.filter((m) => visivelNoMenu(m, overrides));
+}
+
+/** Um item aparece? O override, quando existe, vence o status declarado. */
+export function visivelNoMenu(
+  item: ItemDeMenu,
+  overrides: ReadonlyMap<string, boolean>,
+): boolean {
+  const override = overrides.get(item.href);
+  if (override !== undefined) return override;
+  return item.status !== "em_construcao";
 }

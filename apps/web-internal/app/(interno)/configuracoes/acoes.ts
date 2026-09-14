@@ -255,3 +255,45 @@ export async function dispararCiclo(dados: FormData): Promise<void> {
     await fila.close()
   }
 }
+
+/**
+ * Liga/desliga a visibilidade de um item do menu.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ UPSERT NO HREF, e a linha registra QUEM e POR QUÊ.                         │
+ * │                                                                            │
+ * │ Esconder uma tela do menu é decisão que a próxima pessoa vai questionar     │
+ * │ ("por que Gatilhos sumiu?"). O motivo gravado responde antes de a pergunta  │
+ * │ chegar. O href é a chave — o mesmo id estável que o menu.ts usa.            │
+ * │                                                                            │
+ * │ A rota SEGUE existindo: isto tira do menu, não bloqueia o acesso. Quem tem  │
+ * │ a URL entra. É de propósito — o pedido era acabar com a DÚVIDA de acesso    │
+ * │ que a tela inacabada no menu gerava, não trancar a porta.                   │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export async function definirVisibilidadeDoMenu(dados: FormData): Promise<void> {
+  const id = await exigir((p) => p.configurar, 'visibilidade do menu')
+  const href = String(dados.get('href') ?? '')
+  const visivel = String(dados.get('visivel') ?? '') === '1'
+  const motivo = String(dados.get('motivo') ?? '').trim() || null
+
+  if (!href.startsWith('/')) {
+    voltar('/configuracoes/acesso-do-menu', 'erro', 'href inválido.')
+  }
+
+  await pool().query(
+    `INSERT INTO ops.menu_visibilidade (href, visivel, motivo, atualizado_por, atualizado_em)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (href) DO UPDATE
+       SET visivel = EXCLUDED.visivel,
+           motivo = EXCLUDED.motivo,
+           atualizado_por = EXCLUDED.atualizado_por,
+           atualizado_em = now()`,
+    [href, visivel, motivo, id.email],
+  )
+  voltar(
+    '/configuracoes/acesso-do-menu',
+    'ok',
+    visivel ? `"${href}" volta a aparecer no menu.` : `"${href}" saiu do menu.`,
+  )
+}

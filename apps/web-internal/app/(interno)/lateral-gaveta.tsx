@@ -28,7 +28,7 @@ import { Nav } from './nav'
  * esquece — sem ela, tocar num item deixa a gaveta aberta por cima da tela que
  * acabou de abrir, e a pessoa precisa fechá-la para ver o que pediu.
  */
-export function GavetaDaLateral() {
+export function GavetaDaLateral({ visiveis }: { visiveis: readonly string[] }) {
   const [aberta, setAberta] = React.useState(false)
   const pathname = usePathname()
   const gatilho = React.useRef<HTMLButtonElement>(null)
@@ -124,7 +124,7 @@ export function GavetaDaLateral() {
                 <X className="h-[17px] w-[17px]" />
               </button>
             </div>
-            <Nav />
+            <Nav visiveis={visiveis} />
             <div className="mt-auto px-2 pt-4 text-nota leading-relaxed text-ink-4">
               Alloyal Pulse · ferramentas de operação
             </div>
