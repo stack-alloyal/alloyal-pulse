@@ -226,6 +226,44 @@ function Cartao({ p, poderes }: { p: PedidoNoQuadro; poderes: PoderesDeArraste }
       </div>
 
       {/* ┌───────────────────────────────────────────────────────────────────┐
+          │ A CARTEIRA (OMIE) — a terceira camada, e só quando DISCORDA.        │
+          │                                                                     │
+          │ O card já mostra o valor da LEVANTADA (congelado) e, quando houve    │
+          │ desconto/renegociação, a TRAVESSIA para o valor do FLUXO. Falta o    │
+          │ que o Omie FATURA hoje — o mesmo número da Carteira. Mostrá-lo       │
+          │ sempre repetiria o valor da levantada em 82% dos casos, que batem;   │
+          │ então só aparece quando diverge, com o Δ, que é o sinal de que o     │
+          │ registro e o faturamento discordam — o que a pessoa aprova olha.     │
+          │                                                                     │
+          │ Compara com o valor de EFEITO do card: o novo, se houve desconto;   │
+          │ senão o da levantada. Comparar o faturado com um valor que o fluxo   │
+          │ já mudou acusaria uma diferença que a própria pessoa criou.          │
+          └───────────────────────────────────────────────────────────────────┘ */}
+      {(() => {
+        const efetivo = p.mrrNovoCentavos ?? p.mrrCentavos
+        if (p.mrrFaturadoCentavos === null || efetivo === null) return null
+        const dif = Number(efetivo) - Number(p.mrrFaturadoCentavos)
+        if (Math.abs(dif) < 100) return null // batem (até R$1): nada a mostrar
+        return (
+          <div
+            className="mt-1 flex min-w-0 items-baseline gap-1.5 pl-6 text-nota text-amber-800"
+            title="O que o Omie fatura hoje (Carteira) difere do valor do pedido"
+          >
+            <svg viewBox="0 0 24 24" className="h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+            </svg>
+            <span className="truncate tabular-nums">
+              carteira {BRL(p.mrrFaturadoCentavos)}
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums">
+              {dif > 0 ? '+' : '−'}
+              {BRL(String(Math.abs(dif)))}
+            </span>
+          </div>
+        )
+      })()}
+
+      {/* ┌───────────────────────────────────────────────────────────────────┐
           │ LINHA 4 — AS DUAS DATAS, e elas só aparecem quando existem.         │
           │                                                                     │
           │ A levantada responde "há quanto tempo o cliente pediu" e o fim do   │

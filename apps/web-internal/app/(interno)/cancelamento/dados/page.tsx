@@ -38,6 +38,28 @@ const REAIS = (c: string | null) =>
         minimumFractionDigits: 2,
       })
 
+/**
+ * A diferença entre o MRR da levantada e o faturado do Omie.
+ *
+ * Verde/traço quando batem (nada a aprovar); âmbar com o sinal e o valor quando
+ * discordam — é o que puxa o olho de quem revisa. Sem um dos dois lados, não há
+ * o que comparar: mostra travessão em silêncio, não zero.
+ */
+function Delta({ levantada, faturado }: { levantada: string | null; faturado: string | null }) {
+  if (levantada === null || faturado === null) {
+    return <span className="text-ink-4">—</span>
+  }
+  const d = Number(levantada) - Number(faturado)
+  if (d === 0) return <span className="text-ink-4">=</span>
+  const sinal = d > 0 ? '+' : '−'
+  return (
+    <span className="whitespace-nowrap tabular-nums font-semibold text-amber-800" title="Levantada − Faturado">
+      {sinal}
+      {REAIS(String(Math.abs(d)))}
+    </span>
+  )
+}
+
 const DIA = (iso: string | null) => (iso === null ? '—' : iso.split('-').reverse().join('/'))
 const MES = (iso: string | null) => (iso === null ? '—' : iso.slice(0, 7))
 
@@ -62,7 +84,9 @@ export default async function Dados() {
      R$ 800 pesa igual a uma de R$ 40 mil na primeira. */
   const comRegistro = linhas.filter((l) => l.estado !== null)
   const semRegistro = linhas.filter((l) => l.estado === null)
-  const soma = (xs: typeof linhas) => xs.reduce((s, l) => s + Number(l.mrrCentavos), 0)
+  // Para o total, o valor da levantada quando há, senão o faturado do Omie.
+  const soma = (xs: typeof linhas) =>
+    xs.reduce((s, l) => s + Number(l.mrrLevantadaCentavos ?? l.mrrFaturadoCentavos ?? 0), 0)
 
   return (
     <>
@@ -104,7 +128,9 @@ export default async function Dados() {
                   'Conta',
                   '1º faturamento',
                   'Levantou a mão',
-                  'MRR',
+                  'Na levantada',
+                  'Faturado (Omie)',
+                  'Δ',
                   'Desconto',
                   'Parou de faturar',
                   'Status',
@@ -121,7 +147,13 @@ export default async function Dados() {
                     {MES(l.primeiroFaturamento)}
                   </span>,
                   <span className="whitespace-nowrap tabular-nums">{DIA(l.dataLevantada)}</span>,
-                  <span className="tabular-nums">{REAIS(l.mrrCentavos)}</span>,
+                  /* AS TRÊS COLUNAS DA COMPARAÇÃO. "Na levantada" é o registrado,
+                     congelado; "Faturado (Omie)" é o recorrente medido (a moda),
+                     o mesmo da Carteira; Δ é a diferença, em âmbar quando os dois
+                     discordam — é o sinal para aprovação. */
+                  <span className="tabular-nums">{REAIS(l.mrrLevantadaCentavos)}</span>,
+                  <span className="tabular-nums text-ink-2">{REAIS(l.mrrFaturadoCentavos)}</span>,
+                  <Delta levantada={l.mrrLevantadaCentavos} faturado={l.mrrFaturadoCentavos} />,
                   <span className="tabular-nums">{REAIS(l.descontoCentavos)}</span>,
                   <span className="whitespace-nowrap tabular-nums">
                     {MES(l.competenciaQueParou)}
