@@ -99,6 +99,9 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Renovações",
     icone: CalendarCheck,
     proposito: "Janela de 90 dias, com a previsão medida",
+    // Em construção: success.renewal e core.contract estão vazias, e o C14 roda
+    // produzindo 0 por não ter carga de contrato a montante. Nasce oculto.
+    status: "em_construcao",
   },
   {
     /* A tela em que se OPERA um cancelamento: o quadro, o cadastro do card e os
@@ -151,12 +154,17 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Contratos",
     icone: FileText,
     proposito: "O que vale hoje, com procedência",
+    // Em construção: contracts.clause/document e core.contract vazias; o C15 roda
+    // e grava 0. Nasce oculto até existir carga de contrato.
+    status: "em_construcao",
   },
   {
     href: "/contratos/calendario",
     rotulo: "Calendário",
     icone: CalendarDays,
     proposito: "Nenhuma data crítica descoberta pela data",
+    // Em construção: contracts.obligation vazia e o C16 grava 0. Nasce oculto.
+    status: "em_construcao",
   },
   {
     href: "/biblioteca",
