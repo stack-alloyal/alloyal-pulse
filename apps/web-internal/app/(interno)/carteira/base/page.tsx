@@ -6,7 +6,7 @@ import {
   subBusinesses,
   type LinhaDaBase,
 } from "@pulse/config";
-import { Aviso, Badge, Busca, Card, Chip, Chips, Kpi, KpiGrade, Table } from "@pulse/ui";
+import { Badge, Busca, Card, Chip, Chips, Kpi, KpiGrade, Table } from "@pulse/ui";
 import { ScrollText } from "lucide-react";
 import Link from "next/link";
 
@@ -482,7 +482,7 @@ export default async function BaseDeClientes({
         proposito="o cadastro que vem do core, por main business"
       />
       <Corpo>
-        <KpiGrade colunas={6}>
+        <KpiGrade colunas={4}>
           <Kpi
             rotulo="Clientes total"
             valor={N(kpis.clientesTotal)}
@@ -504,30 +504,7 @@ export default async function BaseDeClientes({
             valor={N(kpis.usuariosCadastrados)}
             nota={`${Math.round((kpis.usuariosCadastrados / Math.max(kpis.usuariosAutorizados, 1)) * 100)}% dos autorizados`}
           />
-          <Kpi rotulo="Usaram cupom" valor="—" nota="depende do ciclo C1" />
-          <Kpi
-            rotulo="Cupons resgatados"
-            valor="—"
-            nota="depende do ciclo C1"
-          />
         </KpiGrade>
-
-        <Aviso tom="alerta">
-          <strong className="font-semibold">
-            Dois KPIs estão vazios e não é falha de carga.
-          </strong>{" "}
-          &quot;Usaram cupom&quot; e &quot;Cupons resgatados&quot; não existem
-          na API do core — as rotas{" "}
-          <code className="font-mono text-meta">/coupons</code>,{" "}
-          <code className="font-mono text-meta">/vouchers</code> e{" "}
-          <code className="font-mono text-meta">/redemptions</code> respondem
-          404 na v3. O dado vem das transações da réplica, pelo ciclo{" "}
-          <strong className="font-semibold">C1</strong>, que está declarado e
-          não implementado por falta do segredo{" "}
-          <code className="font-mono text-meta">replica.url</code>. Mostrar
-          zero ali diria &quot;ninguém usou cupom&quot;, que é diferente de
-          &quot;ainda não medimos&quot;.
-        </Aviso>
 
         <Card
           title={`Main business · ${N(pag.total)}${busca ? " encontrados" : ""}`}
