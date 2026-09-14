@@ -18,6 +18,32 @@ import { DIAS_PARA_ESTAGNAR, type EstadoSaida, type OrigemSaida } from './cancel
 /** Só quem vê a base inteira; o resto vê a própria carteira. */
 const daBase = (id: Identidade) => id.permissoes.contas === 'base'
 
+/**
+ * O MRR RECORRENTE do Omie por conta — a MODA do valor mensal faturado.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ MODA, E NÃO O MÊS DA LEVANTADA — medido em 14/09/2026.                     │
+ * │                                                                            │
+ * │ O mês em que o cliente levanta a mão costuma ter título extra caindo junto  │
+ * │ (proporcional, cobrança de recuperação): o TURBO NET faturava R$ 18.666 no  │
+ * │ mês da levantada e R$ 7.000 nos meses estáveis. A moda pega o recorrente,   │
+ * │ que é o que a Carteira trata como o MRR de verdade — o mesmo método do      │
+ * │ reajuste. Comparar o card com o mês isolado acusaria divergência onde não   │
+ * │ há.                                                                        │
+ * │                                                                            │
+ * │ Restrita às contas com cancelamento: a view não é materializada e varre 90  │
+ * │ dias por conta; calcular a moda da base inteira seria varrer tudo à toa.    │
+ * │ Medido: 179 ms restrita.                                                    │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+const CTE_FATURADO = `faturado AS (
+  SELECT account_id, mode() WITHIN GROUP (ORDER BY mrr_centavos) AS mrr
+    FROM analytics.mrr_faturado_mes
+   WHERE mrr_centavos > 0
+     AND account_id IN (SELECT account_id FROM success.cancellation)
+   GROUP BY account_id
+)`
+
 // ═══ O QUADRO ════════════════════════════════════════════════════════════════
 
 /**
@@ -107,6 +133,15 @@ export interface PedidoNoQuadro {
   readonly dataLevantada: string | null
   readonly mrrCentavos: string | null
   readonly mrrNovoCentavos: string | null
+  /**
+   * O MRR RECORRENTE que o Omie fatura hoje para esta conta (a moda mensal), que
+   * é o valor que a Carteira mostra. `null` quando a conta nunca faturou.
+   *
+   * Ao lado de `mrrCentavos` (congelado na levantada) permite a comparação que o
+   * usuário pediu: o que foi REGISTRADO na levantada vs o que está sendo MEDIDO
+   * no faturamento. As duas camadas, lado a lado.
+   */
+  readonly mrrFaturadoCentavos: string | null
   readonly avisoPrevioDias: number | null
   readonly fimDoAviso: string | null
   readonly competenciaEfeito: string | null
@@ -150,8 +185,10 @@ export async function quadroDeSaida(
   opcoes: { readonly desde?: string | null; readonly ate?: string | null } = {},
 ): Promise<PedidoNoQuadro[]> {
   const { rows } = await db.query(
-    `SELECT c.id::text, c.account_id::text AS account_id, a.razao_social,
+    `WITH ${CTE_FATURADO}
+     SELECT c.id::text, c.account_id::text AS account_id, a.razao_social,
             ${POSICAO} AS posicao, c.estado, c.origem, c.pedido,
+            f.mrr::text                                        AS mrr_faturado,
             to_char(c.data_levantada, 'YYYY-MM-DD')            AS data_levantada,
             c.mrr_centavos_na_levantada::text                  AS mrr,
             c.mrr_novo_centavos::text                          AS mrr_novo,
@@ -164,6 +201,7 @@ export async function quadroDeSaida(
             c.debito_aberto_na_levantada_centavos::text        AS divida
        FROM success.cancellation c
        JOIN core.account a ON a.id = c.account_id
+       LEFT JOIN faturado f ON f.account_id = c.account_id
       WHERE ($2::boolean OR a.csm_email = $1)
         AND (c.estado IN ('anunciado', 'financeiro', 'reversao')
              -- COALESCE porque data_levantada é NULA quando a origem é
@@ -198,6 +236,7 @@ export async function quadroDeSaida(
       dataLevantada: (r['data_levantada'] as string | null) ?? null,
       mrrCentavos: r['mrr'] === null ? null : String(r['mrr']),
       mrrNovoCentavos: r['mrr_novo'] === null ? null : String(r['mrr_novo']),
+      mrrFaturadoCentavos: r['mrr_faturado'] === null ? null : String(r['mrr_faturado']),
       avisoPrevioDias: r['aviso_previo_dias'] === null ? null : Number(r['aviso_previo_dias']),
       fimDoAviso: (r['fim_aviso'] as string | null) ?? null,
       competenciaEfeito: (r['efeito'] as string | null) ?? null,
@@ -865,7 +904,12 @@ export interface LinhaDeDados {
   readonly primeiroFaturamento: string | null
   /** Do pipeline: quando o cliente avisou. `null` quando ninguém registrou. */
   readonly dataLevantada: string | null
-  readonly mrrCentavos: string
+  /** O MRR REGISTRADO na levantada (congelado). `null` se ninguém registrou. */
+  readonly mrrLevantadaCentavos: string | null
+  /** O MRR RECORRENTE que o Omie fatura (a moda) — o valor da Carteira. */
+  readonly mrrFaturadoCentavos: string | null
+  /** O MRR do fluxo: o novo valor após desconto/renegociação, se houve. */
+  readonly mrrNovoCentavos: string | null
   /** Quanto de desconto foi concedido, se o desfecho foi desconto. */
   readonly descontoCentavos: string | null
   /** O estado do pedido, ou `null` — que significa "ninguém registrou". */
@@ -897,15 +941,21 @@ export async function dadosDeCancelamento(
        SELECT account_id, min(competencia) AS primeira
          FROM analytics.mrr_faturado_mes WHERE mrr_centavos > 0
         GROUP BY account_id
-     ), ult_mrr AS (
-       SELECT DISTINCT ON (account_id) account_id, mrr_centavos
+     ), faturado AS (
+       -- o MRR RECORRENTE do Omie: a moda mensal, o valor que a Carteira mostra
+       SELECT account_id, mode() WITHIN GROUP (ORDER BY mrr_centavos) AS mrr
          FROM analytics.mrr_faturado_mes WHERE mrr_centavos > 0
-        ORDER BY account_id, competencia DESC
+        GROUP BY account_id
      )
      SELECT a.id::text AS account_id, a.razao_social,
             to_char(i.primeira, 'YYYY-MM-DD') AS primeiro_faturamento,
             to_char(c.data_levantada, 'YYYY-MM-DD') AS data_levantada,
-            COALESCE(c.mrr_centavos_na_levantada, m.mrr_centavos, 0)::text AS mrr,
+            -- OS DOIS SEPARADOS, para a comparação: o que foi registrado na
+            -- levantada, e o que o Omie fatura recorrente. Fundi-los num campo só
+            -- (como era) escondia justamente a diferença que o usuário quer ver.
+            c.mrr_centavos_na_levantada::text AS mrr_levantada,
+            f.mrr::text AS mrr_faturado,
+            c.mrr_novo_centavos::text AS mrr_novo,
             CASE WHEN c.estado = 'desconto'
                  THEN (c.mrr_centavos_na_levantada - COALESCE(c.mrr_novo_centavos, 0))::text
             END AS desconto,
@@ -915,13 +965,13 @@ export async function dadosDeCancelamento(
        LEFT JOIN success.cancellation c ON c.account_id = a.id
        LEFT JOIN saiu s ON s.account_id = a.id
        LEFT JOIN inicio i ON i.account_id = a.id
-       LEFT JOIN ult_mrr m ON m.account_id = a.id
+       LEFT JOIN faturado f ON f.account_id = a.id
       -- Só quem saiu ou está saindo: a tabela é de cancelamento, e a base inteira
       -- (2.155 contas) responderia outra pergunta.
       WHERE (c.id IS NOT NULL OR s.account_id IS NOT NULL)
         AND ($1::boolean OR a.csm_email = $2)
       ORDER BY COALESCE(c.data_levantada, s.competencia) DESC NULLS LAST,
-               COALESCE(c.mrr_centavos_na_levantada, m.mrr_centavos, 0) DESC
+               COALESCE(c.mrr_centavos_na_levantada, f.mrr, 0) DESC
       LIMIT $3`,
     [daBase(id), id.email, limite],
   )
@@ -930,7 +980,9 @@ export async function dadosDeCancelamento(
     razaoSocial: String(r['razao_social'] ?? ''),
     primeiroFaturamento: r['primeiro_faturamento'] === null ? null : String(r['primeiro_faturamento']),
     dataLevantada: r['data_levantada'] === null ? null : String(r['data_levantada']),
-    mrrCentavos: String(r['mrr']),
+    mrrLevantadaCentavos: r['mrr_levantada'] === null ? null : String(r['mrr_levantada']),
+    mrrFaturadoCentavos: r['mrr_faturado'] === null ? null : String(r['mrr_faturado']),
+    mrrNovoCentavos: r['mrr_novo'] === null ? null : String(r['mrr_novo']),
     descontoCentavos: r['desconto'] === null ? null : String(r['desconto']),
     estado: r['estado'] === null ? null : String(r['estado']),
     competenciaQueParou: r['parou'] === null ? null : String(r['parou']),
