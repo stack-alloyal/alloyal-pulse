@@ -181,12 +181,19 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: "Gatilhos",
     icone: SlidersHorizontal,
     proposito: "Calibração e modo sombra",
+    // Em construção: depende de metrics.signal/daily_snapshot, que os ciclos
+    // C12/C1 alimentariam e ainda não rodam. Nasce oculto; o admin reexibe em
+    // /configuracoes/acesso-do-menu quando o pipeline existir.
+    status: "em_construcao",
   },
   {
     href: "/dados",
     rotulo: "Dados",
     icone: Database,
     proposito: "Pipeline de captação",
+    // Em construção: o pipeline de captação (C18 sombra e os ciclos de métrica)
+    // não roda. Nasce oculto; reexibir em /configuracoes/acesso-do-menu.
+    status: "em_construcao",
   },
   {
     href: "/configuracoes",
