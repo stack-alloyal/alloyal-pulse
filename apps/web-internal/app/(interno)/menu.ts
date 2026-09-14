@@ -137,6 +137,11 @@ export const MENU: readonly ItemDeMenu[] = [
         proposito: "Onde o faturamento e o cadastro discordam",
       },
       {
+        href: "/receita/faturamento",
+        rotulo: "Faturamento",
+        proposito: "O que foi cobrado (competência) e o que entrou (caixa)",
+      },
+      {
         href: "/receita/inadimplencia",
         rotulo: "Inadimplência",
         proposito: "Quem está em atraso, e quanto volta",
