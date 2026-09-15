@@ -2,6 +2,7 @@ import {
   DIAS_CORRENTE,
   coorteDoAtraso,
   inadimplenciaDaCompetencia,
+  resumoDaCarteira,
   serieDaCarteira,
   type MesDaCarteira,
 } from '@pulse/config'
@@ -143,7 +144,7 @@ export default async function Receita({
      │ `mes` inválido cai no mais recente em vez de devolver vazio: parâmetro   │
      │ de URL é colado por gente, e tela vazia sem explicação parece defeito.   │
      └───────────────────────────────────────────────────────────────────────┘ */
-  const [cascatas, fonte, serieDoAtraso, coorte] = await Promise.all([
+  const [cascatas, fonte, serieDoAtraso, coorte, resumoHoje] = await Promise.all([
     listarCascatas(pool(), 24),
     fonteDoMrr(pool()),
     // A série do atraso vem junto para a tabela de 24 meses poder mostrar os DOIS
@@ -153,6 +154,9 @@ export default async function Receita({
     // A coorte é indexada pelo mês de VENCIMENTO, que já é o mês de receita — 24
     // aqui casa com os 24 da cascata sem deslocamento nenhum.
     coorteDoAtraso(pool(), 24),
+    // A carteira AO VIVO de hoje, para a barra provisória do mês corrente. `false`
+    // = todo o universo do Omie, o mesmo das fotos.
+    resumoDaCarteira(pool(), false),
   ])
   const escolhido = q.mes ? cascatas.find((c) => c.competencia.slice(0, 7) === q.mes) : undefined
   const atual = escolhido ?? cascatas[0]
@@ -180,6 +184,51 @@ export default async function Receita({
   // a coorte cheia, de propósito.
   const serieVista = recorteDoPeriodo(serieDoAtraso, (m) => competenciaDeReceita(m.competencia))
   const coorteVista = recorteDoPeriodo(coorte, (c) => c.mes)
+
+  /* ┌──────────────────────────────────────────────────────────────────────┐
+     │ A BARRA "EM CURSO": o mês corrente, que ainda não fechou.                │
+     │                                                                          │
+     │ Uma foto tem competência do 1º do mês e descreve o mês ANTERIOR: a de     │
+     │ 1º/09 conta agosto. A barra de setembro nasceria da foto de 1º/10, que    │
+     │ ainda não existe. Então montamos aqui uma foto PARCIAL de hoje — a        │
+     │ carteira ao vivo — e a marcamos como provisória: competência do 1º do     │
+     │ mês que vem, para `competenciaDeReceita` rotulá-la como o mês corrente.   │
+     │                                                                          │
+     │ Só nos presets (janela anconrada no presente). Num intervalo histórico    │
+     │ uma barra "de hoje" seria mentira, então não entra. E só vai no gráfico   │
+     │ de SALDO: inventar entrou/recuperado parciais para o fluxo, ou uma linha  │
+     │ no fechamento cuja identidade não fecha, seria número falso.              │
+     └──────────────────────────────────────────────────────────────────────┘ */
+  const proxMes = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1))
+  const compEmCurso = `${proxMes.getUTCFullYear()}-${String(proxMes.getUTCMonth() + 1).padStart(2, '0')}-01`
+  const temEmCurso =
+    !intervalo &&
+    Number(resumoHoje.totalCentavos) > 0 &&
+    !serieDoAtraso.some((m) => m.competencia === compEmCurso)
+  const barraEmCurso: MesDaCarteira | null = temEmCurso
+    ? {
+        competencia: compEmCurso,
+        saldoInicialCentavos: '0',
+        titulosInicial: 0,
+        entrouCentavos: '0',
+        entrouTitulos: 0,
+        recuperadoCentavos: '0',
+        recuperadoTitulos: 0,
+        canceladoCentavos: '0',
+        canceladoTitulos: 0,
+        ajusteCentavos: '0',
+        saldoFinalCentavos: resumoHoje.totalCentavos,
+        titulosFinal: resumoHoje.titulos,
+        recenteCentavos: resumoHoje.correnteCentavos,
+        correnteCentavos: resumoHoje.correnteCentavos,
+        correnteClientes: resumoHoje.correnteClientes,
+        origem: 'apurado',
+        estado: 'aberta',
+        congeladoPor: null,
+      }
+    : null
+  // Só o gráfico de SALDO recebe a barra provisória. O de fluxo segue fechado.
+  const serieSaldo = barraEmCurso ? [...serieVista, barraEmCurso] : serieVista
   const mesSel = escolhido ? escolhido.competencia.slice(0, 7) : ''
   const hrefReceita = (
     m: { mes?: string; jan?: string; de?: string; ate?: string; ancora?: boolean } = {},
@@ -416,10 +465,10 @@ export default async function Receita({
                 escolhido no filtro ganha o anel. É o que responde "o mês que estou
                 olhando é fora da curva ou é a curva?" — pergunta que só existe
                 numa tela que tem filtro de mês. */}
-            {serieVista.length > 1 && (
+            {serieSaldo.length > 1 && (
               <div className="mt-5">
                 <GraficoDoAtraso
-                  serie={serieVista}
+                  serie={serieSaldo}
                   rotulo={(m) => MES(competenciaDeReceita(m.competencia) + '-01')}
                   /* A competência da FOTO, achada pelo mapa: passar a de receita
                      destacaria a barra do mês seguinte — que é exatamente o erro
@@ -428,9 +477,22 @@ export default async function Receita({
                     const f = atrasoPorMes.get(atual.competencia.slice(0, 7))
                     return f ? { destacar: f.competencia } : {}
                   })()}
+                  {...(barraEmCurso ? { emCurso: barraEmCurso.competencia } : {})}
                   diasCorrente={DIAS_CORRENTE}
                   altura={140}
                 />
+                {barraEmCurso && (
+                  <p className="mt-2 text-nota text-ink-3">
+                    A última barra,{' '}
+                    <span className="italic text-purple-500">em curso</span>, é a prévia de{' '}
+                    <strong className="font-semibold text-ink">
+                      {MES(competenciaDeReceita(barraEmCurso.competencia) + '-01')}
+                    </strong>{' '}
+                    pela carteira de hoje ({REAIS(barraEmCurso.saldoFinalCentavos)} em{' '}
+                    {barraEmCurso.titulosFinal.toLocaleString('pt-BR')} títulos) — ainda muda até o
+                    mês fechar, e por isso não entra no fluxo nem no fechamento abaixo.
+                  </p>
+                )}
               </div>
             )}
             {/* O SEGUNDO gráfico é o que explica o primeiro: o saldo cresce porque
