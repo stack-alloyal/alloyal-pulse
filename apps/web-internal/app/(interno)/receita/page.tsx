@@ -6,7 +6,7 @@ import {
   type MesDaCarteira,
 } from '@pulse/config'
 import { fonteDoMrr, listarCascatas, type Cascata } from '@pulse/success'
-import { Aviso, Badge, Card, Chip, Chips, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
+import { Aviso, Badge, Btn, Card, Chip, Chips, Field, Kpi, KpiGrade, Table, Vazio, cn } from '@pulse/ui'
 import Link from 'next/link'
 
 import {
@@ -98,12 +98,39 @@ function Passo({
 export default async function Receita({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string }>
+  searchParams: Promise<{ mes?: string; jan?: string; de?: string; ate?: string }>
 }) {
   // Receita não tem carteira: quem vê, vê a base inteira. A identidade não é
   // usada depois — o recorte desta tela é tudo ou nada.
   await exigir((p) => p.receita === 'base' || p.configurar, 'cascata de receita')
   const q = await searchParams
+
+  /* ┌──────────────────────────────────────────────────────────────────────┐
+     │ O PERÍODO RECORTA SÓ OS GRÁFICOS de tendência, e é irmão do de           │
+     │ /receita/inadimplencia — mesma janela, mesmo padrão, mesma conta.         │
+     │                                                                          │
+     │ A série e a coorte continuam buscadas com 24/25 meses (a tabela dos       │
+     │ "últimos N" e a média das coortes maduras dependem disso, e a média TEM   │
+     │ de bater com a inadimplência). O filtro escolhe QUANTAS barras aparecem   │
+     │ nos três gráficos — 24 num eixo de 600px é o que deixava tudo espremido.  │
+     │                                                                          │
+     │ `mes` (a competência da cascata) é OUTRO controle: escolhe qual mês       │
+     │ detalhar e ganha o anel. Os dois viajam juntos na URL para um não apagar  │
+     │ o outro ao clicar.                                                        │
+     └──────────────────────────────────────────────────────────────────────┘ */
+  const JANELAS = [6, 12, 24] as const
+  const janela = (JANELAS as readonly number[]).includes(Number(q.jan)) ? Number(q.jan) : 12
+  const MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+  const de = MES_RE.test(q.de ?? '') ? (q.de as string) : ''
+  const ate = MES_RE.test(q.ate ?? '') ? (q.ate as string) : ''
+  const intervalo = Boolean(de || ate)
+  const recorteDoPeriodo = <T,>(itens: readonly T[], mesDe: (t: T) => string): readonly T[] => {
+    if (!intervalo) return itens.slice(-janela)
+    return itens.filter((t) => {
+      const m = mesDe(t).slice(0, 7)
+      return (!de || m >= de) && (!ate || m <= ate)
+    })
+  }
 
   /* ┌───────────────────────────────────────────────────────────────────────┐
      │ 24 MESES E NÃO 12, e a tela ESCOLHE qual mostrar.                       │
@@ -146,6 +173,27 @@ export default async function Receita({
   const atrasoPorMes = new Map<string, MesDaCarteira>(
     serieDoAtraso.map((m) => [competenciaDeReceita(m.competencia), m]),
   )
+
+  // O que os TRÊS gráficos mostram: a janela (ou o intervalo) recortada. A série
+  // é recortada pela competência de RECEITA — o eixo que os rótulos exibem —, e a
+  // coorte pelo próprio mês de vencimento. A média das maduras acima segue sobre
+  // a coorte cheia, de propósito.
+  const serieVista = recorteDoPeriodo(serieDoAtraso, (m) => competenciaDeReceita(m.competencia))
+  const coorteVista = recorteDoPeriodo(coorte, (c) => c.mes)
+  const mesSel = escolhido ? escolhido.competencia.slice(0, 7) : ''
+  const hrefReceita = (m: { mes?: string; jan?: string; de?: string; ate?: string } = {}) => {
+    const p = new URLSearchParams()
+    const mm = m.mes ?? mesSel
+    const j = m.jan ?? (janela !== 12 ? String(janela) : '')
+    const dd = m.de ?? de
+    const aa = m.ate ?? ate
+    if (mm) p.set('mes', mm)
+    if (j && j !== '12') p.set('jan', j)
+    if (dd) p.set('de', dd)
+    if (aa) p.set('ate', aa)
+    const s = p.toString()
+    return s ? `/receita?${s}` : '/receita'
+  }
 
   if (!atual) {
     return (
@@ -209,7 +257,7 @@ export default async function Receita({
             <Chip
               key={c.competencia}
               rotulo={MES(c.competencia)}
-              href={`/receita?mes=${c.competencia.slice(0, 7)}`}
+              href={hrefReceita({ mes: c.competencia.slice(0, 7) })}
               ativo={c.competencia === atual.competencia}
               fixo
             />
@@ -301,15 +349,61 @@ export default async function Receita({
                 {...(Number(atraso.deltaCentavos) > 0 ? { tom: 'red' as const } : {})}
               />
             </KpiGrade>
+            {/* ┌─────────────────────────────────────────────────────────────┐
+                │ O PERÍODO dos gráficos de tendência: chips de 6/12/24 e um     │
+                │ intervalo avulso de mês. Padrão 12, para o eixo caber. Irmão   │
+                │ do de /receita/inadimplencia — mesma regra, `12` não vai à URL.│
+                └─────────────────────────────────────────────────────────────┘ */}
+            <div className="mt-5 flex flex-wrap items-end gap-3">
+              <Chips rotulo="período do gráfico:">
+                <Chip rotulo="6 meses" href={hrefReceita({ jan: '6', de: '', ate: '' })} ativo={!intervalo && janela === 6} fixo />
+                <Chip rotulo="12 meses" href={hrefReceita({ jan: '12', de: '', ate: '' })} ativo={!intervalo && janela === 12} fixo />
+                <Chip rotulo="24 meses" href={hrefReceita({ jan: '24', de: '', ate: '' })} ativo={!intervalo && janela === 24} fixo />
+              </Chips>
+              <form method="GET" action="/receita" className="flex flex-wrap items-end gap-2">
+                {mesSel && <input type="hidden" name="mes" value={mesSel} />}
+                <span className="self-center text-meta text-ink-3">ou de</span>
+                <Field type="month" name="de" defaultValue={de} aria-label="De" className="w-[8.5rem]" />
+                <span className="self-center text-meta text-ink-3">até</span>
+                <Field type="month" name="ate" defaultValue={ate} aria-label="Até" className="w-[8.5rem]" />
+                <Btn type="submit" variant="ghost">
+                  Aplicar
+                </Btn>
+                {intervalo && (
+                  <a
+                    href={hrefReceita({ jan: '12', de: '', ate: '' })}
+                    className="self-center text-nota text-ink-3 hover:underline"
+                  >
+                    limpar
+                  </a>
+                )}
+              </form>
+            </div>
+
+            {intervalo && serieVista.length === 0 && (
+              <div className="mt-4">
+                <Aviso tom="alerta">
+                  Nenhum mês no intervalo escolhido.{' '}
+                  <a
+                    className="font-medium text-purple-700 hover:underline"
+                    href={hrefReceita({ jan: '12', de: '', ate: '' })}
+                  >
+                    Voltar aos últimos 12 meses
+                  </a>
+                  .
+                </Aviso>
+              </div>
+            )}
+
             {/* O MESMO gráfico da inadimplência, nomeado pelo eixo desta tela: a
                 barra é o saldo no FIM de cada competência de receita, e a do mês
                 escolhido no filtro ganha o anel. É o que responde "o mês que estou
                 olhando é fora da curva ou é a curva?" — pergunta que só existe
                 numa tela que tem filtro de mês. */}
-            {serieDoAtraso.length > 1 && (
+            {serieVista.length > 1 && (
               <div className="mt-5">
                 <GraficoDoAtraso
-                  serie={serieDoAtraso}
+                  serie={serieVista}
                   rotulo={(m) => MES(competenciaDeReceita(m.competencia) + '-01')}
                   /* A competência da FOTO, achada pelo mapa: passar a de receita
                      destacaria a barra do mês seguinte — que é exatamente o erro
@@ -327,7 +421,7 @@ export default async function Receita({
                 entra mais do que volta, e não porque ninguém paga. Sem ele, a
                 barra de saldo subindo é um fato sem causa — e é a causa que decide
                 se o trabalho é cobrar melhor ou cobrar antes. */}
-            {serieDoAtraso.length > 1 && (
+            {serieVista.length > 1 && (
               <div className="mt-4">
                 <div className="mb-2 flex flex-wrap items-center gap-4 text-nota text-ink-2">
                   <span className="inline-flex items-center gap-1.5">
@@ -340,7 +434,7 @@ export default async function Receita({
                   </span>
                 </div>
                 <GraficoDoFluxo
-                  serie={serieDoAtraso}
+                  serie={serieVista}
                   rotulo={(m) => MES(competenciaDeReceita(m.competencia) + '-01')}
                   {...(() => {
                     const f = atrasoPorMes.get(atual.competencia.slice(0, 7))
@@ -361,7 +455,7 @@ export default async function Receita({
                 │ casa direto com a competência escolhida, sem o deslocamento de um   │
                 │ mês que os outros dois precisam.                                   │
                 └───────────────────────────────────────────────────────────────┘ */}
-            {coorte.length > 1 && (
+            {coorteVista.length > 1 && (
               <div className="mt-5">
                 <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                   <span className="text-nota text-ink-2">
@@ -375,7 +469,7 @@ export default async function Receita({
                   )}
                 </div>
                 <GraficoDaCoorte
-                  coorte={coorte}
+                  coorte={coorteVista}
                   rotulo={(c) => MES(c.mes)}
                   destacar={`${atual.competencia.slice(0, 7)}-01`}
                   altura={130}
@@ -482,7 +576,7 @@ export default async function Receita({
                   // era texto morto: a tabela mostrava NRR e resíduo de onze meses
                   // cujos movimentos não existiam em tela nenhuma.
                   <Link
-                    href={`/receita?mes=${c.competencia.slice(0, 7)}`}
+                    href={hrefReceita({ mes: c.competencia.slice(0, 7) })}
                     className="tabular-nums font-semibold hover:text-purple-700 hover:underline"
                   >
                     {c.competencia.slice(0, 7)}
