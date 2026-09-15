@@ -20,7 +20,7 @@ import {
   rotuloDoEstado,
   serieDaCarteira,
 } from '@pulse/config'
-import { Abas, Aviso, Badge, Busca, Card, Chip, Chips, Kpi, KpiGrade, type Tom } from '@pulse/ui'
+import { Abas, Aviso, Badge, Btn, Busca, Card, Chip, Chips, Field, Kpi, KpiGrade, type Tom } from '@pulse/ui'
 import Link from 'next/link'
 
 import { GraficoDaCoorte, GraficoDoAtraso, GraficoDoFluxo } from '../grafico-atraso'
@@ -308,6 +308,9 @@ export default async function Inadimplencia({
     estado?: string
     cli?: string
     q?: string
+    jan?: string
+    de?: string
+    ate?: string
   }>
 }) {
   /* ┌──────────────────────────────────────────────────────────────────────┐
@@ -340,6 +343,38 @@ export default async function Inadimplencia({
   const faixa: FaixaId | '' = FAIXAS.some((f) => f.id === q.faixa) ? (q.faixa as FaixaId) : ''
   const estado: string = ESTADOS_DO_PAINEL.some((e) => e.id === q.estado) ? (q.estado ?? '') : ''
   const busca = q.q?.trim() ?? ''
+
+  /* ┌──────────────────────────────────────────────────────────────────────┐
+     │ O PERÍODO RECORTA SÓ A EXIBIÇÃO da Evolução, e nunca a conta da perda.   │
+     │                                                                          │
+     │ A série é sempre buscada com 24 meses, e a média das coortes maduras     │
+     │ (`mediaMadura`, mais abaixo) é calculada sobre esses 24 — porque a        │
+     │ cascata em /receita mostra o MESMO número com a mesma janela, e recortar  │
+     │ a base aqui faria a perda estrutural divergir entre as duas telas, que é  │
+     │ justo o defeito que a janela de 24 existe para evitar. O filtro escolhe   │
+     │ QUANTAS barras aparecem — 24 espremidas num gráfico de 600px é o que        │
+     │ deixava o eixo cortado —, não sobre quantos meses a perda é medida.        │
+     │                                                                          │
+     │ Padrão 12: é a leitura de "o último ano" e cabe folgada. 6 para o recente, │
+     │ 24 para a série inteira, e o intervalo avulso (de/ate) para uma fatia      │
+     │ qualquer — que, quando presente, manda no lugar do preset.                 │
+     └──────────────────────────────────────────────────────────────────────┘ */
+  const JANELAS = [6, 12, 24] as const
+  const janela = (JANELAS as readonly number[]).includes(Number(q.jan)) ? Number(q.jan) : 12
+  const MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+  const de = MES_RE.test(q.de ?? '') ? (q.de as string) : ''
+  const ate = MES_RE.test(q.ate ?? '') ? (q.ate as string) : ''
+  const intervalo = Boolean(de || ate)
+  // A série vem do mais antigo para o mais novo, e a coorte também. O recorte
+  // por intervalo compara sempre o prefixo `YYYY-MM` — a coorte guarda `mes` com
+  // dia (`YYYY-MM-DD`), então o `slice(0,7)` é o que põe as duas na mesma régua.
+  const recorteDoPeriodo = <T,>(itens: readonly T[], mesDe: (t: T) => string): readonly T[] => {
+    if (!intervalo) return itens.slice(-janela)
+    return itens.filter((t) => {
+      const m = mesDe(t).slice(0, 7)
+      return (!de || m >= de) && (!ate || m <= ate)
+    })
+  }
 
   const db = pool()
 
@@ -387,17 +422,36 @@ export default async function Inadimplencia({
      sintoma é a pessoa clicar num cabeçalho e o recorte dela desaparecer. */
   const link = (
     a: Chave,
-    m: { ord?: string; dir?: 'asc' | 'desc'; faixa?: string; estado?: string; cli?: string; q?: string } = {},
+    m: {
+      ord?: string
+      dir?: 'asc' | 'desc'
+      faixa?: string
+      estado?: string
+      cli?: string
+      q?: string
+      jan?: string
+      de?: string
+      ate?: string
+    } = {},
   ) => {
     const p = new URLSearchParams({ aba: a })
     const f = m.faixa ?? faixa
     const e = m.estado ?? estado
     const c = m.cli ?? (apenasClientes ? '1' : '')
     const b = m.q ?? busca
+    // A janela e o intervalo viajam junto com a aba: trocar de aba e voltar não
+    // pode devolver o gráfico ao padrão sem ninguém pedir. `12` é o padrão e não
+    // vai para a URL; passar `jan:'12'` (o botão de preset) é o que a limpa.
+    const j = m.jan ?? (janela !== 12 ? String(janela) : '')
+    const dd = m.de ?? de
+    const aa = m.ate ?? ate
     if (f) p.set('faixa', f)
     if (e) p.set('estado', e)
     if (c === '1') p.set('cli', '1')
     if (b) p.set('q', b)
+    if (j && j !== '12') p.set('jan', j)
+    if (dd) p.set('de', dd)
+    if (aa) p.set('ate', aa)
     if (m.ord) {
       p.set('ord', m.ord)
       p.set('dir', m.dir ?? 'desc')
@@ -410,11 +464,17 @@ export default async function Inadimplencia({
   // não é ligação desta semana — é o passivo antigo, que tem a aba dele.
   const fila = aba === 'corrente' ? clientes.filter((c) => Number(c.correnteCentavos) > 0) : clientes
   const naFila = fila.length
+  // A perda estrutural é medida sobre os 24 meses INTEIROS, não sobre a janela
+  // escolhida — ver o bloco do período acima. É o número que bate com a cascata.
   const perdaEstrutural = coorte.filter((c) => c.madura)
   const mediaMadura =
     perdaEstrutural.length > 0
       ? perdaEstrutural.reduce((s, c) => s + c.pagoPct, 0) / perdaEstrutural.length
       : null
+
+  // O que o gráfico e o fechamento MOSTRAM: a janela (ou o intervalo) recortada.
+  const serieVista = recorteDoPeriodo(serie, (m) => m.competencia)
+  const coorteVista = recorteDoPeriodo(coorte, (c) => c.mes)
 
   return (
     <>
@@ -478,7 +538,7 @@ export default async function Inadimplencia({
             { chave: 'corrente', rotulo: 'Corrente', conta: resumo.correnteClientes },
             { chave: 'carteira', rotulo: 'Carteira total', conta: resumo.titulos },
             { chave: 'clientes', rotulo: 'Por cliente', conta: resumo.clientes },
-            { chave: 'evolucao', rotulo: 'Evolução', conta: serie.length || undefined },
+            { chave: 'evolucao', rotulo: 'Evolução', conta: serieVista.length || undefined },
           ]}
           atual={aba}
           href={(k) => link(k as Chave)}
@@ -534,6 +594,69 @@ export default async function Inadimplencia({
               }}
               {...(busca ? { hrefLimpar: link(aba, { q: '' }) } : {})}
             />
+          )}
+
+          {/* ┌───────────────────────────────────────────────────────────────┐
+              │ O PERÍODO só existe na Evolução — é a única aba com eixo de mês. │
+              │                                                                 │
+              │ Os chips são o caminho de um clique (6/12/24); o intervalo       │
+              │ avulso é o segundo, com dois campos de mês. Não há armadilha de  │
+              │ "datas ignoradas" como no kanban: aqui QUALQUER de/ate já manda  │
+              │ no recorte, então os campos agem sempre — e um preset limpa o    │
+              │ intervalo passando `de:''`/`ate:''`, que é o mesmo `link()`.      │
+              └───────────────────────────────────────────────────────────────┘ */}
+          {aba === 'evolucao' && (
+            <>
+              <Chips rotulo="período:">
+                <Chip
+                  rotulo="6 meses"
+                  href={link('evolucao', { jan: '6', de: '', ate: '' })}
+                  ativo={!intervalo && janela === 6}
+                  fixo
+                />
+                <Chip
+                  rotulo="12 meses"
+                  href={link('evolucao', { jan: '12', de: '', ate: '' })}
+                  ativo={!intervalo && janela === 12}
+                  fixo
+                />
+                <Chip
+                  rotulo="24 meses"
+                  href={link('evolucao', { jan: '24', de: '', ate: '' })}
+                  ativo={!intervalo && janela === 24}
+                  fixo
+                />
+              </Chips>
+              <form
+                method="GET"
+                action="/receita/inadimplencia"
+                className="flex flex-wrap items-end gap-2"
+              >
+                <input type="hidden" name="aba" value="evolucao" />
+                {apenasClientes && <input type="hidden" name="cli" value="1" />}
+                <span className="self-center text-meta text-ink-3">ou de</span>
+                <Field type="month" name="de" defaultValue={de} aria-label="De" className="w-[8.5rem]" />
+                <span className="self-center text-meta text-ink-3">até</span>
+                <Field
+                  type="month"
+                  name="ate"
+                  defaultValue={ate}
+                  aria-label="Até"
+                  className="w-[8.5rem]"
+                />
+                <Btn type="submit" variant="ghost">
+                  Aplicar
+                </Btn>
+                {intervalo && (
+                  <a
+                    href={link('evolucao', { jan: '12', de: '', ate: '' })}
+                    className="self-center text-nota text-ink-3 hover:underline"
+                  >
+                    limpar
+                  </a>
+                )}
+              </form>
+            </>
           )}
         </div>
 
@@ -632,9 +755,26 @@ export default async function Inadimplencia({
           </Card>
         )}
 
-        {aba === 'evolucao' && (
-          <Evolucao serie={serie} coorte={coorte} mediaMadura={mediaMadura} />
-        )}
+        {aba === 'evolucao' &&
+          (serie.length > 0 && serieVista.length === 0 ? (
+            // A série TEM dados, mas o intervalo escolhido não pega nenhum mês.
+            // A mensagem do C21 (dentro de Evolucao) falaria de apuração e mentiria
+            // sobre a causa — aqui a causa é o filtro, e a saída é limpá-lo.
+            <Card title="Evolução">
+              <Aviso tom="alerta">
+                Nenhum mês no intervalo escolhido.{' '}
+                <a
+                  className="font-medium text-purple-700 hover:underline"
+                  href={link('evolucao', { jan: '12', de: '', ate: '' })}
+                >
+                  Voltar aos últimos 12 meses
+                </a>
+                .
+              </Aviso>
+            </Card>
+          ) : (
+            <Evolucao serie={serieVista} coorte={coorteVista} mediaMadura={mediaMadura} />
+          ))}
       </Corpo>
     </>
   )
