@@ -181,7 +181,9 @@ export default async function Receita({
   const serieVista = recorteDoPeriodo(serieDoAtraso, (m) => competenciaDeReceita(m.competencia))
   const coorteVista = recorteDoPeriodo(coorte, (c) => c.mes)
   const mesSel = escolhido ? escolhido.competencia.slice(0, 7) : ''
-  const hrefReceita = (m: { mes?: string; jan?: string; de?: string; ate?: string } = {}) => {
+  const hrefReceita = (
+    m: { mes?: string; jan?: string; de?: string; ate?: string; ancora?: boolean } = {},
+  ) => {
     const p = new URLSearchParams()
     const mm = m.mes ?? mesSel
     const j = m.jan ?? (janela !== 12 ? String(janela) : '')
@@ -192,7 +194,9 @@ export default async function Receita({
     if (dd) p.set('de', dd)
     if (aa) p.set('ate', aa)
     const s = p.toString()
-    return s ? `/receita?${s}` : '/receita'
+    // A âncora `#g` mantém o clique nos gráficos em vez de rolar para o topo.
+    const hash = m.ancora ? '#g' : ''
+    return (s ? `/receita?${s}` : '/receita') + hash
   }
 
   if (!atual) {
@@ -354,13 +358,25 @@ export default async function Receita({
                 │ intervalo avulso de mês. Padrão 12, para o eixo caber. Irmão   │
                 │ do de /receita/inadimplencia — mesma regra, `12` não vai à URL.│
                 └─────────────────────────────────────────────────────────────┘ */}
-            <div className="mt-5 flex flex-wrap items-end gap-3">
+            {/* ┌─────────────────────────────────────────────────────────────┐
+                │ A ÂNCORA `#g` prende o clique aqui, nos gráficos.              │
+                │                                                               │
+                │ Os chips são <Link> do Next, que ROLA PARA O TOPO a cada       │
+                │ navegação — e como os gráficos ficam no fim de uma página      │
+                │ longa, cada troca de período jogava a pessoa lá em cima. Um    │
+                │ href com hash faz o Next rolar até o elemento em vez do topo;  │
+                │ o `scroll-mt` afasta a âncora de qualquer cabeçalho fixo. O    │
+                │ formulário leva o mesmo hash no `action` para o submit também  │
+                │ voltar aqui. A competência (`mes`) NÃO usa a âncora de           │
+                │ propósito: quem troca o mês quer ver o detalhe, que fica no topo.│
+                └─────────────────────────────────────────────────────────────┘ */}
+            <div id="g" className="mt-5 scroll-mt-24 flex flex-wrap items-end gap-3">
               <Chips rotulo="período do gráfico:">
-                <Chip rotulo="6 meses" href={hrefReceita({ jan: '6', de: '', ate: '' })} ativo={!intervalo && janela === 6} fixo />
-                <Chip rotulo="12 meses" href={hrefReceita({ jan: '12', de: '', ate: '' })} ativo={!intervalo && janela === 12} fixo />
-                <Chip rotulo="24 meses" href={hrefReceita({ jan: '24', de: '', ate: '' })} ativo={!intervalo && janela === 24} fixo />
+                <Chip rotulo="6 meses" href={hrefReceita({ jan: '6', de: '', ate: '', ancora: true })} ativo={!intervalo && janela === 6} fixo />
+                <Chip rotulo="12 meses" href={hrefReceita({ jan: '12', de: '', ate: '', ancora: true })} ativo={!intervalo && janela === 12} fixo />
+                <Chip rotulo="24 meses" href={hrefReceita({ jan: '24', de: '', ate: '', ancora: true })} ativo={!intervalo && janela === 24} fixo />
               </Chips>
-              <form method="GET" action="/receita" className="flex flex-wrap items-end gap-2">
+              <form method="GET" action="/receita#g" className="flex flex-wrap items-end gap-2">
                 {mesSel && <input type="hidden" name="mes" value={mesSel} />}
                 <span className="self-center text-meta text-ink-3">ou de</span>
                 <Field type="month" name="de" defaultValue={de} aria-label="De" className="w-[8.5rem]" />
@@ -371,7 +387,7 @@ export default async function Receita({
                 </Btn>
                 {intervalo && (
                   <a
-                    href={hrefReceita({ jan: '12', de: '', ate: '' })}
+                    href={hrefReceita({ jan: '12', de: '', ate: '', ancora: true })}
                     className="self-center text-nota text-ink-3 hover:underline"
                   >
                     limpar
@@ -386,7 +402,7 @@ export default async function Receita({
                   Nenhum mês no intervalo escolhido.{' '}
                   <a
                     className="font-medium text-purple-700 hover:underline"
-                    href={hrefReceita({ jan: '12', de: '', ate: '' })}
+                    href={hrefReceita({ jan: '12', de: '', ate: '', ancora: true })}
                   >
                     Voltar aos últimos 12 meses
                   </a>

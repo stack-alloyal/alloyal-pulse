@@ -51,7 +51,7 @@ export function GraficoDoAtraso({
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex min-w-[600px] items-end gap-1" style={{ height: altura }}>
+      <div className="flex min-w-[600px] items-end px-2 gap-1" style={{ height: altura }}>
         {serie.map((m) => {
           const alt = Math.max(Math.round((Number(m.saldoFinalCentavos) / maiorSaldo) * barra), 2)
           const recente =
@@ -149,7 +149,7 @@ export function GraficoDoFluxo({
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex min-w-[600px] items-end gap-2" style={{ height: altura }}>
+      <div className="flex min-w-[600px] items-end px-2 gap-2" style={{ height: altura }}>
         {serie.map((m) => {
           const ent = Math.max(Math.round((Number(m.entrouCentavos) / maior) * teto), 1)
           const rec = Math.max(Math.round((Number(m.recuperadoCentavos) / maior) * teto), 1)
@@ -226,7 +226,7 @@ export function GraficoDaCoorte({
 
   return (
     <div className="overflow-x-auto">
-      <div className="flex min-w-[600px] items-end gap-1" style={{ height: altura }}>
+      <div className="flex min-w-[600px] items-end px-2 gap-1" style={{ height: altura }}>
         {coorte.map((c) => {
           const escolhida = destacar === c.mes
           return (
