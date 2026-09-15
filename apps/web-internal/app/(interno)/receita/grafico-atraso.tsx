@@ -35,7 +35,6 @@ export function GraficoDoAtraso({
   rotulo,
   destacar,
   diasCorrente,
-  emCurso,
   altura = 160,
 }: {
   serie: readonly MesDaCarteira[]
@@ -45,10 +44,6 @@ export function GraficoDoAtraso({
   destacar?: string
   /** O corte do "recente", só para o texto do rodapé bater com a barra escura. */
   diasCorrente: number
-  /** A competência de uma barra PROVISÓRIA (foto parcial do dia): a do mês
-   *  corrente, ainda aberto. Ela ganha contorno tracejado e o rótulo "em curso"
-   *  para não ser lida como número fechado. */
-  emCurso?: string
   altura?: number
 }) {
   const maiorSaldo = Math.max(...serie.map((m) => Number(m.saldoFinalCentavos)), 1)
@@ -64,11 +59,9 @@ export function GraficoDoAtraso({
               ? Math.min(Number(m.recenteCentavos) / Number(m.saldoFinalCentavos), 1)
               : 0
           const escolhida = destacar === m.competencia
-          const provisoria = emCurso === m.competencia
           const titulo =
             `${rotulo(m)} · saldo ${BRL(m.saldoFinalCentavos)} · ${N(m.titulosFinal)} títulos · ` +
-            `até ${diasCorrente} d ${BRL(m.recenteCentavos)} · ` +
-            (provisoria ? 'prévia de hoje, ainda muda até o mês fechar' : `foto ${m.origem}`)
+            `até ${diasCorrente} d ${BRL(m.recenteCentavos)} · foto ${m.origem}`
           return (
             <div key={m.competencia} className="flex flex-1 flex-col items-center justify-end gap-1">
               {/* A barra clara é a carteira toda; a escura, a parte de até 90 dias.
@@ -77,12 +70,7 @@ export function GraficoDoAtraso({
               <span
                 title={titulo}
                 className={cn(
-                  'relative w-full rounded-t',
-                  // A provisória não é preenchida cheia: contorno tracejado e fundo
-                  // claro dizem "ainda não fechou" sem inventar uma quarta cor.
-                  provisoria
-                    ? 'border border-dashed border-purple-400 bg-purple-50'
-                    : 'bg-purple-100',
+                  'relative w-full rounded-t bg-purple-100',
                   // A escolhida ganha um anel, e não outra cor: cor a mais aqui
                   // competiria com a leitura de claro/escuro que a barra já carrega.
                   escolhida && 'ring-2 ring-purple-500 ring-offset-1 ring-offset-surface',
@@ -90,10 +78,7 @@ export function GraficoDoAtraso({
                 style={{ height: alt }}
               >
                 <span
-                  className={cn(
-                    'absolute inset-x-0 bottom-0 rounded-t',
-                    provisoria ? 'bg-purple-400/70' : 'bg-purple-500',
-                  )}
+                  className="absolute inset-x-0 bottom-0 rounded-t bg-purple-500"
                   style={{ height: `${Math.round(recente * 100)}%` }}
                 />
               </span>
@@ -105,11 +90,6 @@ export function GraficoDoAtraso({
               >
                 {rotulo(m)}
               </span>
-              {provisoria && (
-                <span className="-mt-1 whitespace-nowrap text-micro italic text-purple-500">
-                  em curso
-                </span>
-              )}
             </div>
           )
         })}

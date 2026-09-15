@@ -510,6 +510,49 @@ export async function resumoDaCarteira(
   };
 }
 
+export interface MovimentoDoMes {
+  readonly entrouCentavos: string;
+  readonly entrouTitulos: number;
+  readonly recuperadoCentavos: string;
+  readonly recuperadoTitulos: number;
+}
+
+/**
+ * O movimento PARCIAL do mes corrente, ate hoje — para a barra provisoria do
+ * grafico de fluxo, o mes que ainda nao fechou.
+ *
+ * Nao vem da comparacao de fotos (nao ha foto do mes corrente ainda): e a
+ * leitura direta das datas, no mesmo espirito da coorte.
+ *   entrou     = venceu NESTE mes, passou a carencia e segue em aberto.
+ *   recuperado = venceu ANTES deste mes e foi pago dentro dele, ate hoje.
+ * Sao as mesmas duas perguntas do fluxo fechado, medidas pelo calendario — um
+ * preview honesto que o fechamento do mes (ciclo C21) depois substitui pela foto.
+ */
+export async function movimentoDoMesAoVivo(db: pg.Pool): Promise<MovimentoDoMes> {
+  const ENTROU = `t.vencimento >= p.ini
+      AND t.vencimento <= core.dia_util_antes(current_date + 1, ${DIAS_UTEIS_PARA_APARECER + 1})
+      AND (t.pagamento IS NULL OR t.pagamento >= current_date + 1 OR t.aberto_centavos > 0)`;
+  const RECUPERADO = `t.vencimento < p.ini
+      AND t.pagamento >= p.ini AND t.pagamento <= current_date`;
+  const { rows } = await db.query(
+    `WITH p AS (SELECT date_trunc('month', current_date)::date AS ini)
+     SELECT
+       coalesce(sum(t.valor_centavos) FILTER (WHERE ${ENTROU}), 0)::text AS entrou_centavos,
+       count(*) FILTER (WHERE ${ENTROU})::int AS entrou_titulos,
+       coalesce(sum(t.valor_centavos) FILTER (WHERE ${RECUPERADO}), 0)::text AS recuperado_centavos,
+       count(*) FILTER (WHERE ${RECUPERADO})::int AS recuperado_titulos
+       FROM core.omie_titulo t, p
+      WHERE ${TITULO_VIVO}`,
+  );
+  const r = rows[0] ?? {};
+  return {
+    entrouCentavos: String(r["entrou_centavos"] ?? "0"),
+    entrouTitulos: Number(r["entrou_titulos"] ?? 0),
+    recuperadoCentavos: String(r["recuperado_centavos"] ?? "0"),
+    recuperadoTitulos: Number(r["recuperado_titulos"] ?? 0),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ESCRITA · a foto do dia 1º
 // ─────────────────────────────────────────────────────────────────────────────
