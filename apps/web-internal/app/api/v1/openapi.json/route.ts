@@ -67,6 +67,7 @@ function exportar(recurso: string, extras: unknown[] = []) {
           },
         },
         "401": { $ref: "#/components/responses/NaoAutorizado" },
+        "400": { $ref: "#/components/responses/Invalido" },
       },
     },
   };
@@ -104,7 +105,7 @@ const SPEC = {
     parameters: {
       cursor: { name: "cursor", in: "query", schema: { type: "string" }, description: "Cursor opaco da página anterior (proximo_cursor)." },
       limite: { name: "limite", in: "query", schema: { type: "integer", minimum: 1, maximum: 5000, default: 1000 } },
-      cnpj: { name: "cnpj", in: "query", schema: { type: "string" }, description: "CNPJ; a pontuação é ignorada." },
+      cnpj: { name: "cnpj", in: "query", schema: { type: "string" }, description: "CNPJ (14 dígitos) ou CPF (11); a pontuação é ignorada. Outro comprimento → 400 cnpj_invalido." },
       account_id: { name: "account_id", in: "query", schema: { type: "string", format: "uuid" } },
       competencia: { name: "competencia", in: "query", schema: { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$" }, description: "AAAA-MM." },
       atualizado_desde: { name: "atualizado_desde", in: "query", schema: { type: "string", format: "date-time" }, description: "Só registros com carimbo de sincronização a partir daqui." },
