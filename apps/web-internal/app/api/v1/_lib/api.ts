@@ -28,6 +28,20 @@ export function erroJson(status: number, codigo: string, mensagem: string): Resp
 }
 
 /**
+ * Envolve a leitura: erro inesperado vira 500 EM JSON, que o ETL sabe parsear —
+ * e não a página HTML de erro do Next. O detalhe fica só no log do servidor;
+ * o corpo nunca carrega mensagem de banco (que denunciaria nome de tabela/coluna).
+ */
+export async function protegido(fn: () => Promise<Response>): Promise<Response> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error("[api/v1]", err instanceof Error ? err.message : String(err));
+    return erroJson(500, "erro_interno", "Falha ao ler o recurso. Tente de novo; se persistir, avise.");
+  }
+}
+
+/**
  * Exige um token de serviço vivo. Devolve `{ token }` ou `{ erro }` já pronto.
  *
  * A rota /api/v1 fica FORA do oauth2-proxy (o ETL não tem sessão Google), então
@@ -51,15 +65,36 @@ export async function exigirToken(
 
 // ─── cursor opaco (base64url da chave crua) ──────────────────────────────────
 
-export function lerCursor(url: URL): string | null {
+export type TipoDeChave = "uuid" | "bigint";
+
+/**
+ * Lê o cursor opaco E confere que a chave decodificada tem a FORMA da chave do
+ * recurso (uuid ou inteiro). Achado no pentest: cursor forjado ou corrompido
+ * virava erro de cast no Postgres — 500 onde a resposta certa é 400.
+ */
+export function lerCursor(
+  url: URL,
+  tipo: TipoDeChave,
+): { readonly apos: string | null } | { readonly erro: Response } {
   const c = url.searchParams.get("cursor");
-  if (!c) return null;
+  if (!c) return { apos: null };
+  let bruto = "";
   try {
-    const bruto = Buffer.from(c, "base64url").toString("utf8");
-    return bruto.length > 0 ? bruto : null;
+    bruto = Buffer.from(c, "base64url").toString("utf8");
   } catch {
-    return null;
+    bruto = "";
   }
+  const ok = tipo === "uuid" ? UUID.test(bruto) : /^\d{1,19}$/.test(bruto);
+  if (!ok) {
+    return {
+      erro: erroJson(
+        400,
+        "cursor_invalido",
+        "cursor não é desta lista — use o proximo_cursor que ela devolveu.",
+      ),
+    };
+  }
+  return { apos: bruto };
 }
 
 function escreverCursor(chave: string | null): string | null {
@@ -83,34 +118,63 @@ export interface FiltrosDaUrl {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COMPETENCIA = /^\d{4}-(0[1-9]|1[0-2])$/;
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
 /**
  * Lê e valida os filtros comuns. Devolve os filtros ou um erro 400 — parâmetro
  * malformado responde na hora em vez de virar um `WHERE` que não casa nada e
- * parece "sem dados".
+ * parece "sem dados". Parâmetro presente mas VAZIO (`?cnpj=`) conta como ausente.
  */
 export function lerFiltros(url: URL): { readonly filtros: FiltrosDaUrl } | { readonly erro: Response } {
   const p = url.searchParams;
-  const accountId = p.get("account_id");
+  const accountId = p.get("account_id") || null;
   if (accountId && !UUID.test(accountId)) {
     return { erro: erroJson(400, "account_id_invalido", "account_id deve ser um UUID.") };
   }
-  const competencia = p.get("competencia");
+  const competencia = p.get("competencia") || null;
   if (competencia && !COMPETENCIA.test(competencia)) {
     return { erro: erroJson(400, "competencia_invalida", "competencia deve ser AAAA-MM.") };
   }
-  const atualizadoDesde = p.get("atualizado_desde");
-  if (atualizadoDesde && Number.isNaN(Date.parse(atualizadoDesde))) {
-    return { erro: erroJson(400, "atualizado_desde_invalido", "atualizado_desde deve ser data/hora ISO.") };
+
+  // CNPJ: a pontuação é ignorada, mas o que sobrar tem de SER um documento (14
+  // dígitos, ou 11 para CPF). Achado no pentest: `cnpj=abc` virava filtro vazio e
+  // devolvia a base INTEIRA — erro de digitação não pode ser lido como "sem filtro".
+  const cnpjBruto = p.get("cnpj") || null;
+  let cnpj: string | null = null;
+  if (cnpjBruto) {
+    const d = cnpjBruto.replace(/\D/g, "");
+    if (d.length !== 14 && d.length !== 11) {
+      return {
+        erro: erroJson(
+          400,
+          "cnpj_invalido",
+          "cnpj deve ter 14 dígitos (ou 11, para CPF); a pontuação é ignorada.",
+        ),
+      };
+    }
+    cnpj = d;
   }
-  return {
-    filtros: {
-      cnpj: p.get("cnpj"),
-      accountId,
-      competencia,
-      atualizadoDesde,
-    },
-  };
+
+  // atualizado_desde: forma ISO ESTRITA, e NORMALIZADO antes de ir ao SQL. Achado
+  // no pentest: `Date.parse("1")` é válido (ano 2001) e o Postgres recusa
+  // `'1'::timestamptz` — 500. Só o ISO que nós mesmos geramos chega ao banco.
+  const desdeBruto = p.get("atualizado_desde") || null;
+  let atualizadoDesde: string | null = null;
+  if (desdeBruto) {
+    const ms = Date.parse(desdeBruto);
+    if (!DATA_ISO.test(desdeBruto) || Number.isNaN(ms)) {
+      return {
+        erro: erroJson(
+          400,
+          "atualizado_desde_invalido",
+          "atualizado_desde deve ser ISO: AAAA-MM-DD ou AAAA-MM-DDTHH:MM:SSZ.",
+        ),
+      };
+    }
+    atualizadoDesde = new Date(ms).toISOString();
+  }
+
+  return { filtros: { cnpj, accountId, competencia, atualizadoDesde } };
 }
 
 export function respostaLista<T>(recurso: string, pagina: Pagina<T>): Response {
@@ -184,9 +248,18 @@ export function streamExport<T>(opts: {
   });
 }
 
-/** Escapa um campo para CSV (RFC 4180): aspas dobradas quando há vírgula/aspas/quebra. */
+/**
+ * Escapa um campo para CSV (RFC 4180): aspas dobradas quando há vírgula/aspas/quebra.
+ *
+ * E neutraliza INJEÇÃO DE FÓRMULA: célula que começa com `=`, `+`, `@` (ou `-`
+ * sem ser número) é executada pelo Excel/Sheets ao abrir o arquivo. Achado no
+ * pentest: há razão social na base começando assim. O apóstrofo na frente faz a
+ * planilha ler texto — e número negativo legítimo (valor de contração) passa
+ * intacto, porque a regra do `-` só vale quando NÃO é número.
+ */
 export function csv(valor: string | number | boolean | null | undefined): string {
   if (valor === null || valor === undefined) return "";
-  const s = String(valor);
+  let s = String(valor);
+  if (/^[=+@]/.test(s) || (s.startsWith("-") && !/^-?\d+(\.\d+)?$/.test(s))) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

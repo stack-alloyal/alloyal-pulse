@@ -1,7 +1,7 @@
 import { listarContasApi } from "@pulse/config";
 
 import { pool } from "../../../../lib/db";
-import { exigirToken, lerCursor, lerFiltros, lerLimite, respostaLista } from "../_lib/api";
+import { exigirToken, lerCursor, lerFiltros, lerLimite, protegido, respostaLista } from "../_lib/api";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,10 +14,15 @@ export async function GET(req: Request): Promise<Response> {
   const f = lerFiltros(url);
   if ("erro" in f) return f.erro;
 
-  const pagina = await listarContasApi(pool(), {
-    limite: lerLimite(url),
-    apos: lerCursor(url),
-    ...f.filtros,
+  const cur = lerCursor(url, "uuid");
+  if ("erro" in cur) return cur.erro;
+
+  return protegido(async () => {
+    const pagina = await listarContasApi(pool(), {
+      limite: lerLimite(url),
+      apos: cur.apos,
+      ...f.filtros,
+    });
+    return respostaLista("contas", pagina);
   });
-  return respostaLista("contas", pagina);
 }

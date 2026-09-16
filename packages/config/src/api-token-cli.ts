@@ -2,7 +2,7 @@
  * CLI do token de serviço da API de leitura (/api/v1). Ato de ADMIN — usa o papel
  * dono, não o `pulse_api` que serve a API. Uso:
  *
- *   DATABASE_URL_ADMIN=... node dist/api-token-cli.js emitir "ETL de conciliação — Fulano"
+ *   DATABASE_URL_ADMIN=... node dist/api-token-cli.js emitir "ETL de conciliação — Fulano" [dias]
  *   DATABASE_URL_ADMIN=... node dist/api-token-cli.js listar
  *   DATABASE_URL_ADMIN=... node dist/api-token-cli.js revogar <id>
  *
@@ -28,11 +28,23 @@ const pool = new pg.Pool({ connectionString: url });
 async function main(): Promise<void> {
   if (acao === "emitir") {
     if (!arg || arg.trim().length < 3) {
-      console.error('uso: api-token-cli emitir "descrição de para quem/para quê"');
+      console.error('uso: api-token-cli emitir "descrição de para quem/para quê" [dias de validade]');
       process.exit(1);
     }
-    const { id, token } = await emitirToken(pool, arg, quem);
-    console.error(`\nToken emitido (id ${id}).`);
+    // Validade opcional em dias. Token sem prazo continua possível, mas o padrão
+    // recomendado é dar prazo e rotacionar — revogar é reação, expirar é hábito.
+    const diasBruto = process.argv[4];
+    const dias = diasBruto === undefined ? null : Number(diasBruto);
+    if (dias !== null && (!Number.isFinite(dias) || dias <= 0)) {
+      console.error("dias de validade deve ser um número maior que zero");
+      process.exit(1);
+    }
+    const expira = dias === null ? null : new Date(Date.now() + dias * 86_400_000);
+    const { id, token } = await emitirToken(pool, arg, quem, expira);
+    console.error(
+      `\nToken emitido (id ${id})` +
+        (expira ? `, expira em ${expira.toISOString().slice(0, 10)}.` : ", SEM expiração."),
+    );
     console.error("Guarde AGORA — o banco só tem o hash, não há como relê-lo:\n");
     console.error(`   ${token}\n`);
     console.error("Use como:  Authorization: Bearer " + token);
@@ -56,7 +68,7 @@ async function main(): Promise<void> {
     }
     return;
   }
-  console.error('uso: api-token-cli <emitir "desc" | listar | revogar <id>>');
+  console.error('uso: api-token-cli <emitir "desc" [dias] | listar | revogar <id>>');
   process.exit(1);
 }
 
