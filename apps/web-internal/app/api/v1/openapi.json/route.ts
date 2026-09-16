@@ -40,6 +40,7 @@ function lista(recurso: string, schema: string, extras: unknown[] = []) {
         },
         "401": { $ref: "#/components/responses/NaoAutorizado" },
         "400": { $ref: "#/components/responses/Invalido" },
+        "429": { $ref: "#/components/responses/LimiteExcedido" },
       },
     },
   };
@@ -68,12 +69,13 @@ function exportar(recurso: string, extras: unknown[] = []) {
         },
         "401": { $ref: "#/components/responses/NaoAutorizado" },
         "400": { $ref: "#/components/responses/Invalido" },
+        "429": { $ref: "#/components/responses/LimiteExcedido" },
       },
     },
   };
 }
 
-const centavos = { type: "string", description: "Valor em centavos inteiros, como string." };
+const centavos ={ type: "string", description: "Valor em centavos inteiros, como string." };
 const dataIso = { type: "string", format: "date", nullable: true };
 const tsIso = { type: "string", format: "date-time", nullable: true };
 
@@ -114,6 +116,12 @@ const SPEC = {
     responses: {
       NaoAutorizado: { description: "Token ausente, inválido, revogado ou expirado", content: { "application/json": { schema: { $ref: "#/components/schemas/Erro" } } } },
       Invalido: { description: "Parâmetro malformado", content: { "application/json": { schema: { $ref: "#/components/schemas/Erro" } } } },
+      LimiteExcedido: {
+        description:
+          "Acima do limite de uso: 300 requisições/min por token nas listas; 1 export simultâneo por token (3 no total); 30 falhas de autenticação/min por IP. Respeite Retry-After.",
+        headers: { "Retry-After": { schema: { type: "integer" }, description: "Segundos até poder tentar de novo." } },
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Erro" } } },
+      },
     },
     schemas: {
       Envelope: {

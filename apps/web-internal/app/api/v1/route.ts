@@ -1,4 +1,4 @@
-import { DICIONARIO_VERSAO } from "./_lib/api";
+import { DICIONARIO_VERSAO, LIMITES } from "./_lib/api";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,6 +18,12 @@ export function GET(): Response {
         eventos: { lista: "/api/v1/eventos", export: "/api/v1/eventos/export?formato=ndjson|csv" },
       },
       filtros: ["cursor", "limite", "cnpj", "account_id", "competencia", "atualizado_desde"],
+      limites: {
+        lista: `${LIMITES.listaPorMinuto} requisições/min por token`,
+        export: `${LIMITES.exportsPorToken} simultâneo por token, ${LIMITES.exportsGlobais} no total`,
+        autenticacao: `${LIMITES.falhasDeAuthPorMinutoPorIp} falhas/min por IP`,
+        resposta: "429 com Retry-After (segundos)",
+      },
       observacao:
         "MRR/eventos são a camada faturada do Omie; contract_id é nulo (o Pulse não tem contrato). " +
         "Cruze o contrato pelo seu ETL usando os ids de /contas.",

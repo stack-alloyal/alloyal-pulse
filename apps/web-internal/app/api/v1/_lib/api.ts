@@ -41,6 +41,112 @@ export async function protegido(fn: () => Promise<Response>): Promise<Response> 
   }
 }
 
+// ─── limites de uso: em memória, um processo ────────────────────────────────
+//
+// A API roda num contêiner só, então um Map basta — e reinício zera, o que é
+// aceitável para um limite de cortesia. O objetivo NÃO é conter força bruta (o
+// token tem 256 bits; isso não se adivinha): é impedir que um token válido — ou
+// vazado — martele o banco, e que uma enxurrada de 401 vire uma consulta cada.
+// Três réguas:
+//   · lista:  requisições por minuto, por TOKEN;
+//   · export: exports SIMULTÂNEOS, por token e no total (é o caminho pesado);
+//   · auth:   FALHAS por minuto, por IP — acima disso nem vamos ao banco.
+const JANELA_MS = 60_000;
+export const LIMITES = {
+  listaPorMinuto: 300,
+  exportsPorToken: 1,
+  exportsGlobais: 3,
+  falhasDeAuthPorMinutoPorIp: 30,
+} as const;
+
+const janelas = new Map<string, number[]>();
+const vivos = (chave: string, agora: number): number[] =>
+  (janelas.get(chave) ?? []).filter((t) => agora - t < JANELA_MS);
+
+/** Passou do teto na janela? Só olha. Devolve os segundos até liberar, ou null. */
+function excedeu(chave: string, teto: number): number | null {
+  const agora = Date.now();
+  const arr = vivos(chave, agora);
+  janelas.set(chave, arr);
+  if (arr.length < teto) return null;
+  return Math.max(1, Math.ceil((JANELA_MS - (agora - (arr[0] ?? agora))) / 1000));
+}
+
+function registrar(chave: string): void {
+  const agora = Date.now();
+  const arr = vivos(chave, agora);
+  arr.push(agora);
+  janelas.set(chave, arr);
+}
+
+// Varre chaves mortas para o Map não crescer sem parar.
+setInterval(() => {
+  const agora = Date.now();
+  for (const [k, arr] of janelas) {
+    const v = arr.filter((t) => agora - t < JANELA_MS);
+    if (v.length === 0) janelas.delete(k);
+    else janelas.set(k, v);
+  }
+}, JANELA_MS);
+
+function erro429(retryS: number, mensagem: string): Response {
+  return Response.json(
+    { erro: { codigo: "limite_excedido", mensagem }, gerado_em: new Date().toISOString() },
+    { status: 429, headers: { ...SEM_CACHE, "retry-after": String(retryS) } },
+  );
+}
+
+/** O IP de quem chama. Só o Cloudflare fala com este host; o cabeçalho dele é confiável. */
+function ipDe(req: Request): string {
+  return (
+    req.headers.get("cf-connecting-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "desconhecido"
+  );
+}
+
+/** Régua de lista: N requisições por minuto por token. Devolve o 429 ou null. */
+export function limitarLista(token: TokenValido): Response | null {
+  const chave = `lista:${token.id}`;
+  const retry = excedeu(chave, LIMITES.listaPorMinuto);
+  if (retry !== null) {
+    return erro429(
+      retry,
+      `Mais de ${LIMITES.listaPorMinuto} requisições por minuto para este token. Aguarde, e use páginas maiores (limite até 5000).`,
+    );
+  }
+  registrar(chave);
+  return null;
+}
+
+// Concorrência de exports: contadores simples, liberados quando o stream termina.
+const exportsPorToken = new Map<string, number>();
+let exportsAtivos = 0;
+
+/** Reserva uma vaga de export. Devolve `liberar` (idempotente) ou o 429. */
+export function reservarExport(
+  token: TokenValido,
+): { readonly liberar: () => void } | { readonly erro: Response } {
+  const meus = exportsPorToken.get(token.id) ?? 0;
+  if (meus >= LIMITES.exportsPorToken) {
+    return { erro: erro429(30, "Já há um export em andamento para este token. Espere ele terminar.") };
+  }
+  if (exportsAtivos >= LIMITES.exportsGlobais) {
+    return { erro: erro429(30, "A API está no teto de exports simultâneos. Tente em instantes.") };
+  }
+  exportsPorToken.set(token.id, meus + 1);
+  exportsAtivos++;
+  let liberado = false;
+  return {
+    liberar: () => {
+      if (liberado) return;
+      liberado = true;
+      exportsPorToken.set(token.id, Math.max(0, (exportsPorToken.get(token.id) ?? 1) - 1));
+      exportsAtivos = Math.max(0, exportsAtivos - 1);
+    },
+  };
+}
+
 /**
  * Exige um token de serviço vivo. Devolve `{ token }` ou `{ erro }` já pronto.
  *
@@ -51,13 +157,25 @@ export async function protegido(fn: () => Promise<Response>): Promise<Response> 
 export async function exigirToken(
   req: Request,
 ): Promise<{ readonly token: TokenValido } | { readonly erro: Response }> {
+  // Acima do teto de FALHAS deste IP, nem tocamos no banco: 429 antes do lookup.
+  // É o que impede uma enxurrada de tokens errados de virar uma consulta cada.
+  const chaveIp = `auth:${ipDe(req)}`;
+  const retry = excedeu(chaveIp, LIMITES.falhasDeAuthPorMinutoPorIp);
+  if (retry !== null) {
+    return {
+      erro: erro429(retry, "Muitas tentativas de autenticação falhas deste endereço. Aguarde."),
+    };
+  }
+
   const auth = req.headers.get("authorization") ?? "";
   const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
   if (!m?.[1]) {
+    registrar(chaveIp);
     return { erro: erroJson(401, "sem_token", "Envie Authorization: Bearer <token>.") };
   }
   const token = await verificarToken(pool(), m[1]);
   if (!token) {
+    registrar(chaveIp);
     return { erro: erroJson(401, "token_invalido", "Token ausente, revogado ou expirado.") };
   }
   return { token };
@@ -201,9 +319,13 @@ export function lerFormato(url: URL): Formato {
 }
 
 /**
- * Faz o dump inteiro do recurso, paginando por keyset e emitindo linha a linha —
- * nunca carrega os 170 mil na memória. Um teto de páginas evita laço infinito se
- * algum dia a chave deixar de avançar.
+ * Faz o dump inteiro do recurso, paginando por keyset — nunca carrega os 170 mil
+ * na memória. É PULL: cada `pull` busca UMA página e a entrega, e a próxima só
+ * vem quando o consumidor pediu mais. Um cliente lento não faz a resposta inchar
+ * no servidor (a versão anterior enfileirava tudo em `start`, tão rápido quanto o
+ * banco devolvia). Um teto de páginas evita laço infinito se a chave parar de
+ * avançar. `aoTerminar` é chamado UMA vez — fim, erro ou cliente desconectado —
+ * para devolver a vaga de concorrência.
  */
 export function streamExport<T>(opts: {
   readonly recurso: string;
@@ -211,29 +333,58 @@ export function streamExport<T>(opts: {
   readonly cabecalhoCsv: string;
   readonly linhaCsv: (r: T) => string;
   readonly buscar: (apos: string | null) => Promise<Pagina<T>>;
+  readonly aoTerminar?: () => void;
 }): Response {
   const { formato, cabecalhoCsv, linhaCsv, buscar } = opts;
   const encoder = new TextEncoder();
   const MAX_PAGINAS = 100_000;
 
+  let apos: string | null = null;
+  let fim = false;
+  let paginas = 0;
+  let cabecalhoEnviado = false;
+  let terminado = false;
+  const terminar = (): void => {
+    if (terminado) return;
+    terminado = true;
+    opts.aoTerminar?.();
+  };
+
   const stream = new ReadableStream<Uint8Array>({
-    async start(controlador) {
+    async pull(controlador) {
       try {
-        if (formato === "csv") controlador.enqueue(encoder.encode(cabecalhoCsv + "\n"));
-        let apos: string | null = null;
-        for (let i = 0; i < MAX_PAGINAS; i++) {
-          const pagina: Pagina<T> = await buscar(apos);
-          for (const linha of pagina.linhas) {
-            const texto = formato === "csv" ? linhaCsv(linha) : JSON.stringify(linha);
-            controlador.enqueue(encoder.encode(texto + "\n"));
+        if (formato === "csv" && !cabecalhoEnviado) {
+          controlador.enqueue(encoder.encode(cabecalhoCsv + "\n"));
+          cabecalhoEnviado = true;
+        }
+        if (fim || paginas >= MAX_PAGINAS) {
+          controlador.close();
+          terminar();
+          return;
+        }
+        paginas++;
+        const pagina: Pagina<T> = await buscar(apos);
+        let bloco = "";
+        for (const linha of pagina.linhas) {
+          bloco += (formato === "csv" ? linhaCsv(linha) : JSON.stringify(linha)) + "\n";
+        }
+        if (bloco.length > 0) controlador.enqueue(encoder.encode(bloco));
+        if (pagina.proximaChave === null) {
+          fim = true;
+          if (bloco.length === 0) {
+            controlador.close();
+            terminar();
           }
-          if (pagina.proximaChave === null) break;
+        } else {
           apos = pagina.proximaChave;
         }
-        controlador.close();
       } catch (err) {
         controlador.error(err);
+        terminar();
       }
+    },
+    cancel() {
+      terminar();
     },
   });
 

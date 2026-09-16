@@ -1,7 +1,15 @@
 import { listarTitulosApi } from "@pulse/config";
 
 import { pool } from "../../../../lib/db";
-import { exigirToken, lerCursor, lerFiltros, lerLimite, protegido, respostaLista } from "../_lib/api";
+import {
+  exigirToken,
+  lerCursor,
+  lerFiltros,
+  lerLimite,
+  limitarLista,
+  protegido,
+  respostaLista,
+} from "../_lib/api";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,11 +17,12 @@ export const runtime = "nodejs";
 export async function GET(req: Request): Promise<Response> {
   const auth = await exigirToken(req);
   if ("erro" in auth) return auth.erro;
+  const teto = limitarLista(auth.token);
+  if (teto) return teto;
 
   const url = new URL(req.url);
   const f = lerFiltros(url);
   if ("erro" in f) return f.erro;
-
   const cur = lerCursor(url, "bigint");
   if ("erro" in cur) return cur.erro;
 
