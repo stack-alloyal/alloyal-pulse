@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
+    "token": "node dist/api-token-cli.js",
     "test": "echo 'sem teste próprio; ver config.test.ts'"
   },
   "dependencies": {
