@@ -1,7 +1,7 @@
 import { listarContasApi, type ContaApi } from "@pulse/config";
 
 import { pool } from "../../../../../lib/db";
-import { csv, exigirToken, lerFiltros, lerFormato, streamExport } from "../../_lib/api";
+import { csv, exigirToken, lerFiltros, lerFormato, reservarExport, streamExport } from "../../_lib/api";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,6 +16,11 @@ export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const f = lerFiltros(url);
   if ("erro" in f) return f.erro;
+
+  // A vaga só é tomada depois dos 400 possíveis: parâmetro errado não pode
+  // consumir a concorrência de quem está exportando de verdade.
+  const vaga = reservarExport(auth.token);
+  if ("erro" in vaga) return vaga.erro;
 
   return streamExport<ContaApi>({
     recurso: "contas",
@@ -41,5 +46,6 @@ export async function GET(req: Request): Promise<Response> {
         csv(r.atualizado_em),
       ].join(","),
     buscar: (apos) => listarContasApi(pool(), { limite: 2000, apos, ...f.filtros }),
+    aoTerminar: vaga.liberar,
   });
 }

@@ -17,6 +17,12 @@ import type pg from "pg";
 
 const PREFIXO = "pulse_";
 
+// Amostragem do "último uso": grava no máximo uma vez por minuto por token. Em
+// cada requisição virava uma ESCRITA por leitura — desnecessário para um carimbo
+// cuja pergunta é "ninguém usa este token desde março?".
+const INTERVALO_DE_USO_MS = 60_000;
+const ultimoUsoGravado = new Map<string, number>();
+
 export interface TokenValido {
   readonly id: string;
   readonly descricao: string;
@@ -63,10 +69,16 @@ export async function verificarToken(
   }
 
   // Marca o uso sem bloquear nem derrubar a leitura: é escrita fora do caminho
-  // quente, e falha aqui não pode virar 500 numa rota de leitura.
-  void db
-    .query(`UPDATE ops.api_token SET ultimo_uso_em = now() WHERE id = $1`, [r["id"]])
-    .catch(() => {});
+  // quente, e falha aqui não pode virar 500 numa rota de leitura. Amostrada:
+  // uma vez por minuto por token, não uma por requisição.
+  const id = String(r["id"]);
+  const agora = Date.now();
+  if ((ultimoUsoGravado.get(id) ?? 0) + INTERVALO_DE_USO_MS <= agora) {
+    ultimoUsoGravado.set(id, agora);
+    void db
+      .query(`UPDATE ops.api_token SET ultimo_uso_em = now() WHERE id = $1`, [id])
+      .catch(() => {});
+  }
 
   return {
     id: String(r["id"]),
