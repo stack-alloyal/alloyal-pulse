@@ -183,7 +183,8 @@ export async function exigirToken(
 
 // ─── cursor opaco (base64url da chave crua) ──────────────────────────────────
 
-export type TipoDeChave = "uuid" | "bigint";
+/** A forma da chave de paginação de cada recurso. `mes` = AAAA-MM; `mes_conta` = AAAA-MM|uuid. */
+export type TipoDeChave = "uuid" | "bigint" | "mes" | "mes_conta";
 
 /**
  * Lê o cursor opaco E confere que a chave decodificada tem a FORMA da chave do
@@ -202,7 +203,14 @@ export function lerCursor(
   } catch {
     bruto = "";
   }
-  const ok = tipo === "uuid" ? UUID.test(bruto) : /^\d{1,19}$/.test(bruto);
+  const ok =
+    tipo === "uuid"
+      ? UUID.test(bruto)
+      : tipo === "bigint"
+        ? /^\d{1,19}$/.test(bruto)
+        : tipo === "mes"
+          ? COMPETENCIA.test(bruto)
+          : /^\d{4}-(0[1-9]|1[0-2])\|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bruto);
   if (!ok) {
     return {
       erro: erroJson(
@@ -293,6 +301,32 @@ export function lerFiltros(url: URL): { readonly filtros: FiltrosDaUrl } | { rea
   }
 
   return { filtros: { cnpj, accountId, competencia, atualizadoDesde } };
+}
+
+const NOME_DO_PARAMETRO: Record<keyof FiltrosDaUrl, string> = {
+  cnpj: "cnpj",
+  accountId: "account_id",
+  competencia: "competencia",
+  atualizadoDesde: "atualizado_desde",
+};
+
+/**
+ * Recusa filtros que ESTE recurso não sabe aplicar. Aceitar e ignorar seria o
+ * mesmo defeito do `cnpj=abc` de antes: a pessoa filtra, a API devolve tudo, e
+ * ela lê "tudo" como "o meu recorte". Um 400 dizendo qual parâmetro não se aplica
+ * é a única resposta que não engana.
+ */
+export function semFiltro(f: FiltrosDaUrl, ...chaves: (keyof FiltrosDaUrl)[]): Response | null {
+  for (const k of chaves) {
+    if (f[k] !== null) {
+      return erroJson(
+        400,
+        "filtro_nao_suportado",
+        `${NOME_DO_PARAMETRO[k]} não se aplica a este recurso.`,
+      );
+    }
+  }
+  return null;
 }
 
 export function respostaLista<T>(recurso: string, pagina: Pagina<T>): Response {

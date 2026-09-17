@@ -16,6 +16,12 @@ export function GET(): Response {
         contas: { lista: "/api/v1/contas", export: "/api/v1/contas/export?formato=ndjson|csv" },
         titulos: { lista: "/api/v1/titulos", export: "/api/v1/titulos/export?formato=ndjson|csv" },
         eventos: { lista: "/api/v1/eventos", export: "/api/v1/eventos/export?formato=ndjson|csv" },
+        "receita/mrr": { lista: "/api/v1/receita/mrr", export: "/api/v1/receita/mrr/export?formato=ndjson|csv" },
+        "receita/fechamento": { lista: "/api/v1/receita/fechamento" },
+        "receita/faturamento": {
+          lista: "/api/v1/receita/faturamento",
+          export: "/api/v1/receita/faturamento/export?formato=ndjson|csv",
+        },
       },
       filtros: ["cursor", "limite", "cnpj", "account_id", "competencia", "atualizado_desde"],
       limites: {

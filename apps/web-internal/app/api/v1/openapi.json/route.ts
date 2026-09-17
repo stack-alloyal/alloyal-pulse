@@ -17,13 +17,15 @@ const FILTROS_COMUNS = [
   { $ref: "#/components/parameters/atualizado_desde" },
 ];
 
-function lista(recurso: string, schema: string, extras: unknown[] = []) {
+// Recursos que não aceitam todos os filtros comuns passam a própria lista em
+// `comuns` — o contrato só promete o que a rota de fato aplica (o resto é 400).
+function lista(recurso: string, schema: string, extras: unknown[] = [], comuns: unknown[] = FILTROS_COMUNS) {
   return {
     get: {
       summary: `Lista ${recurso} (paginado por cursor)`,
       tags: [recurso],
       security: [{ bearerAuth: [] }],
-      parameters: [...FILTROS_COMUNS, ...extras],
+      parameters: [...comuns, ...extras],
       responses: {
         "200": {
           description: "Página de resultados",
@@ -46,19 +48,19 @@ function lista(recurso: string, schema: string, extras: unknown[] = []) {
   };
 }
 
-function exportar(recurso: string, extras: unknown[] = []) {
+const FILTROS_DE_EXPORT = [
+  { $ref: "#/components/parameters/cnpj" },
+  { $ref: "#/components/parameters/account_id" },
+  { $ref: "#/components/parameters/atualizado_desde" },
+];
+
+function exportar(recurso: string, extras: unknown[] = [], comuns: unknown[] = FILTROS_DE_EXPORT) {
   return {
     get: {
       summary: `Export em massa de ${recurso} (NDJSON ou CSV, streaming)`,
       tags: [recurso],
       security: [{ bearerAuth: [] }],
-      parameters: [
-        { $ref: "#/components/parameters/formato" },
-        { $ref: "#/components/parameters/cnpj" },
-        { $ref: "#/components/parameters/account_id" },
-        { $ref: "#/components/parameters/atualizado_desde" },
-        ...extras,
-      ],
+      parameters: [{ $ref: "#/components/parameters/formato" }, ...comuns, ...extras],
       responses: {
         "200": {
           description: "Fluxo do recurso inteiro, uma linha por registro",
@@ -99,6 +101,51 @@ const SPEC = {
     "/titulos/export": exportar("titulos", [{ $ref: "#/components/parameters/competencia" }]),
     "/eventos": lista("eventos", "Evento", [{ $ref: "#/components/parameters/competencia" }]),
     "/eventos/export": exportar("eventos", [{ $ref: "#/components/parameters/competencia" }]),
+    // Receita (P1). Por conta × competência, sem carimbo de linha: `atualizado_desde`
+    // não se aplica (400) — o incremental é pelo `snapshot` do envelope.
+    "/receita/mrr": lista(
+      "receita/mrr",
+      "Mrr",
+      [{ $ref: "#/components/parameters/competencia" }],
+      [
+        { $ref: "#/components/parameters/cursor" },
+        { $ref: "#/components/parameters/limite" },
+        { $ref: "#/components/parameters/cnpj" },
+        { $ref: "#/components/parameters/account_id" },
+      ],
+    ),
+    "/receita/mrr/export": exportar(
+      "receita/mrr",
+      [{ $ref: "#/components/parameters/competencia" }],
+      [{ $ref: "#/components/parameters/cnpj" }, { $ref: "#/components/parameters/account_id" }],
+    ),
+    // A cascata é por competência, não por conta: cnpj e account_id não se aplicam.
+    "/receita/fechamento": lista(
+      "receita/fechamento",
+      "Fechamento",
+      [{ $ref: "#/components/parameters/competencia" }],
+      [
+        { $ref: "#/components/parameters/cursor" },
+        { $ref: "#/components/parameters/limite" },
+        { $ref: "#/components/parameters/atualizado_desde" },
+      ],
+    ),
+    "/receita/faturamento": lista(
+      "receita/faturamento",
+      "Faturamento",
+      [{ $ref: "#/components/parameters/competencia" }],
+      [
+        { $ref: "#/components/parameters/cursor" },
+        { $ref: "#/components/parameters/limite" },
+        { $ref: "#/components/parameters/cnpj" },
+        { $ref: "#/components/parameters/account_id" },
+      ],
+    ),
+    "/receita/faturamento/export": exportar(
+      "receita/faturamento",
+      [{ $ref: "#/components/parameters/competencia" }],
+      [{ $ref: "#/components/parameters/cnpj" }, { $ref: "#/components/parameters/account_id" }],
+    ),
   },
   components: {
     securitySchemes: {
@@ -193,6 +240,59 @@ const SPEC = {
           reconstruido: { type: "boolean" },
           chave_natural: { type: "string", nullable: true },
           criado_em: tsIso,
+        },
+      },
+      Mrr: {
+        type: "object",
+        description: "MRR faturado por competência × conta, da view analytics.mrr_faturado_mes (suavizado). Camada MEDIDA; origem é sempre 'faturamento'.",
+        properties: {
+          competencia: { type: "string", description: "AAAA-MM." },
+          account_id: { type: "string", format: "uuid" },
+          mrr_centavos: { ...centavos, description: "MRR suavizado (dobra e buraco corrigidos) — o número da Carteira." },
+          faturado_centavos: { ...centavos, description: "Faturado BRUTO no mês, sem suavizar." },
+          origem: { type: "string", enum: ["faturamento"] },
+          reconstruido: { type: "boolean", description: "true quando o mês foi preenchido pela suavização (não houve título)." },
+          titulos_no_mes: { type: "integer", description: "Títulos vivos com vencimento no mês, para a conta (mesmo universo de /titulos)." },
+        },
+      },
+      Fechamento: {
+        type: "object",
+        description: "A cascata de MRR por competência, exatamente como na tela /receita (analytics.monthly_close).",
+        properties: {
+          competencia: { type: "string", description: "AAAA-MM." },
+          mrr_inicial_centavos: centavos,
+          novo_centavos: centavos,
+          expansao_centavos: centavos,
+          contracao_centavos: centavos,
+          churn_pedido_centavos: centavos,
+          churn_inadimplencia_centavos: centavos,
+          reativacao_centavos: centavos,
+          ajuste_centavos: centavos,
+          nao_atribuido_centavos: centavos,
+          mrr_final_centavos: centavos,
+          contas_iniciais: { type: "integer", nullable: true },
+          contas_novas: { type: "integer", nullable: true },
+          contas_perdidas: { type: "integer", nullable: true },
+          contas_finais: { type: "integer", nullable: true },
+          nrr: { type: "number", nullable: true, description: "Net revenue retention, como RAZÃO (1.0 = 100%; 0.8411 = 84,11%)." },
+          grr: { type: "number", nullable: true, description: "Gross revenue retention, como RAZÃO (1.0 = 100%)." },
+          estado: { type: "string", enum: ["aberta", "congelada"] },
+          congelado_por: { type: "string", nullable: true },
+          congelado_em: tsIso,
+          publicado_em: tsIso,
+          gerado_em: tsIso,
+        },
+      },
+      Faturamento: {
+        type: "object",
+        description: "Cobrado (competência, por vencimento) e recebido (caixa, por data de pagamento) por competência × conta — lado a lado, nunca fundidos. Universo de cliente da Carteira.",
+        properties: {
+          competencia: { type: "string", description: "AAAA-MM." },
+          account_id: { type: "string", format: "uuid" },
+          cobrado_centavos: { ...centavos, description: "Títulos com vencimento no mês. Bruto." },
+          titulos_cobrados: { type: "integer" },
+          recebido_centavos: { type: "string", nullable: true, description: "Pagamentos com data no mês, em centavos. Nulo = nada entrou." },
+          titulos_recebidos: { type: "integer" },
         },
       },
     },
