@@ -218,6 +218,7 @@ export const MENU: readonly ItemDeMenu[] = [
       { href: "/configuracoes/usuarios", rotulo: "Acessos", proposito: "Quem entra e com qual papel" },
       { href: "/configuracoes/papeis", rotulo: "Papéis", proposito: "A matriz de permissão por papel" },
       { href: "/configuracoes/segredos", rotulo: "Segredos", proposito: "Credenciais das integrações" },
+      { href: "/configuracoes/tokens-da-api", rotulo: "Tokens da API", proposito: "Quem consome a /api/v1 e com que chave" },
       { href: "/configuracoes/omie", rotulo: "Omie", proposito: "A integração financeira" },
       { href: "/configuracoes/sincronizacao", rotulo: "Sincronização", proposito: "Os ciclos e o que entrou" },
       { href: "/configuracoes/historico", rotulo: "Histórico", proposito: "A trilha do que foi mudado" },

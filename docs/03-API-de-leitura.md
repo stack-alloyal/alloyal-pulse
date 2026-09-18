@@ -165,7 +165,23 @@ GET /api/v1/dicionario    # se dicionario_versao mudou
 
 ## 10. Operação: tokens (admin)
 
-Emitir e revogar é ato de admin, pelo CLI, com o papel dono — nunca pela API.
+Emitir e revogar é ato de **pulse-admin** — nunca pela API.
+
+**Caminho normal: Configurações → Tokens da API** (`/configuracoes/tokens-da-api`,
+só quem tem `configurar`).
+- **Emitir**: para quem/para quê, **responsável** (e-mail interno, obrigatório),
+  **validade em dias** (obrigatória, padrão 180, máx. 730) e **motivo** (≥ 10).
+  O token cru aparece **uma vez**, na tela; F5 e ele some.
+- **Revogar**: motivo obrigatório; corta na hora (401 na próxima requisição).
+- A lista mostra estado (ativo / expirado / revogado), responsável, quem emitiu,
+  validade e último uso. O segredo nunca aparece nela.
+- Cada emissão e revogação vai para `ops.mudanca` (tipo `api_token`) com quem
+  fez e o motivo — a mesma trilha das concessões de papel.
+- Token não é pessoa: é credencial de um propósito. O **responsável** é quem
+  responde por ele; quando alguém sai, a pergunta "que tokens eram dele?" tem
+  resposta na lista.
+
+**Caminho de emergência: o CLI** (quando a tela não está de pé), com o papel dono:
 
 ```bash
 cd ~/alloyal-pulse
