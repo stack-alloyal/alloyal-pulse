@@ -12,9 +12,14 @@ import {
   testarConexao,
   definirAtivo,
   registrarPessoa,
-  UltimoAcessoAtivoError,} from '@pulse/config'
+  UltimoAcessoAtivoError,
+  TokenInvalidoError,
+  emitirTokenAuditado,
+  revogarTokenAuditado,
+} from '@pulse/config'
 import { redirect } from 'next/navigation'
 
+import type { EstadoDaEmissao } from './tokens-da-api/formulario-de-emissao'
 import { pool } from '../../../lib/db'
 import { exigir } from '../../../lib/guarda'
 
@@ -296,4 +301,45 @@ export async function definirVisibilidadeDoMenu(dados: FormData): Promise<void> 
     'ok',
     visivel ? `"${href}" volta a aparecer no menu.` : `"${href}" saiu do menu.`,
   )
+}
+
+/* ─── Tokens da API ─────────────────────────────────────────────────────────── */
+
+/**
+ * Emite um token da API de leitura. É a ÚNICA ação daqui que devolve estado em
+ * vez de redirecionar: o token cru tem de chegar à tela UMA vez, e a URL de um
+ * redirect vai para log de proxy, histórico e Referer — o lugar errado para um
+ * segredo. `useActionState` no formulário recebe este retorno e o mostra; F5 e
+ * ele some, como deve.
+ */
+export async function emitirTokenDaApi(
+  _anterior: EstadoDaEmissao,
+  dados: FormData,
+): Promise<EstadoDaEmissao> {
+  const id = await exigir((p) => p.configurar, 'tokens da API')
+  const descricao = String(dados.get('descricao') ?? '')
+  const responsavel = String(dados.get('responsavel') ?? '')
+  const dias = Number(dados.get('dias') ?? 180)
+  const motivo = String(dados.get('motivo') ?? '')
+  try {
+    const r = await emitirTokenAuditado(pool(), { descricao, responsavel, dias, quem: id.email, motivo })
+    return { estado: 'ok', token: r.token, id: r.id, expiraEm: r.expiraEm, descricao: descricao.trim() }
+  } catch (e) {
+    if (e instanceof TokenInvalidoError) return { estado: 'erro', mensagem: e.message }
+    throw e
+  }
+}
+
+export async function revogarTokenDaApi(dados: FormData): Promise<void> {
+  const id = await exigir((p) => p.configurar, 'tokens da API')
+  const alvo = String(dados.get('id') ?? '')
+  const motivo = String(dados.get('motivo') ?? '')
+  if (!/^[0-9a-f-]{36}$/i.test(alvo)) voltar('/configuracoes/tokens-da-api', 'erro', 'Token inválido.')
+  try {
+    const r = await revogarTokenAuditado(pool(), { id: alvo, quem: id.email, motivo })
+    voltar('/configuracoes/tokens-da-api', 'ok', `Token "${r.descricao}" revogado. A próxima requisição dele já toma 401.`)
+  } catch (e) {
+    if (e instanceof TokenInvalidoError) voltar('/configuracoes/tokens-da-api', 'erro', e.message)
+    throw e
+  }
 }
