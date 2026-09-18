@@ -22,6 +22,17 @@ export function GET(): Response {
           lista: "/api/v1/receita/faturamento",
           export: "/api/v1/receita/faturamento/export?formato=ndjson|csv",
         },
+        "inadimplencia/contas": {
+          lista: "/api/v1/inadimplencia/contas",
+          export: "/api/v1/inadimplencia/contas/export?formato=ndjson|csv",
+        },
+        "inadimplencia/titulos": {
+          lista: "/api/v1/inadimplencia/titulos",
+          export: "/api/v1/inadimplencia/titulos/export?formato=ndjson|csv",
+        },
+        saidas: { lista: "/api/v1/saidas" },
+        ciclos: { lista: "/api/v1/ciclos" },
+        dicionario: { lista: "/api/v1/dicionario" },
       },
       filtros: ["cursor", "limite", "cnpj", "account_id", "competencia", "atualizado_desde"],
       limites: {

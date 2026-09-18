@@ -522,3 +522,318 @@ export async function listarFaturamentoApi(db: pg.Pool, f: FiltroApi): Promise<P
   }));
   return paginar(linhas, rows, f.limite, (l) => `${l.competencia}|${l.account_id}`);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2: inadimplencia (conta e título), saidas, ciclos
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Título sem conta (CPF, ou CNPJ sem vínculo) precisa de uma chave de paginação
+ * mesmo assim. O uuid nulo é o sentinela: ordena antes de qualquer conta real e
+ * viaja no cursor como um uuid comum. Na resposta, `account_id` continua nulo.
+ */
+const SEM_CONTA = "00000000-0000-0000-0000-000000000000";
+const NO_SALDO = `f.movimento IN ('permaneceu', 'entrou')`;
+
+// ─── inadimplencia/contas — a foto por competência × conta ───────────────────
+
+export interface InadimplenciaContaApi {
+  readonly competencia: string;
+  readonly account_id: string | null;
+  readonly cnpj: string | null;
+  /** O que estava em atraso na foto (movimento permaneceu/entrou). */
+  readonly em_aberto_centavos: string;
+  readonly titulos: number;
+  readonly maior_atraso_dias: number | null;
+  /** A faixa do título mais antigo em aberto. */
+  readonly faixa: string | null;
+  readonly status_painel: string | null;
+  readonly ativa: boolean;
+  /** Universo: `true` = cliente (tags Cliente/Hinova); `false` = tudo do Omie. */
+  readonly e_cliente: boolean;
+  readonly entrou_centavos: string;
+  readonly recuperado_centavos: string;
+  readonly cancelado_centavos: string;
+  readonly origem: string | null;
+}
+
+export async function listarInadimplenciaContasApi(
+  db: pg.Pool,
+  f: FiltroApi,
+): Promise<Pagina<InadimplenciaContaApi>> {
+  const [mesApos, contaApos] = chaveMesConta(f.apos);
+  const { rows } = await db.query(
+    `SELECT
+       to_char(f.competencia, 'YYYY-MM') AS competencia,
+       f.account_id::text AS account_id,
+       max(nullif(regexp_replace(f.documento, '\\D', '', 'g'), '')) AS cnpj,
+       coalesce(sum(f.valor_centavos) FILTER (WHERE ${NO_SALDO}), 0)::text AS em_aberto_centavos,
+       count(*) FILTER (WHERE ${NO_SALDO})::int AS titulos,
+       max(f.dias_atraso) FILTER (WHERE ${NO_SALDO}) AS maior_atraso_dias,
+       (array_agg(f.faixa ORDER BY f.dias_atraso DESC) FILTER (WHERE ${NO_SALDO}))[1] AS faixa,
+       (array_agg(f.status_painel ORDER BY f.dias_atraso DESC) FILTER (WHERE ${NO_SALDO}))[1] AS status_painel,
+       bool_or(f.e_cliente) AS e_cliente,
+       coalesce(sum(f.valor_centavos) FILTER (WHERE f.movimento = 'entrou'), 0)::text     AS entrou_centavos,
+       coalesce(sum(f.valor_centavos) FILTER (WHERE f.movimento = 'recuperado'), 0)::text AS recuperado_centavos,
+       coalesce(sum(f.valor_centavos) FILTER (WHERE f.movimento = 'cancelado'), 0)::text  AS cancelado_centavos,
+       max(f.origem) AS origem,
+       (SELECT max(competencia) FROM fact.inadimplencia_titulo)::timestamptz AS _frescor
+     FROM fact.inadimplencia_titulo f
+     WHERE ($2::date IS NULL OR (f.competencia, coalesce(f.account_id, $7::uuid)) > ($2::date, $3::uuid))
+       AND ($4::uuid IS NULL OR f.account_id = $4::uuid)
+       AND ($5::date IS NULL OR f.competencia = $5::date)
+       AND ($6::text IS NULL OR regexp_replace(f.documento, '\\D', '', 'g') = $6)
+     GROUP BY f.competencia, coalesce(f.account_id, $7::uuid), f.account_id
+     ORDER BY f.competencia, coalesce(f.account_id, $7::uuid)
+     LIMIT $1`,
+    [f.limite, mesApos, contaApos, f.accountId ?? null, mesOuNull(f.competencia), soDigitos(f.cnpj), SEM_CONTA],
+  );
+  const linhas: InadimplenciaContaApi[] = rows.map((r) => ({
+    competencia: String(r["competencia"]),
+    account_id: (r["account_id"] as string | null) ?? null,
+    cnpj: (r["cnpj"] as string | null) ?? null,
+    em_aberto_centavos: String(r["em_aberto_centavos"] ?? "0"),
+    titulos: Number(r["titulos"] ?? 0),
+    maior_atraso_dias: num(r["maior_atraso_dias"]),
+    faixa: (r["faixa"] as string | null) ?? null,
+    status_painel: (r["status_painel"] as string | null) ?? null,
+    ativa: r["status_painel"] === "active",
+    e_cliente: Boolean(r["e_cliente"]),
+    entrou_centavos: String(r["entrou_centavos"] ?? "0"),
+    recuperado_centavos: String(r["recuperado_centavos"] ?? "0"),
+    cancelado_centavos: String(r["cancelado_centavos"] ?? "0"),
+    origem: (r["origem"] as string | null) ?? null,
+  }));
+  return paginar(linhas, rows, f.limite, (l) => `${l.competencia}|${l.account_id ?? SEM_CONTA}`);
+}
+
+// ─── inadimplencia/titulos — a foto título a título ──────────────────────────
+
+export interface InadimplenciaTituloApi {
+  readonly competencia: string;
+  readonly codigo_lancamento_omie: string;
+  readonly account_id: string | null;
+  readonly cnpj: string | null;
+  readonly valor_centavos: string;
+  readonly vencimento: string | null;
+  readonly dias_atraso: number;
+  readonly faixa: string | null;
+  readonly status_painel: string | null;
+  readonly e_cliente: boolean;
+  /** permaneceu | entrou (no saldo) · recuperado | cancelado (saiu). */
+  readonly movimento: string;
+  readonly ajuste_centavos: string;
+  readonly motivo_saida: string | null;
+  readonly origem: string | null;
+}
+
+/** "AAAA-MM|codigo" → [date do 1º do mês, código]. */
+const chaveMesTitulo = (apos: string | null | undefined): [string | null, string | null] => {
+  if (!apos) return [null, null];
+  const [mes, cod] = apos.split("|");
+  return [mes ? `${mes}-01` : null, cod ?? null];
+};
+
+export async function listarInadimplenciaTitulosApi(
+  db: pg.Pool,
+  f: FiltroApi,
+): Promise<Pagina<InadimplenciaTituloApi>> {
+  const [mesApos, codApos] = chaveMesTitulo(f.apos);
+  const { rows } = await db.query(
+    `SELECT
+       to_char(f.competencia, 'YYYY-MM') AS competencia,
+       f.codigo_titulo::text AS codigo_lancamento_omie,
+       f.account_id::text AS account_id,
+       nullif(regexp_replace(f.documento, '\\D', '', 'g'), '') AS cnpj,
+       f.valor_centavos::text AS valor_centavos,
+       f.vencimento, f.dias_atraso, f.faixa, f.status_painel, f.e_cliente,
+       f.movimento, f.ajuste_centavos::text AS ajuste_centavos, f.motivo_saida, f.origem,
+       (SELECT max(competencia) FROM fact.inadimplencia_titulo)::timestamptz AS _frescor
+     FROM fact.inadimplencia_titulo f
+     WHERE ($2::date IS NULL OR (f.competencia, f.codigo_titulo) > ($2::date, $3::bigint))
+       AND ($4::uuid IS NULL OR f.account_id = $4::uuid)
+       AND ($5::date IS NULL OR f.competencia = $5::date)
+       AND ($6::text IS NULL OR regexp_replace(f.documento, '\\D', '', 'g') = $6)
+     ORDER BY f.competencia, f.codigo_titulo
+     LIMIT $1`,
+    [f.limite, mesApos, codApos, f.accountId ?? null, mesOuNull(f.competencia), soDigitos(f.cnpj)],
+  );
+  const linhas: InadimplenciaTituloApi[] = rows.map((r) => ({
+    competencia: String(r["competencia"]),
+    codigo_lancamento_omie: String(r["codigo_lancamento_omie"]),
+    account_id: (r["account_id"] as string | null) ?? null,
+    cnpj: (r["cnpj"] as string | null) ?? null,
+    valor_centavos: String(r["valor_centavos"] ?? "0"),
+    vencimento: dataOuNull(r["vencimento"]),
+    dias_atraso: Number(r["dias_atraso"] ?? 0),
+    faixa: (r["faixa"] as string | null) ?? null,
+    status_painel: (r["status_painel"] as string | null) ?? null,
+    e_cliente: Boolean(r["e_cliente"]),
+    movimento: String(r["movimento"]),
+    ajuste_centavos: String(r["ajuste_centavos"] ?? "0"),
+    motivo_saida: (r["motivo_saida"] as string | null) ?? null,
+    origem: (r["origem"] as string | null) ?? null,
+  }));
+  return paginar(linhas, rows, f.limite, (l) => `${l.competencia}|${l.codigo_lancamento_omie}`);
+}
+
+// ─── saidas — os pedidos de saída, com as quatro datas ───────────────────────
+
+export interface SaidaApi {
+  readonly id: string;
+  readonly account_id: string | null;
+  readonly contract_id: string | null;
+  readonly pedido: string | null;
+  readonly estado: string;
+  readonly etapa_desde: string | null;
+  readonly origem: string | null;
+  readonly origem_do_registro: string | null;
+  readonly canal: string | null;
+  readonly ticket_externo: string | null;
+  /** As quatro datas do fluxo. */
+  readonly data_levantada: string | null;
+  readonly data_fim_aviso: string | null;
+  readonly competencia_ultima_cobranca: string | null;
+  readonly competencia_efeito_receita: string | null;
+  readonly aviso_previo_dias: number | null;
+  /** O MRR CONGELADO no momento da levantada — é o que a saída tira da receita. */
+  readonly mrr_centavos_na_levantada: string;
+  readonly mrr_novo_centavos: string | null;
+  readonly multa_aplicavel_centavos: string | null;
+  readonly debito_aberto_na_levantada_centavos: string | null;
+  readonly motivo: string | null;
+  readonly motivo_detalhe: string | null;
+  readonly retido_em: string | null;
+  readonly aprovado_em: string | null;
+  readonly criado_em: string | null;
+  /** O carimbo mais novo entre todos os passos — a base do `atualizado_desde`. */
+  readonly atualizado_em: string | null;
+}
+
+// Não há `atualizado_em` na tabela; cada passo tem o seu carimbo. O maior deles é
+// "quando esta saída mudou pela última vez" — e é o que o incremental precisa.
+// Quem fez cada passo (os `*_por`) fica de fora de propósito: é e-mail de gente.
+const ATUALIZADO_SAIDA = `greatest(c.criado_em, c.aviso_confirmado_em, c.cobranca_confirmada_em,
+  c.aprovado_em, c.motivo_confirmado_em, c.etapa_desde, c.retido_em::timestamptz)`;
+
+export async function listarSaidasApi(db: pg.Pool, f: FiltroApi): Promise<Pagina<SaidaApi>> {
+  const cnpj = soDigitos(f.cnpj);
+  const { rows } = await db.query(
+    `SELECT
+       c.id::text, c.account_id::text AS account_id, c.contract_id::text AS contract_id,
+       c.pedido, c.estado, c.etapa_desde, c.origem, c.origem_do_registro, c.canal, c.ticket_externo,
+       c.data_levantada, c.data_fim_aviso,
+       to_char(c.competencia_ultima_cobranca, 'YYYY-MM') AS competencia_ultima_cobranca,
+       to_char(c.competencia_efeito_receita, 'YYYY-MM') AS competencia_efeito_receita,
+       c.aviso_previo_dias,
+       c.mrr_centavos_na_levantada::text AS mrr_centavos_na_levantada,
+       c.mrr_novo_centavos::text AS mrr_novo_centavos,
+       c.multa_aplicavel_centavos::text AS multa_aplicavel_centavos,
+       c.debito_aberto_na_levantada_centavos::text AS debito_aberto_na_levantada_centavos,
+       c.motivo, c.motivo_detalhe, c.retido_em, c.aprovado_em, c.criado_em,
+       ${ATUALIZADO_SAIDA} AS atualizado_em,
+       (SELECT max(${ATUALIZADO_SAIDA}) FROM success.cancellation c) AS _frescor
+     FROM success.cancellation c
+     WHERE ($2::uuid IS NULL OR c.id > $2::uuid)
+       AND ($3::uuid IS NULL OR c.account_id = $3::uuid)
+       AND ($4::date IS NULL OR c.competencia_efeito_receita = $4::date)
+       AND ($5::timestamptz IS NULL OR ${ATUALIZADO_SAIDA} >= $5::timestamptz)
+       AND ($6::text IS NULL OR c.account_id IN (${CONTAS_DO_CNPJ.replace(/\$CNPJ/g, "$6")}))
+     ORDER BY c.id
+     LIMIT $1`,
+    [f.limite, f.apos ?? null, f.accountId ?? null, mesOuNull(f.competencia), f.atualizadoDesde ?? null, cnpj],
+  );
+  const s = (r: Record<string, unknown>, k: string): string | null =>
+    r[k] === null || r[k] === undefined ? null : String(r[k]);
+  const linhas: SaidaApi[] = rows.map((r) => ({
+    id: String(r["id"]),
+    account_id: s(r, "account_id"),
+    contract_id: s(r, "contract_id"),
+    pedido: s(r, "pedido"),
+    estado: String(r["estado"]),
+    etapa_desde: iso(r["etapa_desde"]),
+    origem: s(r, "origem"),
+    origem_do_registro: s(r, "origem_do_registro"),
+    canal: s(r, "canal"),
+    ticket_externo: s(r, "ticket_externo"),
+    data_levantada: dataOuNull(r["data_levantada"]),
+    data_fim_aviso: dataOuNull(r["data_fim_aviso"]),
+    competencia_ultima_cobranca: s(r, "competencia_ultima_cobranca"),
+    competencia_efeito_receita: s(r, "competencia_efeito_receita"),
+    aviso_previo_dias: num(r["aviso_previo_dias"]),
+    mrr_centavos_na_levantada: String(r["mrr_centavos_na_levantada"] ?? "0"),
+    mrr_novo_centavos: s(r, "mrr_novo_centavos"),
+    multa_aplicavel_centavos: s(r, "multa_aplicavel_centavos"),
+    debito_aberto_na_levantada_centavos: s(r, "debito_aberto_na_levantada_centavos"),
+    motivo: s(r, "motivo"),
+    motivo_detalhe: s(r, "motivo_detalhe"),
+    retido_em: dataOuNull(r["retido_em"]),
+    aprovado_em: iso(r["aprovado_em"]),
+    criado_em: iso(r["criado_em"]),
+    atualizado_em: iso(r["atualizado_em"]),
+  }));
+  return paginar(linhas, rows, f.limite, (l) => l.id);
+}
+
+// ─── ciclos — o que roda, quando rodou, e quando deu certo pela última vez ───
+
+export interface CicloApi {
+  readonly ciclo: string;
+  readonly descricao: string;
+  readonly fonte: string | null;
+  readonly metodo: string | null;
+  readonly agenda: string | null;
+  readonly janela: string | null;
+  readonly fase: string | null;
+  readonly implementado: boolean;
+  readonly ultimo_status: string | null;
+  readonly ultimo_inicio: string | null;
+  readonly ultimo_fim: string | null;
+  readonly ultimo_linhas_lidas: number | null;
+  readonly ultimo_linhas_gravadas: number | null;
+  readonly ultimo_erro: string | null;
+  readonly ultimo_sucesso_em: string | null;
+  readonly linhas_do_ultimo_sucesso: number | null;
+}
+
+/** Sem paginação: são poucas dezenas de ciclos. `proximaChave` é sempre nula. */
+export async function listarCiclosApi(db: pg.Pool): Promise<Pagina<CicloApi>> {
+  const { rows } = await db.query(
+    `SELECT d.id AS ciclo, d.descricao, d.fonte, d.metodo, d.agenda, d.janela, d.fase, d.implementado,
+            u.status AS ultimo_status, u.iniciado_em AS ultimo_inicio, u.terminado_em AS ultimo_fim,
+            u.linhas_lidas AS ultimo_linhas_lidas, u.linhas_gravadas AS ultimo_linhas_gravadas, u.erro AS ultimo_erro,
+            s.terminado_em AS ultimo_sucesso_em, s.linhas_gravadas AS linhas_do_ultimo_sucesso,
+            (SELECT max(terminado_em) FROM ops.cycle_run) AS _frescor
+       FROM ops.cycle_declaration d
+       LEFT JOIN LATERAL (SELECT * FROM ops.cycle_run r WHERE r.ciclo = d.id
+                          ORDER BY r.iniciado_em DESC LIMIT 1) u ON true
+       LEFT JOIN LATERAL (SELECT * FROM ops.cycle_run r WHERE r.ciclo = d.id AND r.status = 'ok'
+                          ORDER BY r.iniciado_em DESC LIMIT 1) s ON true
+      ORDER BY d.id`,
+  );
+  const s = (r: Record<string, unknown>, k: string): string | null =>
+    r[k] === null || r[k] === undefined ? null : String(r[k]);
+  const linhas: CicloApi[] = rows.map((r) => ({
+    ciclo: String(r["ciclo"]),
+    descricao: String(r["descricao"] ?? ""),
+    fonte: s(r, "fonte"),
+    metodo: s(r, "metodo"),
+    agenda: s(r, "agenda"),
+    janela: s(r, "janela"),
+    fase: s(r, "fase"),
+    implementado: Boolean(r["implementado"]),
+    ultimo_status: s(r, "ultimo_status"),
+    ultimo_inicio: iso(r["ultimo_inicio"]),
+    ultimo_fim: iso(r["ultimo_fim"]),
+    ultimo_linhas_lidas: num(r["ultimo_linhas_lidas"]),
+    ultimo_linhas_gravadas: num(r["ultimo_linhas_gravadas"]),
+    ultimo_erro: s(r, "ultimo_erro"),
+    ultimo_sucesso_em: iso(r["ultimo_sucesso_em"]),
+    linhas_do_ultimo_sucesso: num(r["linhas_do_ultimo_sucesso"]),
+  }));
+  return {
+    linhas,
+    proximaChave: null,
+    frescor: rows[0]?.["_frescor"] ? new Date(rows[0]["_frescor"] as string).toISOString() : null,
+  };
+}
