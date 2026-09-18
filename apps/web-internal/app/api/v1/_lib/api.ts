@@ -16,7 +16,7 @@ import { pool } from "../../../../lib/db";
  */
 
 /** Sobe quando um CAMPO muda de sentido — o cliente decide se re-gera o client. */
-export const DICIONARIO_VERSAO = "2026-09-16";
+export const DICIONARIO_VERSAO = "2026-09-18";
 
 const SEM_CACHE = { "cache-control": "no-store" } as const;
 
@@ -184,7 +184,7 @@ export async function exigirToken(
 // ─── cursor opaco (base64url da chave crua) ──────────────────────────────────
 
 /** A forma da chave de paginação de cada recurso. `mes` = AAAA-MM; `mes_conta` = AAAA-MM|uuid. */
-export type TipoDeChave = "uuid" | "bigint" | "mes" | "mes_conta";
+export type TipoDeChave = "uuid" | "bigint" | "mes" | "mes_conta" | "mes_titulo";
 
 /**
  * Lê o cursor opaco E confere que a chave decodificada tem a FORMA da chave do
@@ -210,7 +210,9 @@ export function lerCursor(
         ? /^\d{1,19}$/.test(bruto)
         : tipo === "mes"
           ? COMPETENCIA.test(bruto)
-          : /^\d{4}-(0[1-9]|1[0-2])\|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bruto);
+          : tipo === "mes_titulo"
+            ? /^\d{4}-(0[1-9]|1[0-2])\|\d{1,19}$/.test(bruto)
+            : /^\d{4}-(0[1-9]|1[0-2])\|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bruto);
   if (!ok) {
     return {
       erro: erroJson(
