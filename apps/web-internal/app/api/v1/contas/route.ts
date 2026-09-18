@@ -9,6 +9,7 @@ import {
   limitarLista,
   protegido,
   respostaLista,
+  semFiltro,
 } from "../_lib/api";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,10 @@ export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const f = lerFiltros(url);
   if ("erro" in f) return f.erro;
+  // Conta não tem competência. Achado na auditoria da documentação: o parâmetro
+  // era aceito e ignorado — devolvia a base inteira como se fosse o recorte.
+  const recusa = semFiltro(f.filtros, "competencia");
+  if (recusa) return recusa;
   const cur = lerCursor(url, "uuid");
   if ("erro" in cur) return cur.erro;
 
